@@ -64,8 +64,6 @@ static bool eth_connected = false;
 // #include <OneWireNg_DS18B20.h>  // plus large
 // #include <OneWireNg_CurrentPlatform.h>  // plus large
 
-#include <DHT.h>
-#include <PID_v1.h>
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -1559,6 +1557,9 @@ void setup()
     Serial.println("OTA prêt");
   #endif  // fin OTA
 
+  #ifdef SDCARD
+    sd_init();
+  #endif
 
   Serial.println("fin setup:");
 
@@ -3330,7 +3331,7 @@ void init_time_ps()
     #endif  */
   }
 
-  if (!getLocalTime(&timeinfo))
+  if (!getLocalTime(&timeinfo, 3000))
   {  // toujours pas initialisé
     Serial.println("Failed to obtain time : init=0");
     // au bout de 6 minutes : initialisation quand meme avec heure par défaut

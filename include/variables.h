@@ -134,6 +134,7 @@ void passage_deep_sleep(uint64_t temps);
 
 extern float Vbatt_Th;   // Tension batterie thermomètre
 extern bool Vbatt_Th_I;  // indicateur de réception batt sonde
+extern unsigned long last_remote_Text_time, last_remote_Tint_time, last_remote_heure_time;
 
 extern uint8_t num_err_queue[];
 
@@ -234,59 +235,28 @@ extern uint8_t protocole;
 extern QueueHandle_t eventQueue;  // File d'attente des événements sequenceur
 extern uint16_t erreur_queue;
 extern TimerHandle_t debounceTimer;
-extern TimerHandle_t xTimer_activ_chaud;
 extern RTC_DATA_ATTR uint8_t periode_cycle;
 extern RTC_DATA_ATTR uint8_t mode_rapide;
-extern float Teau, Tint, Text, loi_eau_Tint, T_obj, T_loi_eau;
 
 #define MAX_DUMP 6900              // 600 + 1050 car par graphique
 extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
 
 extern uint16_t date_ac;
 extern uint8_t cpt_securite;
-extern double Consigne, Input, Output;
-extern double Kp, Ki, Kd;
-extern uint16_t Consigne_G, Consigne_HG;
-extern uint8_t HG, Ballon;
-extern uint8_t mode_pid;
-extern const int PIN_Tint;
-extern uint8_t skip_graph;
-extern uint8_t MMCh;
 extern uint8_t WIFI_CHANNEL;
 extern RTC_DATA_ATTR uint8_t
     last_wifi_channel;     // Mémorisation du canal Wifi en DeepSleep
 extern uint8_t rtc_valid;  // 0:cold reset  1:reset apres deep sleep
-extern RTC_DATA_ATTR uint16_t
-    cpt_cycle_batt;                   // Compteur cycles pour mesure batterie
+extern RTC_DATA_ATTR uint16_t   cpt_cycle_batt;                   // Compteur cycles pour mesure batterie
 extern volatile uint8_t ackReceived;  // global pour indiquer que le peer a acké
 extern volatile int ackChannel;       // canal où ça a marché
 extern uint8_t mode_reseau;
 extern uint8_t init_time;
 extern float heure;
+extern uint8_t skip_graph;
+extern uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
+extern float Tint, Text;
 
-extern uint8_t activ_cycle;
-extern int16_t cycle_chaud;
-extern unsigned long milli_marche, milli_arret;
-
-extern planning_t plan[];
-extern uint16_t fo_jus;  // nb minutes restantes de forcage consigne
-extern uint8_t
-    fo_co;  // consigne de forcage : en dixième de degrés : 0,0° à 25,5°
-extern uint8_t planning;  // booléen 1:plannig 0:non
-extern uint8_t vacances;  // booléen 1:vacances 0:non
-extern uint8_t va_cons;  // consigne pendant les vacances : en dixième de degrés
-                         // : 0,0° à 25,5°
-extern uint16_t
-    va_date;  // date de fin de vacances : en nb de jours depuis 2020
-extern uint8_t va_heure;   // heure de fin de vacances 0h à 24h
-extern uint8_t cons_fixe;  // booléen 1:consigne fixe  0:non
-extern uint8_t co_fi;  // consigne fixe : en dixième de degrés : 0,0° à 25,5°
-
-extern unsigned long last_chaudiere_change;
-extern unsigned long last_remote_Tint_time, last_remote_Text_time,
-    last_remote_heure_time;
-extern uint16_t err_Tint, err_Text, err_Heure;
-extern uint8_t chaudiere;
 
 extern float tempI_moy24h, tempE_moy24h, cout_moy24h;
 extern uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
@@ -294,14 +264,11 @@ extern uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
 extern char mdp_routeur[];
 extern int16_t graphique[NB_Val_Graph][NB_Graphique];
 extern uint16_t Seuil_batt_sonde;  // millivolt
-extern uint8_t Cons_eco;
-extern TimerHandle_t xTimer_cycle_chaud;
 extern uint8_t compteur_graph;
 
 extern RTC_DATA_ATTR uint8_t etat_now;
 extern uint8_t Nb_jours_Batt_log;
 
-extern uint8_t etat_compr;
 extern volatile bool force_stay_awake;
 extern unsigned long wake_up_time;  // Temps de réveil/dernière activité
 

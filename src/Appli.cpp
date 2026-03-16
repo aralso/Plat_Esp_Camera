@@ -10,8 +10,6 @@
 #include <esp_wifi.h>
 #include <esp_now.h>
 #include <Preferences.h>  // pour nvs eeprom
-#include <PID_v1.h>
-#include <DHT.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #ifdef SDCARD
@@ -39,53 +37,12 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status);
 
 uint8_t parseMacString(const char* str, uint8_t mac[6]);
 
-// Variables pour le PID
-double Consigne, Input, Output;
-double Kp = 1.7, Ki = 0.5, Kd = 0.5;
-uint16_t Consigne_G, Consigne_HG;
-#define MIN_MAX 5
-uint8_t min_max_pid;
-uint8_t  WIFI_CHANNEL;
-RTC_DATA_ATTR uint8_t etat_now;
-uint16_t Seuil_batt_sonde;  // millivolt
-uint8_t Nb_jours_Batt_log;
-uint8_t Cons_eco;
-uint16_t prolong_veille;
-uint8_t chaud_marche;
-
-// Loi d'eau
-int8_t Pt1;
-uint8_t Pt2, Pt1Val, Pt2Val;
-
-uint8_t HG, MMCh;
-uint8_t mode_regul;
-
-uint8_t activ_cycle;
-int16_t cycle_chaud;
-
-// planning programme chaudiere
-planning_t plan[NB_MAX_PGM];
-
-uint8_t chaudiere;
-unsigned long milli_marche, milli_arret;
-unsigned long last_chaudiere_change = 0;
-
-uint16_t fo_jus;     // nombre de minutes restantes pour forcage consigne.
-uint8_t fo_co;      // consigne de forcage : en dixième de degrés : 0,0° à 25,5°
-uint8_t planning;   // booléen 1:plannig 0:non
-uint8_t vacances;   // booléen 1:vacances 0:non
-uint8_t va_cons;    // consigne pendant les vacances : en dixième de degrés : 0,0° à 25,5°
-uint16_t va_date;   // date de fin de vacances : en nb de jours depuis 2020
-uint8_t va_heure;  // heure de fin de vacances 0h à 24h
-uint8_t cons_fixe;  // booléen 1:consigne fixe  0:non
-uint8_t co_fi;      // consigne fixe : en dixième de degrés : 0,0° à 25,5°
 
 
 RTC_DATA_ATTR uint8_t mac_remote[6];   // B0:CB:D8:E9:0C:74  adresse mac esp_remote
 volatile uint8_t ackReceived = false;  // global pour indiquer que le peer a acké
 volatile int ackChannel = -1;       // canal où ça a marché
 
-PID myPID(&Input, &Output, &Consigne, Kp, Ki, Kd, DIRECT);
 uint8_t envoi_now(uint8_t channel, esp_now_peer_info_t * peerInfo);
 
 
@@ -103,25 +60,22 @@ uint8_t envoi_now(uint8_t channel, esp_now_peer_info_t * peerInfo);
   DeviceAddress adds;
 #endif
 
-DHT dht[] = {
-  { PIN_Tint22, DHT22 },
-};
 #ifdef Temp_int_HDC1080
   ClosedCube_HDC1080 hdc1080;
 #endif
 
 // Temperature intérieure
-float Tint;
-float loi_eau_Tint;
-
-float T_obj;
-float T_loi_eau;
+float Tint, Text;
 
 uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
+uint16_t Seuil_batt_sonde;  // millivolt
+uint8_t Nb_jours_Batt_log;
+uint8_t WIFI_CHANNEL;
+
 
 // Entrée analogique pour mesurer la température exterieure
 uint16_t Text1, Text2, Text1Val, Text2Val;  // valeurs pour calibration (T*10)
-float Text;
+
 #define resolutionADC 4095
 #define TBETA 3950  // Coefficient Beta de la thermistance
 uint16_t TBeta;
@@ -501,12 +455,6 @@ uint8_t requete_action_appli(const char *reg, const char *data)
 {
   uint8_t res=1;
 
-  #ifdef SDCARD
-  if (strcmp(reg, "SDinit") == 0) 
-  {
-    sd_init();
-  }
-  #endif
 
   if (strcmp(reg, "Photo") == 0) 
     { 
@@ -689,11 +637,10 @@ void event_mesure_temp()  // toutes les 15 minutes
     graphique[0][0] = round(Tint * 10);
     graphique[0][1] = round(Text * 10);
 
-    graphique[0][2] = (chaud_marche*20)/skip_graph+140;  // 14:arret 16:marche
-    cout_moy24h += (chaud_marche*12)/skip_graph*83;  // 1000
+    graphique[0][2] = 0;  // 14:arret 16:marche
+    cout_moy24h += 0;  // 1000
   }
   cpt24_Cout++;
-  chaud_marche = 0;
 
     // cout moyen
 }
