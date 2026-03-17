@@ -18,7 +18,23 @@
 #include "fb_gfx.h"
 #include "driver/ledc.h"
 #include "sdkconfig.h"
-#include "camera_index.h"
+#include "SPIFFS.h"
+
+/*#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+
+extern AsyncWebServer server;*/
+#include "html/index_ov2640.h"
+#include "html/index_ov3660.h"
+
+/*extern const char index_ov2640_html[];
+extern const size_t index_ov2640_html_len;
+
+extern const char index_ov3660_html[];
+extern const size_t index_ov3660_html_len;*/
+
+//extern const char index_ov5640_html[];
+//extern const size_t index_ov5640_html_len;
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -1185,21 +1201,48 @@ static esp_err_t win_handler(httpd_req_t *req)
 static esp_err_t index_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    //httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     sensor_t *s = esp_camera_sensor_get();
     if (s != NULL) {
         if (s->id.PID == OV3660_PID) {
-            return httpd_resp_send(req, (const char *)index_ov3660_html_gz, index_ov3660_html_gz_len);
-        } else if (s->id.PID == OV5640_PID) {
-            return httpd_resp_send(req, (const char *)index_ov5640_html_gz, index_ov5640_html_gz_len);
-        } else {
-            return httpd_resp_send(req, (const char *)index_ov2640_html_gz, index_ov2640_html_gz_len);
-        }
+           return httpd_resp_send(req, (const char *)index_ov3660_html, index_ov3660_html_len);
+        } //else if (s->id.PID == OV5640_PID) {
+          //  return httpd_resp_send(req, (const char *)index_ov5640_html, index_ov5640_html_len); }
+         else {
+            return httpd_resp_send(req, (const char *)index_ov2640_html, index_ov2640_html_len);
+        }  
     } else {
         ESP_LOGE(TAG, "Camera sensor not found");
         return httpd_resp_send_500(req);
     }
+    return ESP_FAIL;
 }
+
+
+/*void server_routes_camera()
+{
+ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+        sensor_t *s = esp_camera_sensor_get();
+        String file;
+
+        if (s != nullptr) {
+            if (s->id.PID == OV3660_PID) {
+                file = "/index_ov3660.html";
+            } else if (s->id.PID == OV5640_PID) {
+                file = "/index_ov5640.html";
+            } else {
+                file = "/index_ov2640.html";
+            }
+
+            // Envoyer le fichier HTML depuis SPIFFS
+            request->send(SPIFFS, file, "text/html");
+
+        } else {
+            Serial.println("Camera sensor not found");
+            request->send(500, "text/plain", "Camera sensor not found");
+        }
+    });
+}*/
 
 void startCameraServer()
 {
@@ -1207,7 +1250,7 @@ void startCameraServer()
     config.max_uri_handlers = 16;
 
     httpd_uri_t index_uri = {
-        .uri = "/",
+        .uri = "/cam",
         .method = HTTP_GET,
         .handler = index_handler,
         .user_ctx = NULL

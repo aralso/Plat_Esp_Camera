@@ -61,6 +61,7 @@ static bool eth_connected = false;
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <Preferences.h>  // pour nvs eeprom
+#include "SPIFFS.h"
 
 // #include <OneWire.h>   // ESP32
 // #include <DallasTemperature.h>  // ESP32
@@ -114,6 +115,7 @@ uint8_t cpt24h_batt;
 
 uint8_t parseMacString(const char* str, uint8_t mac[6]);
 void  setup_camera();
+void server_routes_camera();
 
 // variable globale de 4000c en RAM pour dump log et autres requetes
 char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
@@ -1052,6 +1054,14 @@ void setup()
 
   checkPartitions();
 
+  // Monte SPIFFS et formate si nécessaire
+    if(!SPIFFS.begin(true)){  // true = formate si montage échoue
+        Serial.println("Erreur de montage SPIFFS");
+        return;
+    }
+
+    Serial.println("SPIFFS monté avec succès");
+    
   //  -------  Initialisation Watchdog --------------
 
   #ifdef WatchDog
@@ -3590,10 +3600,10 @@ void setupRoutes()
     request->send(200, "image/x-icon", favicon, sizeof(favicon));
   });
 
-server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
-  Serial.printf("/verif callback sur le cœur %d\n", xPortGetCoreID());
-  request->send(200, "text/plain", "OK");
-});
+  server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.printf("/verif callback sur le cœur %d\n", xPortGetCoreID());
+    request->send(200, "text/plain", "OK");
+  });
 
   // Attention : comme il n'y a pas de fractionnement de l'envoi, le max est de 2000 caractères
   server.on("/GetLogs", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -3801,10 +3811,9 @@ server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(404, "text/plain", "Not found");
   });
 
-  #ifdef SDCARD
-    server_routes_SDCARD();
-  #endif
+  server_routes_SDCARD();
 
+  //server_routes_camera();
 }
 
 const char* dumpTasksInfo() {
