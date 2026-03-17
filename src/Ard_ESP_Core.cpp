@@ -1,6 +1,9 @@
 /* 
 
 TODO : 
+- mette les html dans des fichiers propres et utiliser spiffs
+- faire marcher OTA
+- installer driver esp32-c6
 
 A compiler pour une firebeetle esp32-C6 ou uPesy vroom
 Avantages Platformio : Ifdef, intellisense, temps compil, backtrace
@@ -110,6 +113,7 @@ uint8_t init_masquage=1;
 uint8_t cpt24h_batt;
 
 uint8_t parseMacString(const char* str, uint8_t mac[6]);
+void  setup_camera();
 
 // variable globale de 4000c en RAM pour dump log et autres requetes
 char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
@@ -1559,6 +1563,10 @@ void setup()
 
   #ifdef SDCARD
     sd_init();
+  #endif
+
+  #ifdef CAMERA
+   setup_camera();
   #endif
 
   Serial.println("fin setup:");
