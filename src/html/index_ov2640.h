@@ -2,6 +2,8 @@
 #ifndef INDEX_OV2640_HTML_H
 #define INDEX_OV2640_HTML_H
 
+#include <cstddef>
+
 const char index_ov2640_html[] = R"rawliteral(
   <!doctype html>
 <html>
@@ -987,7 +989,7 @@ document.addEventListener('DOMContentLoaded', function (event) {
     })
 
   // read initial values
-  fetch(`${baseHost}/status`)
+  fetch(`${baseHost}/Cstatus`)
     .then(function (response) {
       return response.json()
     })
