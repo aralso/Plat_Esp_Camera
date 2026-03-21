@@ -8,6 +8,7 @@
 #include "variables.h"
 
 #include "esp_camera.h"
+#include "camera.h"
 
 // issu de :     zhuhai-esp /  ESP32-S3-Goouuu-Cam
 
@@ -15,7 +16,6 @@
 
 #include "camera_pins.h"
 
-void startCameraServer();
 
 
 uint8_t inline initCamera() {
@@ -45,31 +45,38 @@ uint8_t inline initCamera() {
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
   config.fb_count = 1;
+
+  // Charger les valeurs précédemment enregistrées dans NVS
+  camera_load_settings(nullptr, &config);
+
   if (psramFound()) {
     Serial.printf("PS RAM Found [%d]\n", ESP.getPsramSize());
     config.jpeg_quality = 10;
-    config.fb_count = 2;
-    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.fb_count = 2; // 1 seule image 2;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // evite de lire 2° image trop viteCAMERA_GRAB_LATEST;
   } else {
     config.frame_size = FRAMESIZE_SVGA;
     config.fb_location = CAMERA_FB_IN_DRAM;
   }
+
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     return 1;
   }
   sensor_t *s = esp_camera_sensor_get();
-  s->set_vflip(s, 1);      // flip it back
-  s->set_brightness(s, 1); // up the brightness just a bit
-  s->set_saturation(s, 0); // lower the saturation
+  // restaurer les réglages stockés sur NVS
+  camera_load_settings(s, nullptr);
+
+  //s->set_vflip(s, 1);      // flip it back
+  //s->set_brightness(s, 1); // up the brightness just a bit
+  //s->set_saturation(s, 0); // lower the saturation
   return 0;
 }
 
 
 void setup_camera() {
   initCamera();
-  startCameraServer();
   Serial.print("Camera Ready! Use 'http://");
 }
 

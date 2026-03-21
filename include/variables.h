@@ -135,6 +135,7 @@ void passage_deep_sleep(uint64_t temps);
 extern float Vbatt_Th;   // Tension batterie thermomètre
 extern bool Vbatt_Th_I;  // indicateur de réception batt sonde
 extern unsigned long last_remote_Text_time, last_remote_Tint_time, last_remote_heure_time;
+extern struct tm timeinfo;
 
 extern uint8_t num_err_queue[];
 

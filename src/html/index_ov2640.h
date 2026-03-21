@@ -609,6 +609,7 @@ const char index_ov2640_html[] = R"rawliteral(
                         </div>
                         <section id="buttons">
                             <button id="get-still">Get Still</button>
+                            <button id="save-to-sd">Save to SD</button>
                             <button id="toggle-stream">Start Stream</button>
                             <button id="face_enroll" class="disabled" disabled="disabled">Enroll Face</button>
                         </section>
@@ -1013,6 +1014,7 @@ document.addEventListener('DOMContentLoaded', function (event) {
   const view = document.getElementById('stream')
   const viewContainer = document.getElementById('stream-container')
   const stillButton = document.getElementById('get-still')
+  const saveToSDButton = document.getElementById('save-to-sd')
   const streamButton = document.getElementById('toggle-stream')
   const enrollButton = document.getElementById('face_enroll')
   const closeButton = document.getElementById('close-stream')
@@ -1035,6 +1037,17 @@ document.addEventListener('DOMContentLoaded', function (event) {
     stopStream()
     view.src = `${baseHost}/capture?_cb=${Date.now()}`
     show(viewContainer)
+  }
+
+  saveToSDButton.onclick = () => {
+    fetch(`${baseHost}/captureSD`)
+      .then(response => response.text())
+      .then(data => {
+        alert('Image saved to SD card: ' + data);
+      })
+      .catch(error => {
+        alert('Error saving to SD card: ' + error);
+      });
   }
 
   closeButton.onclick = () => {

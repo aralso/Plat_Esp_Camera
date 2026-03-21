@@ -280,7 +280,39 @@ uint8_t listDir(fs::FS &fs, const char *dirname, uint8_t levels) {
   return 0;
 }
 
-uint8_t createDir(fs::FS &fs, const char *path) {
+bool createDir(fs::FS &fs, const char *path) {
+    String current = "";
+    String fullPath = String(path);
+
+    for (int i = 0; i < fullPath.length(); i++) {
+        char c = fullPath[i];
+
+        // éviter double slash
+        if (c == '/' && current.endsWith("/")) continue;
+
+        current += c;
+
+        // créer uniquement si ce n'est pas le dernier caractère
+        if ((c == '/' && current.length() > 1) || i == fullPath.length() - 1) {
+
+            // supprimer slash final temporairement
+            String dir = current;
+            if (dir.endsWith("/") && dir.length() > 1) {
+                dir.remove(dir.length() - 1);
+            }
+
+            if (!fs.exists(dir)) {
+                if (!fs.mkdir(dir)) {
+                    Serial.println("Erreur mkdir: " + dir);
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+/*uint8_t createDir(fs::FS &fs, const char *path) {
   Serial.printf("Creating Dir: %s\n", path);
   if (fs.mkdir(path)) {
     Serial.println("Dir created");
@@ -289,7 +321,7 @@ uint8_t createDir(fs::FS &fs, const char *path) {
     Serial.println("mkdir failed");
     return 1;
   }
-}
+}*/
 
 uint8_t removeDir(fs::FS &fs, const char *path) {
   Serial.printf("Removing Dir: %s\n", path);

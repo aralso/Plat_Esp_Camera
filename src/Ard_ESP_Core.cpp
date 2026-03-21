@@ -30,6 +30,11 @@ Configuration des options de programmation :
 - upload mode: Uart0
 - usb mode : hardware cdc & jtag (usage basique)
 - partition : custom (pour permettre code>1,5MOctets)
+
+Taille Flash : 
+   Core : 1120ko
+   SDCArd: 80ko
+   Camera: 200ko
 */
 
 
@@ -1507,6 +1512,9 @@ void setup()
   // Configuration du serveur NTP
     configTzTime("CET-1CEST,M3.5.0/2,M10.5.0/3", ntpServer);
     //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    Serial.println("lecture initiale de l'heure");
+    // Serial.flush();
+    init_time_ps();
 
     setupRoutes();
     server.begin();
@@ -3811,9 +3819,13 @@ void setupRoutes()
     request->send(404, "text/plain", "Not found");
   });
 
-  server_routes_SDCARD();
+  #ifdef SDCARD
+    server_routes_SDCARD();
+  #endif
 
-  //server_routes_camera();
+  #ifdef CAMERA
+    server_routes_camera();
+  #endif
 }
 
 const char* dumpTasksInfo() {
