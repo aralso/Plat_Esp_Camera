@@ -9,6 +9,7 @@
 
 #include "esp_camera.h"
 #include "camera.h"
+#include "../lpc/lpc.h"
 
 // issu de :     zhuhai-esp /  ESP32-S3-Goouuu-Cam
 
@@ -78,5 +79,17 @@ uint8_t inline initCamera() {
 void setup_camera() {
   initCamera();
   Serial.print("Camera Ready! Use 'http://");
+}
+
+void encodeP()
+{
+  lpc_settings_t settings = {
+    800,    // width
+    600,    // height
+    30,     // quality
+    1,      // frame_count
+    1       // frequency
+  };
+  encode_lpc(settings);
 }
 

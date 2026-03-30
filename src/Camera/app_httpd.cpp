@@ -974,7 +974,7 @@ void camera_load_settings(sensor_t *s, camera_config_t *config)
         }
 
         if (config_valid) {
-            // Tous paramètres config lus et validés
+            // lecture de  paramètres config lus et validés
             config->frame_size = (framesize_t)stored_framesize;
             config->pixel_format = (pixformat_t)stored_pixformat;
 
@@ -993,12 +993,6 @@ void camera_load_settings(sensor_t *s, camera_config_t *config)
             }
             config->fb_count = stored_fb_count;
 
-            // Sauvegarde réaffirmée pour tous ces paramètres
-            preferences_nvs.putUInt("framesize", config->frame_size);
-            preferences_nvs.putUInt("pixel_format", config->pixel_format);
-            preferences_nvs.putUInt("grab_mode", config->grab_mode);
-            preferences_nvs.putUInt("jpeg_quality", config->jpeg_quality);
-            preferences_nvs.putUInt("fb_count", config->fb_count);
         } else {
             // Si l'un des paramètres clés est invalide, écriture des valeurs par défaut dans NVS
             preferences_nvs.putUInt("framesize", config->frame_size);

@@ -15,6 +15,8 @@
 #ifdef SDCARD
   #include "SDMMC.h"
 #endif
+#include "camera.h"
+
 
 // Seeed Studio XIAO ESP32S3 Sense
 // Waveshare ESP32-S3-CAM
@@ -474,6 +476,14 @@ uint8_t requete_action_appli(const char *reg, const char *data)
       Serial.println(Tint_erreur);
       Serial.println(Tint);
     }
+
+  if (strcmp(reg, "EncP") == 0) 
+  { 
+      res=0; 
+      encodeP();
+      Serial.println("encodage ok");
+  }
+    
   return res;
 }
 

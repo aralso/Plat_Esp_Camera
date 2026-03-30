@@ -2,6 +2,7 @@
 
 #define VARIABLES_H
 
+#include "../src/lpc/lpc.h"
 
 // variables externes
 
@@ -129,6 +130,7 @@ uint8_t requete_GetReg(int reg, float* valeur);
 void enreg_video();
 void prise_video();
 void prise_photo();
+int encode_lpc(const lpc_settings_t &settings);
 
 void passage_deep_sleep(uint64_t temps);
 
