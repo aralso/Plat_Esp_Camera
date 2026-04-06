@@ -41,7 +41,7 @@ uint8_t parseMacString(const char* str, uint8_t mac[6]);
 
 
 
-RTC_DATA_ATTR uint8_t mac_remote[6];   // B0:CB:D8:E9:0C:74  adresse mac esp_remote
+RTC_DATA_ATTR uint8_t mac_gw[6];   // B0:CB:D8:E9:0C:74  adresse mac esp_remote
 volatile uint8_t ackReceived = false;  // global pour indiquer que le peer a acké
 volatile int ackChannel = -1;       // canal où ça a marché
 
@@ -74,6 +74,9 @@ uint16_t Seuil_batt_sonde;  // millivolt
 uint8_t Nb_jours_Batt_log;
 uint8_t WIFI_CHANNEL;
 
+RTC_DATA_ATTR uint16_t prolong_veille;
+RTC_DATA_ATTR uint8_t action_stockage;
+RTC_DATA_ATTR uint8_t action_envoi;
 
 // Entrée analogique pour mesurer la température exterieure
 uint16_t Text1, Text2, Text1Val, Text2Val;  // valeurs pour calibration (T*10)
@@ -156,6 +159,26 @@ void setup_nvs()
 
   if (!rtc_valid)  // si le domaine RAM RTC est valide, on ne recharge pas les valeurs de l'eeprom 
   {
+
+    action_stockage = preferences_nvs.getUChar("AcSt", 0);
+    if (action_stockage < 2)
+      Serial.printf("Action stockage : %i\n\r", action_stockage);
+    else {
+      action_stockage = 0;
+      preferences_nvs.putUChar("AcSt", 0);
+      Serial.println("Raz action stockage: 0");
+    }
+
+    action_envoi = preferences_nvs.getUChar("AcEn", 0);
+    if (action_envoi < 2)         
+      Serial.printf("Action envoi : %i\n\r", action_envoi);
+    else {
+      action_envoi = 0;
+      preferences_nvs.putUChar("AcEn", 0);
+      Serial.println("Raz action envoi: 0");
+    }   
+
+
     // periode du cycle : lecture Temp ext par internet
     periode_cycle = preferences_nvs.getUChar("cycle", 0);  // de 10 a 120
     if ((periode_cycle < 10) || (periode_cycle > 120)) {
@@ -166,7 +189,20 @@ void setup_nvs()
     else Serial.printf("periode cycle : %imin\n", periode_cycle);
   }
 
+    #ifdef ESP_VEILLE
 
+      // Initialisation du temps de reveil pour la sonde, si reveil uart/web
+      prolong_veille = preferences_nvs.getUShort("PVei", 0);
+      if (prolong_veille>=15 && prolong_veille<=600) {
+        Serial.printf("Temps reveil : %i sec\n", prolong_veille);
+      }
+      else
+      {  
+        prolong_veille = 60;
+        preferences_nvs.putUShort("PVei", prolong_veille);
+        Serial.printf("Raz temps reveil : %i sec\n", prolong_veille);
+      }
+    #endif
 }
 
 
@@ -256,19 +292,16 @@ void setup_2()
     
     Serial.println("\n\n======================================");
     Serial.println("🔵 ESP-NOW Initialisé (RÉCEPTEUR)");
-    Serial.print("   MAC Address: ");
+    Serial.print("   MAC Address module: ");
     //if ((mode_reseau==13) )
     //else
     //  Serial.println(WiFi.softAPmacAddress());
+    Serial.println(WiFi.macAddress());
 
-    // Stockage de l'adresse MAC dans le tableau mac_remote[6]
-      String macStr = WiFi.macAddress();
-      sscanf(macStr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-            &mac_remote[0], &mac_remote[1], &mac_remote[2],
-            &mac_remote[3], &mac_remote[4], &mac_remote[5]);
-      Serial.printf("   MAC : %02X:%02X:%02X:%02X:%02X:%02X\n",
-            mac_remote[0], mac_remote[1], mac_remote[2],
-            mac_remote[3], mac_remote[4], mac_remote[5]);
+    // Stockage de l'adresse MAC dans le tableau mac_gw[6]
+    Serial.printf("   MAC dest : %02X:%02X:%02X:%02X:%02X:%02X\n",
+            mac_gw[0], mac_gw[1], mac_gw[2],
+            mac_gw[3], mac_gw[4], mac_gw[5]);
 
     Serial.printf("   Canal WiFi: %d\n", current_channel);
     Serial.println("   En attente de messages...");
@@ -338,6 +371,21 @@ uint8_t requete_GetReg_appli(int reg, float *valeur)
     res = 0;
     *valeur = Nb_jours_Batt_log;
   }
+  if (reg == 16)  // registre 16 : duree allumage
+  {
+    res = 0;
+    *valeur = prolong_veille;
+  }
+  if (reg == 17)  // registre 17 : action stockage
+  {
+    res = 0;
+    *valeur = action_stockage;
+  }
+  if (reg == 18)  // registre 18 : action envoi
+  {
+    res = 0;
+    *valeur = action_envoi;
+  }
   if (reg == 41)  // registre 41 : canal WiFi actuel
   {
     res = 0;
@@ -379,6 +427,28 @@ uint8_t requete_SetReg_appli(int param, float valeurf)
       preferences_nvs.putUChar("FrBL", Nb_jours_Batt_log);
     }
   }
+  if (param == 16)  // registre 16 : duree allumage
+  {
+    if ((valeur>=15) && (valeur <= 600)) {  // de 15 sec à 10 minutes
+      res = 0;
+      prolong_veille = valeur;
+      preferences_nvs.putUShort("PVei", prolong_veille);
+    }
+  }
+  if (param == 17)  // registre 17 : action stockage
+  {    if ((valeur == 0) || (valeur == 1))
+    {      res = 0;
+      action_stockage = valeur;
+      preferences_nvs.putUChar("AcSt", action_stockage);
+    }
+  }
+  if (param == 18)  // registre 18 : action envoi      
+  {    if ((valeur == 0) || (valeur == 1))
+    {      res = 0;
+      action_envoi = valeur;
+      preferences_nvs.putUChar("AcEn", action_envoi);
+    }
+  }
 
   if (param == 41)  // registre 41 : last_wifi_channel
   {
@@ -408,13 +478,18 @@ uint8_t requete_Get_String_appli(uint8_t type, String var, char *valeur)
   int paramV = var.toInt();
   // valeur limité a 50 caractères
   
-  if (paramV == 11)  // registre 11 : adresse MAC ESP_remote
+  if (paramV == 11)  // registre 11 : adresse MAC ce module
+  {
+    res = 0;
+    strncpy(valeur, WiFi.macAddress().c_str(), 18);
+  }
+  if (paramV == 12)  // registre 12 : adresse MAC destinataire
   {
     res = 0;
     snprintf(valeur, 18,
            "%02X:%02X:%02X:%02X:%02X:%02X",
-           mac_remote[0], mac_remote[1], mac_remote[2],
-           mac_remote[3], mac_remote[4], mac_remote[5]);
+           mac_gw[0], mac_gw[1], mac_gw[2],
+           mac_gw[3], mac_gw[4], mac_gw[5]);
   }
 
   return res;
@@ -436,11 +511,11 @@ uint8_t requete_Set_String_appli(int param, const char *texte)
   uint8_t res=1;
   IPAddress ip;
 
-    if (param == 11)  // registre 11 : adresse Mac chaudiere
+    if (param == 12)  // registre 12 : adresse Mac dest
     {
-      if (!parseMacString(texte, mac_remote))
+      if (!parseMacString(texte, mac_gw))
       {
-          Serial.println("MAC chaudière invalide");
+          Serial.println("MAC dest invalide");
       }
       else
       {
@@ -740,7 +815,7 @@ void envoi_temp_esp_chaudiere()
       #endif
     }
 
-    if (mac_remote[0] || mac_remote[3] || mac_remote[4])
+    if (mac_gw[0] || mac_gw[3] || mac_gw[4])
     {
       // Initialisation WiFi en mode Station (nécessaire pour ESP-NOW)
       WiFi.mode(WIFI_STA);
@@ -756,7 +831,7 @@ void envoi_temp_esp_chaudiere()
       // Préparation du Peer (Chaudière)
       esp_now_peer_info_t peerInfo;
       memset(&peerInfo, 0, sizeof(peerInfo)); // Initialisation complète à zéro
-      memcpy(peerInfo.peer_addr, mac_remote, 6);
+      memcpy(peerInfo.peer_addr, mac_gw, 6);
       peerInfo.channel = 0; // Le canal sera défini avant l'ajout
       peerInfo.encrypt = false;
       peerInfo.ifidx = WIFI_IF_STA; // Interface WiFi Station (OBLIGATOIRE)
@@ -835,7 +910,7 @@ void envoi_temp_esp_chaudiere()
           Message_EspNow message;
           message.type = 2; // Batterie
           message.value = Vbatt;
-          esp_now_send(mac_remote, (uint8_t *) &message, sizeof(message));
+          esp_now_send(mac_gw, (uint8_t *) &message, sizeof(message));
           Serial.printf("Envoi batterie: %.2fV (cycle %d)\n", Vbatt, cpt_cycle_batt);
         }
       }
@@ -880,8 +955,8 @@ uint8_t envoi_now(uint8_t channel, esp_now_peer_info_t * peerInfo)
   delay(50); // Délai pour stabilisation du canal
 
   // Ajouter le peer sur ce canal
-  if (esp_now_is_peer_exist(mac_remote)) {
-    esp_now_del_peer(mac_remote);
+  if (esp_now_is_peer_exist(mac_gw)) {
+    esp_now_del_peer(mac_gw);
   }
   peerInfo->channel = actual_channel; // Utiliser le canal réel
   if (esp_now_add_peer(peerInfo) != ESP_OK){
@@ -897,13 +972,13 @@ uint8_t envoi_now(uint8_t channel, esp_now_peer_info_t * peerInfo)
   // 🔍 DIAGNOSTIC: Afficher les infos avant envoi
   /*Serial.printf("📤 Tentative envoi sur canal %d vers MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
                 actual_channel,
-                mac_remote[0], mac_remote[1], mac_remote[2],
-                mac_remote[3], mac_remote[4], mac_remote[5]);*/
+                mac_gw[0], mac_gw[1], mac_gw[2],
+                mac_gw[3], mac_gw[4], mac_gw[5]);*/
   Serial.printf("   Message: Type=%d, Valeur=%.2f°C\n", message.type, message.value);
   
   ackReceived=0;
   ackChannel = -1;
-  esp_err_t resulta = esp_now_send(mac_remote, (uint8_t *) &message, sizeof(message));
+  esp_err_t resulta = esp_now_send(mac_gw, (uint8_t *) &message, sizeof(message));
 
   if (resulta == ESP_OK)
   {

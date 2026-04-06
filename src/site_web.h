@@ -445,6 +445,9 @@ const char index_html[] PROGMEM = R"rawliteral(
                   10: Freq Log batterie(jours)<br>
                   11 : consigne économie<br>
                   12 : temps éveillé (sec) (sonde)<br>
+                  16 : duree allumage (sec)<br>
+                  17 : action : stockage<br>
+                  18 : action : envoi<br>
                   41 : canal wifi <br>
                   42 : canal wifi prérentiel (sonde)<brW
                   <br>
@@ -483,9 +486,9 @@ const char index_html[] PROGMEM = R"rawliteral(
                   8 : websocket On (1-2)<br>
                   9 : websocket<br>
                   10 : websock id<br>
-                  11 : adresse Chaudiere<br>
+                  11 : (L)adresse Mac module<br>
+                  12 : adresse Mac dest<br>
     
-
 
             <div>
             <h1>Log erreurs: 1(Tint) 2(Text) 3(heure)..</h1>

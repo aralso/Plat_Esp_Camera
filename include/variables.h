@@ -14,15 +14,19 @@
 //#define DEBUG  // mode station, pas de websocket, pas de sécurite, emulation valeurs STM32
 //#define ESP32_v1    // DOIT ESP32 DEVKIt V1
 
+
 //#define ESP32_Fire2
-#define ESP32_CAM  // esp32cam
+#define ESP32_v1  // esp32cam
 //#define ESP32_uPesy  // uPesy_vroom
+
+
 //#define Temp_int_HDC1080  // Capteur I2C HDC1080
 #define MODE_Wifi  // Wifi sinon Ethernet
 //#define Sans_securite
 #define Sans_websocket
 //#define WatchDog
 #define Sans_EspNow
+//#define ESP_VEILLE
 
 #define SDCARD
 #define CAMERA
@@ -97,9 +101,6 @@ const int PIN_PAC = 4;     //  OUT PAC - PWM  40kOhm+100nF(Fc=40Hz) et PWM=40khz
 #endif
 #ifdef ESP32_uPesy
   #define PIN_REVEIL 34  // Pin de réveil (Bouton externe)
-#endif
-#ifdef ESP32_CAM
-  #define PIN_REVEIL 12  // Pin de réveil (Bouton externe)
 #endif
 #ifdef ESP32_S3
   #define PIN_REVEIL 12  // Pin de réveil (Bouton externe)

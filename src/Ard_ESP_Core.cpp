@@ -1000,10 +1000,13 @@ void init_ram_variables()
 void setup()
 {
   
-  delay(1000);
+  delay(6000);
   // Cause reset :
   resetReason0 = (uint8_t) esp_reset_reason();
   Serial.begin(115200);
+  Serial.println("\ndemarrage\n\r");
+  Serial.flush();
+  
   
   // Cause réveil du deep/light_sleep (undefined si pas de reveil deep/light sleep)
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause(); // 2:ext0 7:GPIO 4:Timer

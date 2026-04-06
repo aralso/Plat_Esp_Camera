@@ -75,7 +75,7 @@ const int g_run_unit_tests	= 1 << 4;
 const int g_procedural_img	= 1 << 5;
 const int g_exit 			= 1 << 31;
 
-int parse_cmd(const char* cmd, uint8_t *quality)
+/*int parse_cmd(const char* cmd, uint8_t *quality)
 {
 	int actions = 0;
 	for (; *cmd != '\0' && *cmd != ' '; cmd++)
@@ -95,7 +95,7 @@ int parse_cmd(const char* cmd, uint8_t *quality)
 	}
 
 	return actions;
-}
+}*/
 
 /// MAIN LOOP
 int encode_lpc(const lpc_settings_t &settings)

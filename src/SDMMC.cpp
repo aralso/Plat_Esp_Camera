@@ -210,7 +210,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
 // Note: ESP32-S3-WROOM-1 does not have GPIO 33 and 34 broken out.
 // Note: if it's ok to use default pins, you do not need to call the setPins
 
-#ifdef ESP32_CAM
+#ifdef ESP32_v1
   int clk = 14;
   int cmd = 15;
   int d0 = 2;
