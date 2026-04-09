@@ -118,8 +118,10 @@ uint8_t err_wifi_repet;  // permet de resetter si le wifi ne se rétablit pas au
 uint8_t init_masquage=1;
 uint8_t cpt24h_batt;
 
+uint8_t sdcard_ok, camera_ok;
+
 uint8_t parseMacString(const char* str, uint8_t mac[6]);
-void  setup_camera();
+uint8_t  setup_camera();
 void server_routes_camera();
 
 // variable globale de 4000c en RAM pour dump log et autres requetes
@@ -197,7 +199,7 @@ char nom_routeur[16]="";
 char mdp_routeur[16]="";
 unsigned long last_remote_Tint_time = 0, last_remote_Text_time=0, last_remote_heure_time=0;
 
-int16_t  graphique [NB_Val_Graph][NB_Graphique];
+RTC_DATA_ATTR int16_t  graphique [NB_Val_Graph][NB_Graphique];
 
 // Status
 RTC_DATA_ATTR uint32_t rtc_magic = 0xDEADBEEF;
@@ -220,7 +222,7 @@ bool isWebSocketConnected = false;
 uint8_t DelaiWebsocket = 1;
 uint16_t cpt_ws_timeout=0, cpt_ws_ping=0;
 
-volatile bool force_stay_awake = false; // Flag pour rester éveillé après appui bouton
+bool force_stay_awake = false; // Flag pour rester éveillé après appui bouton
 unsigned long wake_up_time = 0; // Temps de réveil
 
 //x seconds Watchdog 
@@ -306,8 +308,8 @@ uint8_t etat_connect_ethernet = 0;
 AsyncWebServer server(80);
 
 uint8_t cycle24h;
-float  tempI_moy24h=0, tempE_moy24h=0, cout_moy24h=0;
-uint8_t cpt24_Tint=0, cpt24_Text=0,  cpt24_Cout=0;
+RTC_DATA_ATTR float  tempI_moy24h=0, tempE_moy24h=0, cout_moy24h=0;
+RTC_DATA_ATTR uint8_t cpt24_Tint=0, cpt24_Text=0,  cpt24_Cout=0;
 
 #define DEBOUNCE_INTERVAL 300  // Temps anti-rebond en ms
 #define VALIDATION_COUNT 10  // Nombre de lectures consécutives pour valider un changement
@@ -367,7 +369,7 @@ unsigned long previousMillis_temp = 20000;  // 1er à 20s
 unsigned long previousMillis_inittime;
 uint8_t compteur_graph;
 char St_Uptime[35];
-uint8_t skip_graph;
+RTC_DATA_ATTR uint8_t skip_graph;
 
 
 
@@ -1000,13 +1002,13 @@ void init_ram_variables()
 void setup()
 {
   
-  delay(6000);
+  delay(1000);
   // Cause reset :
   resetReason0 = (uint8_t) esp_reset_reason();
   Serial.begin(115200);
-  Serial.println("\ndemarrage\n\r");
-  Serial.flush();
-  
+  //Serial.println("\ndemarrage\n\r");
+  //Serial.flush();
+
   
   // Cause réveil du deep/light_sleep (undefined si pas de reveil deep/light sleep)
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause(); // 2:ext0 7:GPIO 4:Timer
@@ -1532,7 +1534,7 @@ void setup()
   // ------- changement de frequence CPU -------------------
 
   uint16_t Cpu_freq = getCpuFrequencyMhz();
-  //setCpuFrequencyMhz(80);
+  setCpuFrequencyMhz(80);
   Serial.printf("CPU Freq: avant:%i  apres:%u\n", Cpu_freq, (unsigned int)getCpuFrequencyMhz());
 
 
@@ -1583,11 +1585,11 @@ void setup()
   #endif  // fin OTA
 
   #ifdef SDCARD
-    sd_init();
+    if (!sd_init()) sdcard_ok=1;
   #endif
 
   #ifdef CAMERA
-   setup_camera();
+   if (!setup_camera()) camera_ok=1;
   #endif
 
   Serial.println("fin setup:");
@@ -2819,19 +2821,20 @@ void requete_status(char *json_response, uint8_t socket, uint8_t type)
 
 void printMemoryStatus()
 {
-  #ifdef DEBUG
     size_t internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
     size_t totalFree = esp_get_free_heap_size();
+    size_t internalFreePSRAM = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t largestBlockPSRAM = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
 
     snprintf(buffer_dmp, MAX_DUMP,
               "Memoire interne:%u   contigu:%u  total:%u\r\n",
               (unsigned int)internalFree,
               (unsigned int)largestBlock,
               (unsigned int)totalFree);
-    Serial.printf("Memoire interne:%d   contigu:%d  total:%d \n\r", internalFree, largestBlock, totalFree );
+    Serial.printf("Memoire free:%i   contigu:%i  total:%i freeSPI:%i largSPI:%i\n\r", internalFree, largestBlock, totalFree, internalFreePSRAM, largestBlockPSRAM );
+
     delay(10);
-  #endif
 }
 
 // Fonction pour calculer le checksum Contact ID

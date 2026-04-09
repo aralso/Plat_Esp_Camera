@@ -15,9 +15,10 @@
 //#define ESP32_v1    // DOIT ESP32 DEVKIt V1
 
 
-//#define ESP32_Fire2
-#define ESP32_v1  // esp32cam
+//#define ESP32_v1  // esp32cam
 //#define ESP32_uPesy  // uPesy_vroom
+#define ESP32_S3
+//#define ESP32_Fire2
 
 
 //#define Temp_int_HDC1080  // Capteur I2C HDC1080
@@ -132,6 +133,7 @@ void enreg_video();
 void prise_video();
 void prise_photo();
 int encode_lpc(const lpc_settings_t &settings);
+void printMemoryStatus();
 
 void passage_deep_sleep(uint64_t temps);
 
@@ -206,15 +208,6 @@ typedef struct {
   uint32_t data;            // Donnée associée (ex: valeur capteur, byte UART)
 } systeme_eve_t;
 
-// planning
-#define NB_MAX_PGM 3
-typedef struct {
-  uint8_t ch_debut;       // debut de chauffe :heure par pas de 10 minutes
-  uint8_t ch_fin;         // fin de chauffe
-  uint8_t ch_type;        // 0:tous les jours, 1:semaine, 2:week-end (2 bits)
-  uint8_t ch_consigne;    // 5° à 23°C, par pas de 0,1°C
-  uint8_t ch_cons_apres;  // 3° à 23°C, par pas de 0,5°C (6 bits)
-} planning_t;
 
 /* Codes erreur*/
 #define Code_erreur_Tint 1
@@ -257,24 +250,27 @@ extern volatile int ackChannel;       // canal où ça a marché
 extern uint8_t mode_reseau;
 extern uint8_t init_time;
 extern float heure;
-extern uint8_t skip_graph;
-extern uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
+extern RTC_DATA_ATTR uint8_t skip_graph;
+extern RTC_DATA_ATTR uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
 extern float Tint, Text;
 
 
-extern float tempI_moy24h, tempE_moy24h, cout_moy24h;
-extern uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
+extern RTC_DATA_ATTR float tempI_moy24h, tempE_moy24h, cout_moy24h;
+extern RTC_DATA_ATTR uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
 
 extern char mdp_routeur[];
-extern int16_t graphique[NB_Val_Graph][NB_Graphique];
+extern RTC_DATA_ATTR int16_t graphique[NB_Val_Graph][NB_Graphique];
 extern uint16_t Seuil_batt_sonde;  // millivolt
+extern uint16_t Seuil_batt_arret_ESP;  // millivolt
+extern uint8_t type_reveil;  //0:pas de reveil 1: réveil par timer, 2: réveil par bouton_reveil 3:reveil par PIR
 extern uint8_t compteur_graph;
 
 extern RTC_DATA_ATTR uint8_t etat_now;
-extern uint8_t Nb_jours_Batt_log;
+extern RTC_DATA_ATTR uint8_t Nb_jours_Batt_log;
 
-extern volatile bool force_stay_awake;
+extern bool force_stay_awake;
 extern unsigned long wake_up_time;  // Temps de réveil/dernière activité
+extern uint8_t sdcard_ok, camera_ok;
 
 void writeLog(uint8_t code, uint8_t c1, uint8_t c2, uint8_t c3,
               const char* message);

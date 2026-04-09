@@ -61,43 +61,45 @@ static const char *TAG = "camera_httpd";
 //#define CONFIG_ESP_FACE_DETECT_ENABLED 1
 // Face Recognition takes upward from 15 seconds per frame on chips other than ESP32S3
 // Makes no sense to have it enabled for them
-#if CONFIG_IDF_TARGET_ESP32S3
-#define CONFIG_ESP_FACE_RECOGNITION_ENABLED 1
+    #if CONFIG_IDF_TARGET_ESP32S3
+    #define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
+    #define CONFIG_ESP_FACE_DETECT_ENABLED 0
+    #else
+    #define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
+    #define CONFIG_ESP_FACE_DETECT_ENABLED 0
+    #endif
 #else
-#define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
-#endif
-#else
-#define CONFIG_ESP_FACE_DETECT_ENABLED 0
-#define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
+    #define CONFIG_ESP_FACE_DETECT_ENABLED 0
+    #define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
 #endif
 
 #if CONFIG_ESP_FACE_DETECT_ENABLED
 
-#include <vector>
-#include "human_face_detect_msr01.hpp"
-#include "human_face_detect_mnp01.hpp"
+    #include <vector>
+    #include "human_face_detect_msr01.hpp"
+    #include "human_face_detect_mnp01.hpp"
 
-#define TWO_STAGE 1 /*<! 1: detect by two-stage which is more accurate but slower(with keypoints). */
-                    /*<! 0: detect by one-stage which is less accurate but faster(without keypoints). */
+    #define TWO_STAGE 1 /*<! 1: detect by two-stage which is more accurate but slower(with keypoints). */
+                        /*<! 0: detect by one-stage which is less accurate but faster(without keypoints). */
 
-#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
-#include "face_recognition_tool.hpp"
-#include "face_recognition_112_v1_s16.hpp"
-#include "face_recognition_112_v1_s8.hpp"
+    #if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+    #include "face_recognition_tool.hpp"
+    #include "face_recognition_112_v1_s16.hpp"
+    #include "face_recognition_112_v1_s8.hpp"
 
-#define QUANT_TYPE 0 //if set to 1 => very large firmware, very slow, reboots when streaming...
+    #define QUANT_TYPE 0 //if set to 1 => very large firmware, very slow, reboots when streaming...
 
-#define FACE_ID_SAVE_NUMBER 7
-#endif
+    #define FACE_ID_SAVE_NUMBER 7
+    #endif
 
-#define FACE_COLOR_WHITE 0x00FFFFFF
-#define FACE_COLOR_BLACK 0x00000000
-#define FACE_COLOR_RED 0x000000FF
-#define FACE_COLOR_GREEN 0x0000FF00
-#define FACE_COLOR_BLUE 0x00FF0000
-#define FACE_COLOR_YELLOW (FACE_COLOR_RED | FACE_COLOR_GREEN)
-#define FACE_COLOR_CYAN (FACE_COLOR_BLUE | FACE_COLOR_GREEN)
-#define FACE_COLOR_PURPLE (FACE_COLOR_BLUE | FACE_COLOR_RED)
+    #define FACE_COLOR_WHITE 0x00FFFFFF
+    #define FACE_COLOR_BLACK 0x00000000
+    #define FACE_COLOR_RED 0x000000FF
+    #define FACE_COLOR_GREEN 0x0000FF00
+    #define FACE_COLOR_BLUE 0x00FF0000
+    #define FACE_COLOR_YELLOW (FACE_COLOR_RED | FACE_COLOR_GREEN)
+    #define FACE_COLOR_CYAN (FACE_COLOR_BLUE | FACE_COLOR_GREEN)
+    #define FACE_COLOR_PURPLE (FACE_COLOR_BLUE | FACE_COLOR_RED)
 #endif
 
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED

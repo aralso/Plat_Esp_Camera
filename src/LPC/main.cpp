@@ -14,6 +14,7 @@
 #include "SD_MMC.h"
 #include "SDMMC.h"
 
+#include "variables.h"
 
 /// FILE STREAMS
 
@@ -100,24 +101,37 @@ const int g_exit 			= 1 << 31;
 /// MAIN LOOP
 int encode_lpc(const lpc_settings_t &settings)
 {
-	int type = IMG_LARGE;
+	int type = IMG_NORMAL;
 	uint32_t img_count = (type == IMG_NORMAL) ? 14 : 12;
-	const char *output_path = "test/test.lpc";
+	const char *output_path = "/test/test.lpc";
 	Serial.println("1. Run encoder");
 	if (SD_MMC.exists(output_path)) {
-					SD_MMC.remove(output_path);
+			Serial.println("suppression du fichier de sortie existant");
+			SD_MMC.remove(output_path);
 	}			
 	filestream_t stream(SD_MMC, output_path);
 	lpc_encoder_t encoder;
 	encoder.open(settings, &stream);
+	printMemoryStatus();
 
 	for (uint32_t i = 0; i < settings.frame_count; ++i)
 	{
+		Serial.printf("Encoding image %u/%u\n", i+1, settings.frame_count);
 		img_data_t img_rgb(get_img(i, type));
+		printMemoryStatus();
+		if (!img_rgb.valid) {
+			Serial.println("Image invalide");
+			encoder.close();
+			return 1;
+		}
+		Serial.printf("Image size: %d x %d\n", img_rgb.w, img_rgb.h);
 		encoder.encode_frame(img_rgb.bytes);
+		Serial.println("Frame encoded");
 	}
+	printMemoryStatus();
 
 	encoder.close();
 	Serial.println("Encoding done");
+	printMemoryStatus();
 	return 0;
 }

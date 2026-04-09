@@ -13,7 +13,7 @@
 
 // issu de :     zhuhai-esp /  ESP32-S3-Goouuu-Cam
 
-#define CAMERA_MODEL_AI_THINKER
+
 
 #include "camera_pins.h"
 
@@ -58,6 +58,8 @@ uint8_t inline initCamera() {
   } else {
     config.frame_size = FRAMESIZE_SVGA;
     config.fb_location = CAMERA_FB_IN_DRAM;
+    Serial.printf("PS RAM not Found \n");
+
   }
 
   esp_err_t err = esp_camera_init(&config);
@@ -76,20 +78,31 @@ uint8_t inline initCamera() {
 }
 
 
-void setup_camera() {
-  initCamera();
-  Serial.print("Camera Ready! Use 'http://");
+uint8_t setup_camera() {
+  uint8_t res = initCamera();
+  if (res == 0) {
+    Serial.print("Camera Ready! Use 'http://");
+    return 0;
+  }
+  else
+  {
+    Serial.println("Camera initialization failed");
+    return 1;
+  }
 }
 
 void encodeP()
 {
-  lpc_settings_t settings = {
-    800,    // width
-    600,    // height
-    30,     // quality
-    1,      // frame_count
-    1       // frequency
-  };
-  encode_lpc(settings);
+  if (sdcard_ok) 
+  {
+    lpc_settings_t settings = {
+      800,    // width
+      600,    // height
+      30,     // quality
+      1,      // frame_count
+      1       // frequency
+    };
+    encode_lpc(settings);
+  }
 }
 

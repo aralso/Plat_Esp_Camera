@@ -13,6 +13,8 @@
 #include "SD_MMC.h"
 #include <ESPAsyncWebServer.h>
 
+#include "camera_pins.h"
+
 // HTML page for SD explorer
 const char sd_explorer_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -210,16 +212,16 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
 // Note: ESP32-S3-WROOM-1 does not have GPIO 33 and 34 broken out.
 // Note: if it's ok to use default pins, you do not need to call the setPins
 
-#ifdef ESP32_v1
+/*#ifdef ESP32_v1
   int clk = 14;
   int cmd = 15;
   int d0 = 2;
 #endif
 #ifdef ESP32_S3
-  int clk = 16;
-  int cmd = 43;
-  int d0 = 44;
-#endif
+  int clk = 47; //16;
+  int cmd = 21; //43;
+  int d0 = 48; //44;
+#endif*/
 
 extern AsyncWebServer server;
 
@@ -480,7 +482,7 @@ void server_routes_SDCARD()
     size_t size;
   };
 
-  server.on("/sd_explorer.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/sd", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/html", sd_explorer_html);
   });
 
@@ -673,17 +675,27 @@ uint8_t sd_init()
     // If you want to change the pin assignment on ESP32-S3 uncomment this block and the appropriate
     // line depending if you want to use 1-bit or 4-bit line.
     // Please note that ESP32 does not allow pin change and will always fail.
-    if(! SD_MMC.setPins(clk, cmd, d0)){
+    if(! SD_MMC.setPins(SD_PIN_CLK, SD_PIN_CMD, SD_PIN_DATA0)){  // 14, 15, 2)) { //
         Serial.println("Pin change failed!");
         return 1;
     }
+    delay(100);
     
+    Serial.println("AAA");
+    delay(1000);
+
 
   if (!SD_MMC.begin("/sdcard", true)) {
       Serial.println("Card Mount Failed");
       return 2;
   }
+    Serial.println("BBB");
+    delay(1000);
+
   uint8_t cardType = SD_MMC.cardType();
+
+    Serial.println("CCC");
+    delay(1000);
 
   if (cardType == CARD_NONE) {
     Serial.println("No SD_MMC card attached");
