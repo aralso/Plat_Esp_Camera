@@ -16,6 +16,7 @@ uint8_t appendFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 uint8_t renameFile(fs::FS &fs, const char *path1, const char *path2);
 uint8_t deleteFile(fs::FS &fs, const char *path);
 uint8_t server_routes_SDCARD();
+uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len);
 
 
 #endif

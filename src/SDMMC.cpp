@@ -14,6 +14,12 @@
 #include <ESPAsyncWebServer.h>
 
 #include "camera_pins.h"
+//#include "header.h"
+//#include "esp_jpg_decode.h"
+
+uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize);
+bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);
+uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_buf, size_t jpg_len, const char*path1);
 
 // HTML page for SD explorer
 const char sd_explorer_html[] PROGMEM = R"rawliteral(
@@ -40,6 +46,8 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
         .delete-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FF0000" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>') no-repeat center; }
         .rename-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FFFF00" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>') no-repeat center; }
         .move-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%2300FFFF" d="M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3L5 6.99h3V14h2V6.99h3L9 3z"/></svg>') no-repeat center; }
+        .reduc-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FFFF00" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>') no-repeat center; }
+        .encod-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FFFF00" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>') no-repeat center; }
         .clickable { cursor: pointer; color: #00FFFF; }
     </style>
 </head>
@@ -88,6 +96,8 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                                 <div class="icon delete-icon action-icon" onclick="deleteItem('${item.name}', ${item.isDir})"></div>
                                 <div class="icon rename-icon action-icon" onclick="renameItem('${item.name}')"></div>
                                 <div class="icon move-icon action-icon" onclick="moveItem('${item.name}')"></div>
+                                <div class="icon reduc-icon action-icon" onclick="reducItem('${item.name}')"></div>
+                                <div class="icon encod-icon action-icon" onclick="encodItem('${item.name}')"></div>
                             </td>
                         `;
                         tbody.appendChild(row);
@@ -163,6 +173,36 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
             }
         }
 
+        function reducItem(name) {
+            const Lsize = prompt('Larg size:', 500);
+            if (Lsize >=100 && Lsize <= 1200) {
+                const srcPath = joinPath(currentPath, name);
+                fetch(`/setSD?action=5&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(Lsize)}`)
+                    .then(response => {
+                        if (response.ok) {
+                            loadDirectory(currentPath);
+                        } else {
+                            alert('Erreur lors de la reduction');
+                        }
+                    });
+            }
+        }
+
+        function encodItem(name) {
+            const quality = prompt('Quality:', 50);
+            if (quality >=1 && quality <= 100) {
+              const srcPath = joinPath(currentPath, name);
+              fetch(`/setSD?action=6&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(quality)}`)
+                  .then(response => {
+                      if (response.ok) {
+                          loadDirectory(currentPath);
+                      } else {
+                          alert('Erreur lors de l\'encodage');
+                      }
+                  });
+            }
+        }
+            
         document.getElementById('createDir').onclick = () => {
             const dirName = prompt('Nom du nouveau répertoire:');
             if (dirName) {
@@ -431,6 +471,108 @@ uint8_t deleteFile(fs::FS &fs, const char *path) {
   }
 }
 
+
+//1:fichier non trouve, 2;malloc pas ok, 3:size pas ok, 4:jpeg decode failed, 5:reduction not needed, 6:malloc small failed, 7:jpeg encode failed, 8:fichier non ecrit
+uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size)
+{
+
+    Serial.printf("Reducing file %s to width %u\n", path1, size);
+
+
+    // --- 1. ouvrir fichier source ---
+    File inFile = fs.open(path1, FILE_READ);
+    if (!inFile) {
+        Serial.println("Failed to open input file");
+        return 1;
+    }
+
+    size_t fileSize = inFile.size();
+    uint8_t* jpg_buf = (uint8_t*)malloc(fileSize);
+
+    if (!jpg_buf) {
+        Serial.println("Malloc failed");
+        inFile.close();
+        return 2;
+    }
+
+    inFile.read(jpg_buf, fileSize);
+    inFile.close();
+
+    uint8_t res = reduc_image(fs, jpg_buf, fileSize, path1, size);
+    return res;
+
+}
+
+uint8_t encodeFile(fs::FS &fs, const char *path1,uint8_t quality) {
+  Serial.printf("Encoding file %s with quality %u\n", path1, quality);
+
+      // --- 1. ouvrir fichier source ---
+    File inFile = fs.open(path1, FILE_READ);
+    if (!inFile) {
+        Serial.println("Failed to open input file");
+        return 1;
+    }
+
+    size_t fileSize = inFile.size();
+    uint8_t* jpg_buf = (uint8_t*)malloc(fileSize);
+
+    if (!jpg_buf) {
+        Serial.println("Malloc failed");
+        inFile.close();
+        return 2;
+    }
+
+    inFile.read(jpg_buf, fileSize);
+    inFile.close();
+
+  // recuperation de l w et h de l'image source.
+  uint16_t w = 0, h = 0;
+
+  if (!getJpegSize(jpg_buf, fileSize, w, h)) {
+      Serial.println("Failed to read JPEG size");
+      free(jpg_buf);
+      return 3;
+  }
+
+  lpc_settings_t settings = {
+      w,    // width
+      h,    // height
+      quality,     // quality
+      1,      // frame_count
+      1       // frequency
+    };
+
+    uint8_t res = encode_lpc2(settings, jpg_buf, fileSize, path1);
+
+  /*if (fs.rename(path1, path2)) {
+    Serial.println("File renamed");
+    return 0;
+  } else {
+    Serial.println("Rename failed");
+    return 1;
+  }*/
+ return res;
+}
+
+uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len)
+{
+    // --- 8. écrire fichier ---
+    File outFile = fs.open(newPath, FILE_WRITE);
+    if (!outFile) {
+        Serial.println("Failed to open output file");
+        free(jpg_out);
+        return 8;
+    }
+
+    outFile.write(jpg_out, jpg_len);
+    outFile.close();
+    free(jpg_out);
+
+    Serial.printf("File saved: %s\n", newPath);
+
+    return 0;
+}
+
 uint8_t testFileIO(fs::FS &fs, const char *path) {
   File file = fs.open(path);
   static uint8_t buf[512];
@@ -652,6 +794,10 @@ void server_routes_SDCARD()
       result = renameFile(fs, path.c_str(), out.c_str());
     } else if (action == 4) { // Move (rename with path)
       result = renameFile(fs, path.c_str(), out.c_str());
+    } else if (action == 5) { // reduc size et enregistre new image
+      result = reducFile(fs, path.c_str(), out.toInt());
+    } else if (action == 6) { // encode lpc et enregistre new image
+      result = encodeFile(fs, path.c_str(), out.toInt());
     } else {
       request->send(400, "text/plain", "Invalid action");
       return;
@@ -659,7 +805,8 @@ void server_routes_SDCARD()
     if (result == 0) {
       request->send(200, "text/plain", "OK");
     } else {
-      request->send(500, "text/plain", "Error");
+      String msg = "Error code: " + String(result);
+      request->send(500, "text/plain", msg);
     }
   });
 }

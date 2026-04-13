@@ -98,13 +98,59 @@ const int g_exit 			= 1 << 31;
 	return actions;
 }*/
 
+uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_buf, size_t jpg_len, const char*path1)
+{
+
+	const char *output_path = "/test/test.lpc";
+	//Serial.printf("1. Run encoder  quality=%d, frame_count=%d\n", settings.quality, settings.frame_count);
+	if (SD_MMC.exists(output_path)) {
+			Serial.println("suppression du fichier de sortie existant");
+			SD_MMC.remove(output_path);
+	}			
+	filestream_t stream(SD_MMC, output_path);
+	lpc_encoder_t encoder;
+	encoder.open(settings, &stream);
+
+
+    // --- 2. décoder JPEG → RGB ---
+    uint8_t* rgb_buf = NULL;
+    size_t rgb_len;
+
+	// alloc RGB888
+	rgb_len = (size_t)settings.width * (size_t)settings.height * 3 * sizeof(uint8_t);
+	rgb_buf = (uint8_t*)malloc(rgb_len);
+	if (rgb_buf) 
+		memset(rgb_buf, 0, rgb_len);
+    else {
+      free(jpg_buf);
+      return 9;
+    }
+
+    if (!fmt2rgb888(jpg_buf, jpg_len, PIXFORMAT_JPEG, rgb_buf)) {
+        Serial.println("JPEG decode failed");
+        free(jpg_buf);
+        free(rgb_buf);
+        return 4;
+    }
+    free(jpg_buf);
+
+
+
+	encoder.encode_frame(rgb_buf);
+	encoder.close();
+	Serial.println("Encoding done");
+	printMemoryStatus();
+
+	return 0;
+}
+
 /// MAIN LOOP
 int encode_lpc(const lpc_settings_t &settings)
 {
 	int type = IMG_NORMAL;
 	uint32_t img_count = (type == IMG_NORMAL) ? 14 : 12;
 	const char *output_path = "/test/test.lpc";
-	Serial.println("1. Run encoder");
+	//Serial.printf("1. Run encoder  quality=%d, frame_count=%d\n", settings.quality, settings.frame_count);
 	if (SD_MMC.exists(output_path)) {
 			Serial.println("suppression du fichier de sortie existant");
 			SD_MMC.remove(output_path);
@@ -117,7 +163,9 @@ int encode_lpc(const lpc_settings_t &settings)
 	for (uint32_t i = 0; i < settings.frame_count; ++i)
 	{
 		Serial.printf("Encoding image %u/%u\n", i+1, settings.frame_count);
+
 		img_data_t img_rgb(get_img(i, type));
+		Serial.printf("image: %s\n", img_rgb.name);
 		printMemoryStatus();
 		if (!img_rgb.valid) {
 			Serial.println("Image invalide");
