@@ -199,6 +199,7 @@ typedef enum {
   EVENT_CYCLE,
   EVENT_PRISE_VIDEO,
   EVENT_PRISE_PHOTO,
+  EVENT_ENCODE_LPC,
   EVENT_UART1
 } systeme_eve_type_t;
 

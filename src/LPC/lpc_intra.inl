@@ -5,7 +5,7 @@
 template <int BLOCK_SIZE>
 uint32_t vertical_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top) return MAX_COST;
+	if (!top) return MAX_COST(BLOCK_SIZE);
 
 	for (int x = 0; x < BLOCK_SIZE; x++)
 		for (int y = 0; y < BLOCK_SIZE; y++)
@@ -17,7 +17,7 @@ uint32_t vertical_prediction(const uint8_t *top, const uint8_t *left, uint8_t *r
 template <int BLOCK_SIZE>
 uint32_t horizontal_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!left) return MAX_COST;
+	if (!left) return MAX_COST(BLOCK_SIZE);
 
 	for (int x = 0; x < BLOCK_SIZE; x++)
 		for (int y = 0; y < BLOCK_SIZE; y++)
@@ -81,7 +81,7 @@ inline uint8_t combine3(uint8_t a, uint8_t b, uint8_t c)
 
 uint32_t ddl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top) return MAX_COST;
+	if (!top) return MAX_COST(LUMA_BLOCK_SIZE);
 
 	uint8_t A = top[0], B = top[1], C = top[2], D = top[3];
 	uint8_t E = D;
@@ -113,7 +113,7 @@ uint32_t ddl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result
 
 uint32_t ddr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
+	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
 
 	uint8_t X = top[-1];
 	uint8_t A = top[0], B = top[1], C = top[2], D = top[3];
@@ -144,7 +144,7 @@ uint32_t ddr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result
 
 uint32_t vr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
+	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
 
 	uint8_t X = top[-1];
 	uint8_t A = top[0], B = top[1], C = top[2], D = top[3];
@@ -175,10 +175,9 @@ uint32_t vr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 
 uint32_t hd_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
+	if (!left) return MAX_COST(LUMA_BLOCK_SIZE);
 
-	uint8_t X = top[-1];
-	uint8_t A = top[0], B = top[1], C = top[2], D = top[3];
+	uint8_t X = left[-1];
 	uint8_t I = left[0], J = left[1], K = left[2], L = left[3];
 
 	result[0 * LUMA_BLOCK_SIZE + 0] = combine2(X, I);
@@ -206,9 +205,8 @@ uint32_t hd_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 
 uint32_t vl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
+	if (!top) return MAX_COST(LUMA_BLOCK_SIZE);
 
-	uint8_t X = top[-1];
 	uint8_t A = top[0], B = top[1], C = top[2], D = top[3];
 	uint8_t E = D;
 
@@ -237,7 +235,7 @@ uint32_t vl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 
 uint32_t hu_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
+	if (!left) return MAX_COST(LUMA_BLOCK_SIZE);
 
 	uint8_t I = left[0], J = left[1], K = left[2], L = left[3];
 
@@ -266,9 +264,9 @@ uint32_t hu_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 
 uint32_t plane_prediction_8x8(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
-
 	const int BLOCK_SIZE = 8;
+
+	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
 
 	int H = 0;
 	int V = 0;
@@ -297,9 +295,9 @@ uint32_t plane_prediction_8x8(const uint8_t *top, const uint8_t *left, uint8_t *
 
 uint32_t plane_prediction_16x16(const uint8_t *top, const uint8_t *left, uint8_t *result)
 {
-	if (!top || !left) return MAX_COST;
-
 	const int BLOCK_SIZE = 16;
+
+	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
 
 	int H = 0;
 	int V = 0;
@@ -337,16 +335,16 @@ uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
 
 	switch (mode)
 	{
-		case INTRA_VERTICAL:
-			cost = vertical_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y);
+		case INTRA_DC:
+			cost = dc_prediction<LUMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->Y);
 			break;
 
 		case INTRA_HORIZONTAL:
 			cost = horizontal_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y);
 			break;
 
-		case INTRA_DC:
-			cost = dc_prediction<LUMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->Y);
+		case INTRA_VERTICAL:
+			cost = vertical_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y);
 			break;
 
 		case INTRA_DIAGONAL_DOWN_LEFT:
@@ -388,16 +386,16 @@ uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
 
 	switch (mode)
 	{
-		case INTRA_VERTICAL:
-			cost = vertical_prediction<BLOCK_SIZE>(top, left, tmp_result);
+		case INTRA_DC:
+			cost = dc_prediction<BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, tmp_result);
 			break;
 
 		case INTRA_HORIZONTAL:
 			cost = horizontal_prediction<BLOCK_SIZE>(top, left, tmp_result);
 			break;
 
-		case INTRA_DC:
-			cost = dc_prediction<BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, tmp_result);
+		case INTRA_VERTICAL:
+			cost = vertical_prediction<BLOCK_SIZE>(top, left, tmp_result);
 			break;
 
 		case INTRA_PLANE:
@@ -439,16 +437,16 @@ uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
 
 	switch (mode)
 	{
-		case INTRA_VERTICAL:
-			cost = vertical_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C);
+		case INTRA_DC:
+			cost = dc_prediction<CHROMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->C);
 			break;
 
 		case INTRA_HORIZONTAL:
 			cost = horizontal_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C);
 			break;
 
-		case INTRA_DC:
-			cost = dc_prediction<CHROMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->C);
+		case INTRA_VERTICAL:
+			cost = vertical_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C);
 			break;
 
 		case INTRA_PLANE:
@@ -465,7 +463,7 @@ uint32_t find_mode_luma_4x4(const luma_block_t &original,
 		const uint8_t *top, const uint8_t *left,
 		luma_block_t *predicted, intra_mode_t *pred_mode)
 {
-	uint32_t pred_cost = MAX_COST;
+	uint32_t pred_cost = MAX_COST(LUMA_BLOCK_SIZE);
 
 	for (int i = 0; i < INTRA_MODE_COUNT; i++)
 	{
@@ -476,14 +474,15 @@ uint32_t find_mode_luma_4x4(const luma_block_t &original,
 		auto mode = (intra_mode_t)i;
 		luma_block_t prediction;
 
-		cost = predict_luma_4x4(original, mode, top, left, &prediction);
+		cost = predict_luma_4x4(original, mode, top, left, i == 0 ? predicted : &prediction);
 
 		if (cost < pred_cost)
 		{
 			pred_cost = cost;
-
 			*pred_mode = mode;
-			memcpy((void*)predicted, (void*)&prediction, sizeof(luma_block_t));
+
+			if (i != 0)
+				memcpy((void*)predicted, (void*)&prediction, sizeof(luma_block_t));
 		}
 	}
 
@@ -494,7 +493,7 @@ uint32_t find_mode_luma_16x16(const uint8_t *original,
 		const uint8_t *top, const uint8_t *left,
 		uint8_t *predicted, intra_mode_t *pred_mode)
 {
-	uint32_t pred_cost = MAX_COST;
+	uint32_t pred_cost = MAX_COST(MB_SIZE);
 
 	for (int i = 0; i < INTRA_MODE_COUNT; i++)
 	{
@@ -505,14 +504,15 @@ uint32_t find_mode_luma_16x16(const uint8_t *original,
 		auto mode = (intra_mode_t)i;
 		uint8_t prediction[MB_SIZE * MB_SIZE];
 
-		cost = predict_luma_16x16(original, mode, top, left, prediction);
+		cost = predict_luma_16x16(original, mode, top, left, i == 0 ? predicted : prediction);
 
 		if (cost < pred_cost)
 		{
 			pred_cost = cost;
-
 			*pred_mode = mode;
-			memcpy((void*)predicted, (void*)prediction, sizeof(prediction));
+
+			if (i != 0)
+				memcpy((void *)predicted, (void *)prediction, sizeof(prediction));
 		}
 	}
 
@@ -523,7 +523,7 @@ uint32_t find_mode_chroma(const macroblock_t &original,
 		const neighbour_t &top, const neighbour_t &left,
 		macroblock_t *predicted, intra_mode_t *predicted_mode)
 {
-	uint32_t pred_cost = MAX_COST;
+	uint32_t pred_cost = MAX_COST(CHROMA_BLOCK_SIZE) * 2;
 
 	for (int i = 0; i < INTRA_MODE_COUNT; i++)
 	{
@@ -535,17 +535,20 @@ uint32_t find_mode_chroma(const macroblock_t &original,
 
 		uint32_t cost = 0;
 		cost += predict_chroma(original.chroma_u, mode,
-				top.get_chroma_u(), left.get_chroma_u(), &prediction_u);
+				top.get_chroma_u(), left.get_chroma_u(), i == 0 ? &predicted->chroma_u : &prediction_u);
 		cost += predict_chroma(original.chroma_v, mode,
-				top.get_chroma_v(), left.get_chroma_v(), &prediction_v);
+				top.get_chroma_v(), left.get_chroma_v(), i == 0 ? &predicted->chroma_v : &prediction_v);
 
 		if (cost < pred_cost)
 		{
 			pred_cost = cost;
 			*predicted_mode = mode;
 
-			memcpy((void*)&predicted->chroma_u, (void*)&prediction_u, sizeof(chroma_block_t));
-			memcpy((void*)&predicted->chroma_v, (void*)&prediction_v, sizeof(chroma_block_t));
+			if (i != 0)
+			{
+				memcpy((void *)&predicted->chroma_u, (void *)&prediction_u, sizeof(chroma_block_t));
+				memcpy((void *)&predicted->chroma_v, (void *)&prediction_v, sizeof(chroma_block_t));
+			}
 		}
 	}
 

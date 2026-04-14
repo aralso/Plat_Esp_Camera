@@ -102,9 +102,12 @@ void encodeP()
       600,    // height
       30,     // quality
       1,      // frame_count
-      1       // frequency
+      1,       // frequency
+      nullptr,
+      1
     };
-    encode_lpc(settings);
+    //encode_lpc(settings);
+    encode_lpc2(settings, nullptr, 0, "/sd/lpc_test.jpg");
   }
 }
 
@@ -122,7 +125,7 @@ bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h) {
     return false;
 }
 
-uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize)
+uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize, uint16_t quality)
 {
     // recuperation de l w et h de l'image source.
     uint16_t w = 0, h = 0;
@@ -163,7 +166,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     int new_w = newsize;
     int new_h = newsize * h/w;
 
-    if (new_w >= w)
+    if (new_w > w)
     {
         Serial.printf("ce n'est pas une reduction: actuel:%d new: %d\n", w, new_w);
         free(rgb_buf);
@@ -178,12 +181,13 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         return 6;
     }
 
-    // --- 5. resize simple (nearest neighbor) ---
+      // --- 5. resize simple (nearest neighbor) ---
     for (int y = 0; y < new_h; y++) {
+        vTaskDelay(1);
         for (int x = 0; x < new_w; x++) {
 
             int src_x = x * w / new_w;
-            int src_y = y * h / new_h;
+            int src_y = (h - 1) - (y * h / new_h);  // 🔥 inversion ici
 
             memcpy(
                 &rgb_small[(y * new_w + x) * 3],
@@ -200,7 +204,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     size_t jpg_len = 0;
 
     if (!fmt2jpg(rgb_small, new_w * new_h * 3, new_w, new_h,
-                 PIXFORMAT_RGB888, 80, &jpg_out, &jpg_len)) {
+                 PIXFORMAT_RGB888, quality, &jpg_out, &jpg_len)) {
 
         Serial.println("JPEG encode failed");
         free(rgb_small);

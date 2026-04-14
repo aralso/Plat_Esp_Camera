@@ -19,9 +19,7 @@
 #define JPGE_VERBOSE 0
 
 #define heap_caps_malloc(a, b) malloc(a)
-#ifndef IRAM_ATTR
-        #define IRAM_ATTR
-#endif
+#define IRAM_ATTR
 
 template<typename... Types>
 static inline void ESP_LOGE(const char *tag, Types... types)

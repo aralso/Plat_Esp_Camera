@@ -17,6 +17,7 @@ uint8_t renameFile(fs::FS &fs, const char *path1, const char *path2);
 uint8_t deleteFile(fs::FS &fs, const char *path);
 uint8_t server_routes_SDCARD();
 uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len);
+uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1);
 
 
 #endif

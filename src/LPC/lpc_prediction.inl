@@ -1,148 +1,13 @@
 #include "lpc.h"
 
-// Ideally turn that on but increases size currently
-#define USE_PRED_MODE 0
-
-#if USE_PRED_MODE
-#define PRED_ENCODE(x) x
-#define PRED_DECODE(x) x
-#else
-#define PRED_ENCODE(x) (match_pred = false)
-#define PRED_DECODE(x) false
-#endif
-
-struct predicted_macroblock_t
-{
-	macroblock_t mb;
-	union
-	{
-		intra_mode_t modes_luma[LUMA_BLOCK_COUNT*LUMA_BLOCK_COUNT]; // 4x4
-		intra_mode_t mode_luma; // 16x16
-	};
-	intra_mode_t mode_chroma;
-
-	mb_type_t type;
-	uint8_t qp, qpc;
-	uint32_t cost_threshold;
-
-	// Intra mode selection
-	void select_intra_modes(const macroblock_t &orig,
-			const neighbour_t &top, const neighbour_t &left);
-
-	void predict(const neighbour_t &top, const neighbour_t &left);
-
-	// IO
-	static const int LUMA_4x4_MODE_BITS = 2;
-	static const int LUMA_16x16_MODE_BITS = 2;
-	static const int CHROMA_MODE_BITS = 2;
-
-	void encode_mode(lpc_cabac_t *cabac, intra_mode_t mode, int bit_count)
-	{
-		LPC_ASSERT((mode & ~((1 << bit_count) - 1)) == 0);
-
-		for (int b = 0; b < bit_count; b++)
-			cabac->encode_bit(mode & (1 << b));
-	}
-
-	intra_mode_t decode_mode(lpc_cabac_t *cabac, int bit_count)
-	{
-		int mode = 0;
-		for (int b = 0; b < bit_count; b++)
-			mode |= cabac->decode_bit() << b;
-		return (intra_mode_t)mode;
-	}
-
-	void encode_modes(lpc_cabac_t *cabac, const neighbour_ctx_t &neighbours)
-	{
-		bool is_4x4 = type == MB_TYPE_4x4 ? true : false;
-		cabac->encode_bit(is_4x4);
-
-		// Luma
-		if (is_4x4)
-		{
-			for (int i = 0; i < LUMA_BLOCK_COUNT; i++)
-			for (int j = 0; j < LUMA_BLOCK_COUNT; j++)
-			{
-				int idx = i * LUMA_BLOCK_COUNT + j;
-				intra_mode_t mode = modes_luma[idx];
-
-				bool match_pred = (mode == neighbours.get_predicted_luma_mode(i, j));
-				LPC_DEBUG_ONLY(STATS->num_block_match_pred[STAT_LUMA_4x4] += match_pred);
-				PRED_ENCODE(cabac->encode_bit(!match_pred));
-
-				if (!match_pred)
-					encode_mode(cabac, mode, LUMA_4x4_MODE_BITS);
-			}
-		}
-		else // 16x16
-		{
-			bool match_pred = (mode_luma == neighbours.get_predicted_luma_mode(0, 0));
-			LPC_DEBUG_ONLY(STATS->num_block_match_pred[STAT_LUMA_16x16] += match_pred);
-			PRED_ENCODE(cabac->encode_bit(!match_pred));
-
-			if (!match_pred)
-				encode_mode(cabac, mode_luma, LUMA_16x16_MODE_BITS);
-		}
-
-		// Chroma
-		{
-			bool match_pred = (mode_chroma == neighbours.get_predicted_chroma_mode());
-			LPC_DEBUG_ONLY(STATS->num_block_match_pred[STAT_CHROMA] += match_pred);
-			PRED_ENCODE(cabac->encode_bit(!match_pred));
-
-			if (!match_pred)
-				encode_mode(cabac, mode_chroma, CHROMA_MODE_BITS);
-		}
-	}
-
-	void decode_modes(lpc_cabac_t *cabac, const neighbour_ctx_t &neighbours)
-	{
-		bool is_4x4 = cabac->decode_bit();
-		type = is_4x4 ? MB_TYPE_4x4 : MB_TYPE_16x16;
-
-		// Luma
-		if (is_4x4)
-		{
-			for (int i = 0; i < LUMA_BLOCK_COUNT; i++)
-			for (int j = 0; j < LUMA_BLOCK_COUNT; j++)
-			{
-				int idx = i * LUMA_BLOCK_COUNT + j;
-
-				bool match_pred = PRED_DECODE(cabac->decode_bit() == 0);
-				if (match_pred)
-					modes_luma[idx] = neighbours.get_predicted_luma_mode(i, j);
-				else
-					modes_luma[idx] = decode_mode(cabac, LUMA_4x4_MODE_BITS);
-			}
-		}
-		else // 16x16
-		{
-			bool match_pred = PRED_DECODE(cabac->decode_bit() == 0);
-			if (match_pred)
-				mode_luma = neighbours.get_predicted_luma_mode(0, 0);
-			else
-				mode_luma = decode_mode(cabac, LUMA_16x16_MODE_BITS);
-		}
-
-		// Chroma
-		{
-			bool match_pred = PRED_DECODE(cabac->decode_bit() == 0);
-			if (match_pred)
-				mode_chroma = neighbours.get_predicted_chroma_mode();
-			else
-				mode_chroma = decode_mode(cabac, CHROMA_MODE_BITS);
-		}
-	}
-
-	LPC_DEBUG_ONLY(void print() const);
-};
-
 /// MODE SELECTION
 
-void find_mode_luma_blocks(const macroblock_t &orig,
+inline uint32_t find_mode_luma_blocks(const macroblock_t &orig,
 		const uint8_t *top, const uint8_t *left,
 		predicted_macroblock_t *predicted)
 {
+	uint32_t total_cost = 0;
+
 	for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
 	{
 		for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
@@ -158,46 +23,41 @@ void find_mode_luma_blocks(const macroblock_t &orig,
 
 			uint32_t pred_cost = find_mode_luma_4x4(block,
 					block_top, block_left, pred_block, pred_mode);
-
-			#ifdef LPC_DEBUG
-			if (STATS && pred_cost < predicted->cost_threshold)
-				STATS->num_block_below_threshold[STAT_LUMA_4x4]++;
-			#endif
+			total_cost += pred_cost;
 		}
 	}
+
+	return total_cost;
 }
 
-void predicted_macroblock_t::select_intra_modes(const macroblock_t &orig,
-		const neighbour_t &top, const neighbour_t &left)
+void predicted_macroblock_t::select_intra_modes(const macroblock_t &orig, const neighbour_ctx_t &neighbours)
 {
-	// Evaluate 16x16 cost
+	const neighbour_t &top = neighbours.top;
+	const neighbour_t &left = neighbours.left;
+
+	// Luma 16x16
 	{
 		const uint8_t *orig_luma = (uint8_t*)orig.luma;
 		uint8_t *predicted_luma = (uint8_t*)mb.luma;
 		uint32_t cost_16x16 = find_mode_luma_16x16(orig_luma,
-				top.get_luma(), left.get_luma(), predicted_luma, &mode_luma);
+				top.get_luma(), left.get_luma(),
+				predicted_luma, &mode_luma);
 
-		#ifdef LPC_DEBUG
-		if (STATS && cost_16x16 < cost_threshold)
-			STATS->num_block_below_threshold[STAT_LUMA_16x16]++;
-		#endif
-
-		//cost_16x16 = -1; // Force MB_TYPE_4x4
-		//cost_16x16 = 0; // Force MB_TYPE_16x16
-		type = cost_16x16 > 50 * qp ? MB_TYPE_4x4 : MB_TYPE_16x16;
+		type = (cost_16x16 > 200 * uint32_t(qp)) ? MB_TYPE_4x4 : MB_TYPE_16x16;
+		//type = MB_TYPE_4x4;
+		//type = MB_TYPE_16x16;
 	}
 
+	// Luma 4x4
 	if (type == MB_TYPE_4x4)
 	{
 		find_mode_luma_blocks(orig, top.get_luma(), left.get_luma(), this);
 	}
 
-	uint32_t cost_chroma = find_mode_chroma(orig, top, left, &mb, &mode_chroma);
-
-	#ifdef LPC_DEBUG
-	if (STATS && cost_chroma < cost_threshold)
-		STATS->num_block_below_threshold[STAT_CHROMA]++;
-	#endif
+	// Chroma
+	{
+		uint32_t cost_chroma = find_mode_chroma(orig, top, left, &mb, &mode_chroma);
+	}
 }
 
 /// INTRA PREDICTION
@@ -221,8 +81,11 @@ void predict_luma_blocks(const intra_mode_t *modes,
 	}
 }
 
-void predicted_macroblock_t::predict(const neighbour_t &top, const neighbour_t &left)
+void predicted_macroblock_t::predict(const neighbour_ctx_t &neighbours)
 {
+	const neighbour_t &top = neighbours.top;
+	const neighbour_t &left = neighbours.left;
+
 	if (type == MB_TYPE_16x16)
 	{
 		uint8_t *block = (uint8_t*)mb.luma;
@@ -239,88 +102,253 @@ void predicted_macroblock_t::predict(const neighbour_t &top, const neighbour_t &
 			&mb.chroma_v);
 }
 
-/// NEIGHBOUR UPDATE
+/// ADAPTIVE QP
 
-void neighbour_ctx_t::update_data(const predicted_macroblock_t &predicted)
+uint32_t compute_variance(const luma_block_t &block)
 {
-	const macroblock_t &mb = predicted.mb;
+	uint32_t mean = 0;
+	uint32_t var = 0;
 
-	// Update corner data that might have been skipped
-	// See comments below
-	if (left.valid && top.valid)
+	// TODO: do we have the precision to do it in 1 pass ?
+
+	// Compute mean
+	for (int i = 0; i < LUMA_BLOCK_SIZE*LUMA_BLOCK_SIZE; i++)
+		mean += block.Y[i];
+	mean /= (LUMA_BLOCK_SIZE*LUMA_BLOCK_SIZE);
+
+	// Compute variance
+	for (int i = 0; i < LUMA_BLOCK_SIZE*LUMA_BLOCK_SIZE; i++)
 	{
-		left.luma[-1] = left_luma[0];
-		left.chroma_u[-1] = left_chroma_u[0];
-		left.chroma_v[-1] = left_chroma_v[0];
+		int32_t diff = (int32_t)block.Y[i] - mean;
+		var += diff * diff;
 	}
 
+	return var / (LUMA_BLOCK_SIZE*LUMA_BLOCK_SIZE);
+}
+
+uint32_t compute_variance(const macroblock_t &mb)
+{
+	uint32_t var = 0;
+	for (int b = 0; b < LUMA_BLOCK_COUNT*LUMA_BLOCK_COUNT; b++)
+		var += compute_variance(mb.luma[b]);
+
+	return var / (LUMA_BLOCK_COUNT*LUMA_BLOCK_COUNT);
+}
+
+int compute_qp_delta(const macroblock_t &mb, float log_var_avg)
+{
+	float bias = 0.0f;
+	uint32_t variance = compute_variance(mb);
+	float log_var = logf(variance + 1.0f) - bias;
+
+	// Only increase quantization when we are below the avg variance
+	if (log_var >= log_var_avg)
+		return 0;
+
+	float strength = 5.0f;
+	return int((log_var_avg - log_var) * strength);
+}
+
+void predicted_macroblock_t::set_qp_delta(int8_t value)
+{
+#if LPC_ADAPTIVE_QP
+	qp_delta = min(max(-26, (int)value), 25);
+	qp_delta = min(max(0, (int)qp + qp_delta), QP_MAX) - qp;
+
+	LPC_ASSERT((int)qp + qp_delta >= 0);
+	LPC_ASSERT((int)qp + qp_delta <= QP_MAX);
+	qp += qp_delta;
+#endif
+}
+
+/// RESIDUALS
+
+void predicted_macroblock_t::build_residuals(const macroblock_t &orig, mb_residuals_t *residuals) const
+{
 	// Luma
-	for (int i = 0; i < MB_SIZE; i++)
+	if (type == MB_TYPE_4x4)
 	{
-		int block_i = i / 4;
-		int pos_i = i % 4;
-
-		// Data
-		if (left.valid && i == MB_SIZE - 1)
+		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
 		{
-			// This will be used as corner data for the next macroblock
-			// so don't overwrite it, but cache the value
-			left_luma[0] = mb.luma[3*4+block_i].Y[3*4+pos_i];
-
-			// Also make it available from the top row
-			top.luma[-1] = left.luma[i];
-		}
-		else
-		{
-			left.luma[i] = mb.luma[3*4+block_i].Y[3*4+pos_i];
-		}
-
-		top.luma[i] = mb.luma[block_i*4+3].Y[pos_i*4+3];
-
-		// Modes
-		if (predicted.type == MB_TYPE_4x4)
-		{
-			for (int b = 0; b < LUMA_BLOCK_COUNT; b++)
+			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
 			{
-				left.modes_luma[b] = predicted.modes_luma[b];
-				top.modes_luma[b] = predicted.modes_luma[b];
+				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
+				auto &block = orig.luma[block_idx];
+				auto *pred_block = &mb.luma[block_idx];
+
+				// Compute the residuals
+				for (int i = 0; i < 4 * 4; i++)
+					residuals->luma[block_idx].val[i] = block.Y[i] - pred_block->Y[i];
+
+				residuals->luma[block_idx].transform();
+				residuals->luma[block_idx].quantize(qp);
 			}
 		}
-		else
+	}
+	else // 16x16
+	{
+		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
 		{
-			for (int b = 0; b < LUMA_BLOCK_COUNT; b++)
+			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
 			{
-				left.modes_luma[b] = predicted.mode_luma;
-				top.modes_luma[b] = predicted.mode_luma;
+				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
+				auto &block = orig.luma[block_idx];
+				auto *pred_block = &mb.luma[block_idx];
+
+				// Compute the residuals
+				for (int i = 0; i < 4 * 4; i++)
+					residuals->luma[block_idx].val[i] = block.Y[i] - pred_block->Y[i];
+
+				// Transform and move DC to their own block
+				residuals->luma[block_idx].transform();
+				residuals->luma_dc.val[block_idx] = residuals->luma[block_idx].val[0];
+				residuals->luma[block_idx].quantize(qp);
+			}
+		}
+
+		residuals->luma_dc.dc_transform();
+		residuals->luma_dc.dc_quantize(qp);
+	}
+
+	// Chroma
+	{
+		uint8_t qpc = cst::compute_qp_chroma(qp + qp_chroma_offset);
+
+		for (int block_i = 0; block_i < 2; block_i++)
+		{
+			for (int block_j = 0; block_j < 2; block_j++)
+			{
+				int block_idx = block_i * 2 + block_j;
+				int block_offset = (block_i * 4) * 8 + (block_j * 4);
+
+				// Compute the residuals
+				for (int i = 0; i < 4; i++)
+				{
+					for (int j = 0; j < 4; j++)
+					{
+						int c_idx = block_offset + i * 8 + j;
+						int r_idx = i * 4 + j;
+
+						int orig_u = orig.chroma_u.C[c_idx];
+						int pred_u = mb.chroma_u.C[c_idx];
+						residuals->chroma_ac[0][block_idx].val[r_idx] = orig_u - pred_u;
+
+						int orig_v = orig.chroma_v.C[c_idx];
+						int pred_v = mb.chroma_v.C[c_idx];
+						residuals->chroma_ac[1][block_idx].val[r_idx] = orig_v - pred_v;
+					}
+				}
+
+				for (int plane = 0; plane < 2; plane++)
+				{
+					// Transform and move DC to their own block
+					residuals->chroma_ac[plane][block_idx].transform();
+					residuals->chroma_dc[plane].val[block_idx] = residuals->chroma_ac[plane][block_idx].val[0];
+					residuals->chroma_ac[plane][block_idx].quantize(qpc);
+				}
+			}
+		}
+
+		for (int plane = 0; plane < 2; plane++)
+		{
+			residuals->chroma_dc[plane].transform();
+			residuals->chroma_dc[plane].quantize(qpc);
+		}
+	}
+}
+
+void predicted_macroblock_t::add_residuals(mb_residuals_t &residuals)
+{
+	// Luma
+	if (type == MB_TYPE_4x4)
+	{
+		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+		{
+			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+			{
+				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
+				auto &block = mb.luma[block_idx];
+				auto &resid = residuals.luma[block_idx];
+
+				// Inverse transform
+				resid.inverse_quantize(qp);
+				resid.inverse_transform();
+
+				// Add residuals to prediction
+				for (int i = 0; i < 4 * 4; i++)
+					block.Y[i] = clamp8(block.Y[i] + resid.val[i]);
+			}
+		}
+	}
+	else // 16x16
+	{
+		// Dequantize
+		residuals.luma_dc.dc_inverse_quantize(qp);
+		residuals.luma_dc.dc_inverse_transform();
+
+		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+		{
+			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+			{
+				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
+				auto &block = mb.luma[block_idx];
+				auto &resid = residuals.luma[block_idx];
+
+				// Restore the DC and transform
+				resid.inverse_quantize(qp);
+				resid.val[0] = residuals.luma_dc.val[block_idx];
+				resid.inverse_transform();
+
+				// Add residuals to prediction
+				for (int i = 0; i < 4 * 4; i++)
+					block.Y[i] = clamp8(block.Y[i] + resid.val[i]);
 			}
 		}
 	}
 
 	// Chroma
-	for (int i = 0; i < MB_SIZE/2; i++)
 	{
-		// Data
-		if (left.valid && i == (MB_SIZE/2) - 1)
-		{
-			left_chroma_u[0] = mb.chroma_u.C[7*8+i];
-			left_chroma_v[0] = mb.chroma_v.C[7*8+i];
+		uint8_t qpc = cst::compute_qp_chroma(qp + qp_chroma_offset);
 
-			top.chroma_u[-1] = left.chroma_u[i];
-			top.chroma_v[-1] = left.chroma_v[i];
-		}
-		else
+		for (int plane = 0; plane < 2; plane++)
 		{
-			left.chroma_u[i] = mb.chroma_u.C[7*8+i];
-			left.chroma_v[i] = mb.chroma_v.C[7*8+i];
+			residuals.chroma_dc[plane].inverse_quantize(qpc);
+			residuals.chroma_dc[plane].inverse_transform();
 		}
 
-		top.chroma_u[i] = mb.chroma_u.C[i*8+7];
-		top.chroma_v[i] = mb.chroma_v.C[i*8+7];
+		for (int block_i = 0; block_i < 2; block_i++)
+		{
+			for (int block_j = 0; block_j < 2; block_j++)
+			{
+				int block_idx = block_i * 2 + block_j;
+				int block_offset = (block_i * 4) * 8 + (block_j * 4);
 
-		// Modes
-		*left.mode_chroma = predicted.mode_chroma;
-		*top.mode_chroma = predicted.mode_chroma;
+				// Restore the DC and transform
+				for (int plane = 0; plane < 2; plane++)
+				{
+					auto &resid = residuals.chroma_ac[plane][block_idx];
+
+					resid.inverse_quantize(qpc);
+					resid.val[0] = residuals.chroma_dc[plane].val[block_idx];
+					resid.inverse_transform();
+				}
+
+				// Add residuals to prediction
+				for (int i = 0; i < 4; i++)
+				{
+					for (int j = 0; j < 4; j++)
+					{
+						int c_idx = block_offset + i * 8 + j;
+						int r_idx = i * 4 + j;
+
+						int resid_u = residuals.chroma_ac[0][block_idx].val[r_idx];
+						mb.chroma_u.C[c_idx] = clamp8(mb.chroma_u.C[c_idx] + resid_u);
+
+						int resid_v = residuals.chroma_ac[1][block_idx].val[r_idx];
+						mb.chroma_v.C[c_idx] = clamp8(mb.chroma_v.C[c_idx] + resid_v);
+					}
+				}
+			}
+		}
 	}
-
-	top.validate();
 }

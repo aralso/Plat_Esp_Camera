@@ -17,9 +17,14 @@
 //#include "header.h"
 //#include "esp_jpg_decode.h"
 
-uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize);
+uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize, uint16_t quality);
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);
-uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_buf, size_t jpg_len, const char*path1);
+uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1);
+uint8_t encode_lpc3(const lpc_settings_t &settings);
+
+char path_c[128];
+uint16_t qual_encod = 30;
+
 
 // HTML page for SD explorer
 const char sd_explorer_html[] PROGMEM = R"rawliteral(
@@ -46,8 +51,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
         .delete-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FF0000" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>') no-repeat center; }
         .rename-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FFFF00" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>') no-repeat center; }
         .move-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%2300FFFF" d="M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3L5 6.99h3V14h2V6.99h3L9 3z"/></svg>') no-repeat center; }
-        .reduc-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FFFF00" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>') no-repeat center; }
-        .encod-icon { background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23FFFF00" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>') no-repeat center; }
+        .sd-icon { display: inline-block;    font-weight: bold; }
         .clickable { cursor: pointer; color: #00FFFF; }
     </style>
 </head>
@@ -96,8 +100,8 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                                 <div class="icon delete-icon action-icon" onclick="deleteItem('${item.name}', ${item.isDir})"></div>
                                 <div class="icon rename-icon action-icon" onclick="renameItem('${item.name}')"></div>
                                 <div class="icon move-icon action-icon" onclick="moveItem('${item.name}')"></div>
-                                <div class="icon reduc-icon action-icon" onclick="reducItem('${item.name}')"></div>
-                                <div class="icon encod-icon action-icon" onclick="encodItem('${item.name}')"></div>
+                                <div class="icon sd-icon action-icon" onclick="reducItem('${item.name}')">R</div>
+                                <div class="icon sd-icon action-icon" onclick="encodItem('${item.name}')">E</div>
                             </td>
                         `;
                         tbody.appendChild(row);
@@ -174,17 +178,19 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
         }
 
         function reducItem(name) {
-            const Lsize = prompt('Larg size:', 500);
-            if (Lsize >=100 && Lsize <= 1200) {
+            const input = prompt('Format: largeur,qualité (ex: 800,30)', '500,30');
+            if (input) {
                 const srcPath = joinPath(currentPath, name);
-                fetch(`/setSD?action=5&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(Lsize)}`)
-                    .then(response => {
+                fetch(`/setSD?action=5&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(input)}`)
+                    .then(response => 
+                      response.text().then(text => {
                         if (response.ok) {
                             loadDirectory(currentPath);
                         } else {
-                            alert('Erreur lors de la reduction');
+                            alert("Erreur réduction : code: " + text);
                         }
-                    });
+                      })
+                    );
             }
         }
 
@@ -193,13 +199,15 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
             if (quality >=1 && quality <= 100) {
               const srcPath = joinPath(currentPath, name);
               fetch(`/setSD?action=6&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(quality)}`)
-                  .then(response => {
+                  .then(response =>
+                    response.text().then(text => {
                       if (response.ok) {
                           loadDirectory(currentPath);
                       } else {
-                          alert('Erreur lors de l\'encodage');
+                          alert("Erreur encodage : code: " + text);
                       }
-                  });
+                    })
+                  );
             }
         }
             
@@ -473,12 +481,15 @@ uint8_t deleteFile(fs::FS &fs, const char *path) {
 
 
 //1:fichier non trouve, 2;malloc pas ok, 3:size pas ok, 4:jpeg decode failed, 5:reduction not needed, 6:malloc small failed, 7:jpeg encode failed, 8:fichier non ecrit
-uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size)
+uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality)
 {
 
-    Serial.printf("Reducing file %s to width %u\n", path1, size);
+    Serial.printf("Reducing file %s to width %u quality:%u\n", path1, size, quality);
 
-
+    if ((quality>100) || (size>1600)) {
+      Serial.println("Invalid parameters");
+      return 10;
+    }
     // --- 1. ouvrir fichier source ---
     File inFile = fs.open(path1, FILE_READ);
     if (!inFile) {
@@ -487,6 +498,8 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size)
     }
 
     size_t fileSize = inFile.size();
+    Serial.printf("File size: %u\n", fileSize);
+
     uint8_t* jpg_buf = (uint8_t*)malloc(fileSize);
 
     if (!jpg_buf) {
@@ -498,51 +511,59 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size)
     inFile.read(jpg_buf, fileSize);
     inFile.close();
 
-    uint8_t res = reduc_image(fs, jpg_buf, fileSize, path1, size);
+    uint8_t res = reduc_image(fs, jpg_buf, fileSize, path1, size, quality);
     return res;
 
 }
 
-uint8_t encodeFile(fs::FS &fs, const char *path1,uint8_t quality) {
-  Serial.printf("Encoding file %s with quality %u\n", path1, quality);
+
+//uint8_t encodeFile(fs::FS &fs, const char *path1,uint8_t quality) {
+uint8_t encodeFile()
+{
+
+  Serial.printf("Encoding file %s with quality %i\n", path_c, qual_encod);
 
       // --- 1. ouvrir fichier source ---
-    File inFile = fs.open(path1, FILE_READ);
+    File inFile = SD_MMC.open(path_c, FILE_READ);
     if (!inFile) {
         Serial.println("Failed to open input file");
         return 1;
     }
 
     size_t fileSize = inFile.size();
-    uint8_t* jpg_buf = (uint8_t*)malloc(fileSize);
+    uint8_t* jpg_bu = (uint8_t*)malloc(fileSize);
 
-    if (!jpg_buf) {
+    if (!jpg_bu) {
         Serial.println("Malloc failed");
         inFile.close();
         return 2;
     }
 
-    inFile.read(jpg_buf, fileSize);
+    inFile.read(jpg_bu, fileSize);
     inFile.close();
 
   // recuperation de l w et h de l'image source.
   uint16_t w = 0, h = 0;
 
-  if (!getJpegSize(jpg_buf, fileSize, w, h)) {
+  if ((!getJpegSize(jpg_bu, fileSize, w, h)) || (w<50) || (h<50) || (w>2500) || (h>2000)) {
       Serial.println("Failed to read JPEG size");
-      free(jpg_buf);
+      free(jpg_bu);
       return 3;
   }
+  free(jpg_bu);
 
   lpc_settings_t settings = {
       w,    // width
       h,    // height
-      quality,     // quality
+      qual_encod,     // quality
       1,      // frame_count
-      1       // frequency
+      1,       // frequency
+      path_c,
+      1  // 1:encode
     };
 
-    uint8_t res = encode_lpc2(settings, jpg_buf, fileSize, path1);
+    //uint8_t res = encode_lpc2(settings, jpg_bu, fileSize, path_c);
+    uint8_t res = encode_lpc3(settings);
 
   /*if (fs.rename(path1, path2)) {
     Serial.println("File renamed");
@@ -795,9 +816,27 @@ void server_routes_SDCARD()
     } else if (action == 4) { // Move (rename with path)
       result = renameFile(fs, path.c_str(), out.c_str());
     } else if (action == 5) { // reduc size et enregistre new image
-      result = reducFile(fs, path.c_str(), out.toInt());
+        String out = request->getParam("out")->value();
+
+        int size = 0;
+        int quality = 0;
+
+        if (sscanf(out.c_str(), "%d,%d", &size, &quality) != 2) {
+            Serial.println("Format invalide");
+            return;
+        }      
+      result = reducFile(fs, path.c_str(), size, quality);
     } else if (action == 6) { // encode lpc et enregistre new image
-      result = encodeFile(fs, path.c_str(), out.toInt());
+      strncpy(path_c, path.c_str(), sizeof(path_c));
+      path_c[sizeof(path_c) - 1] = '\0';  // carac final
+      qual_encod = out.toInt();
+      systeme_eve_t evt = { EVENT_ENCODE_LPC, 0 }; 
+      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+      {
+        if (erreur_queue<5) num_err_queue[erreur_queue]=3;
+        erreur_queue++;
+      }
+      result = 0;
     } else {
       request->send(400, "text/plain", "Invalid action");
       return;
@@ -826,23 +865,17 @@ uint8_t sd_init()
         Serial.println("Pin change failed!");
         return 1;
     }
-    delay(100);
+    //delay(50);
     
-    Serial.println("AAA");
-    delay(1000);
 
 
   if (!SD_MMC.begin("/sdcard", true)) {
       Serial.println("Card Mount Failed");
       return 2;
   }
-    Serial.println("BBB");
-    delay(1000);
 
   uint8_t cardType = SD_MMC.cardType();
 
-    Serial.println("CCC");
-    delay(1000);
 
   if (cardType == CARD_NONE) {
     Serial.println("No SD_MMC card attached");

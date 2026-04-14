@@ -8,6 +8,7 @@
 #include <string>
 
 #include "helpers.h"
+//#include "mjpegw.h"
 
 #include "lpc.h"
 #include "FS.h"
@@ -15,53 +16,71 @@
 #include "SDMMC.h"
 
 #include "variables.h"
-
 /// FILE STREAMS
 
-#if ESP32
-	struct filestream_t : public lpc_stream_out_t
-	{
-		File file;
-		filestream_t(fs::FS &fs, const char *path)
-		{
-			file = fs.open(path, FILE_APPEND);
-			assert(file);  // Vérifie que le fichier s'est bien ouvert
-		}
-		~filestream_t()
-		{
-			file.close();  // Ferme le fichier à la destruction de l'objet
-		}
-		void write(const uint8_t *data, size_t size) override
-		{
-			file.write(data, size);  // Écrit les données dans le fichier
-		}
-	};
-#else
-	struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
-	{
-		FILE *file;
-		filestream_t(const char *path, const char *mode) { file = fopen(path, mode); }
-		~filestream_t() { fclose(file); }
+struct jpeg_reader_t : public lpc_stream_in_t
+{
+File file;
+jpeg_reader_t(fs::FS &fs, const char *path)
+{
+file = fs.open(path, FILE_READ);
+assert(file);
+}
+~jpeg_reader_t()
+{
+file.close();
+}
+size_t read(uint8_t *data, size_t size) override
+{
+return file.read(data, size);
+}
+};
 
-		#if 1
-		size_t read(uint8_t *data, size_t size) override { return fread(data, 1, size, file); }
-		void write(const uint8_t *data, size_t size) override { fwrite(data, 1, size, file); }
-		#else
-		size_t read(uint8_t *data, size_t size) override
-		{
-			for (int i = 0, value; i < size; i++)
-				data[i] = (fscanf(file, "%d", &value), value);
-			fscanf(file, "\n");
-			return size;
-		}
-		void write(const uint8_t *data, size_t size) override
-		{
-			for (int i = 0; i < size; i++)
-				fprintf(file, "%d ", data[i]);
-			fprintf(file, "\n");
-		}
-		#endif
-	};
+
+#if ESP32
+struct filestream_t : public lpc_stream_out_t
+{
+	File file;
+	filestream_t(fs::FS &fs, const char *path)
+	{
+		file = fs.open(path, FILE_APPEND);
+		assert(file);
+	}
+	~filestream_t()
+	{
+		file.close();
+	}
+	void write(const uint8_t *data, size_t size) override
+	{
+		file.write(data, size);
+	}
+};
+#else
+struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
+{
+	FILE *file;
+	filestream_t(const char *path, const char *mode) { file = fopen(path, mode); }
+	~filestream_t() { fclose(file); }
+
+	#if 1
+	size_t read(uint8_t *data, size_t size) override { return fread(data, 1, size, file); }
+	void write(const uint8_t *data, size_t size) override { fwrite(data, 1, size, file); }
+	#else
+	size_t read(uint8_t *data, size_t size) override
+	{
+		for (int i = 0, value; i < size; i++)
+			data[i] = (fscanf(file, "%d", &value), value);
+		fscanf(file, "\n");
+		return size;
+	}
+	void write(const uint8_t *data, size_t size) override
+	{
+		for (int i = 0; i < size; i++)
+			fprintf(file, "%d ", data[i]);
+		fprintf(file, "\n");
+	}
+	#endif
+};
 #endif
 
 /// CONSOLE CONTROLS
@@ -98,7 +117,7 @@ const int g_exit 			= 1 << 31;
 	return actions;
 }*/
 
-uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_buf, size_t jpg_len, const char*path1)
+uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1)
 {
 
 	const char *output_path = "/test/test.lpc";
@@ -108,78 +127,249 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_buf, size_t jp
 			SD_MMC.remove(output_path);
 	}			
 	filestream_t stream(SD_MMC, output_path);
+	Serial.println("EnAAA");
 	lpc_encoder_t encoder;
 	encoder.open(settings, &stream);
+	Serial.printf("Encodage width=%d height=%d quality=%d\n", settings.width, settings.height, settings.quality);
 
-
-    // --- 2. décoder JPEG → RGB ---
+	// --- 2. décoder JPEG → RGB ---
     uint8_t* rgb_buf = NULL;
     size_t rgb_len;
 
 	// alloc RGB888
 	rgb_len = (size_t)settings.width * (size_t)settings.height * 3 * sizeof(uint8_t);
 	rgb_buf = (uint8_t*)malloc(rgb_len);
+	Serial.println("EnCCC");
 	if (rgb_buf) 
 		memset(rgb_buf, 0, rgb_len);
     else {
-      free(jpg_buf);
+      free(jpg_bu);
+	  encoder.close();
       return 9;
     }
 
-    if (!fmt2rgb888(jpg_buf, jpg_len, PIXFORMAT_JPEG, rgb_buf)) {
+    if (!fmt2rgb888(jpg_bu, jpg_len, PIXFORMAT_JPEG, rgb_buf)) {
         Serial.println("JPEG decode failed");
-        free(jpg_buf);
+        free(jpg_bu);
         free(rgb_buf);
-        return 4;
+		encoder.close();
+		return 4;
     }
-    free(jpg_buf);
+	Serial.println("EnDDD");
+    free(jpg_bu);
 
 
 
 	encoder.encode_frame(rgb_buf);
+	Serial.println("EnEEE");
 	encoder.close();
 	Serial.println("Encoding done");
+	free(rgb_buf);
 	printMemoryStatus();
 
 	return 0;
 }
 
-/// MAIN LOOP
-int encode_lpc(const lpc_settings_t &settings)
+uint8_t encode_lpc3(const lpc_settings_t &settings)
 {
-	int type = IMG_NORMAL;
-	uint32_t img_count = (type == IMG_NORMAL) ? 14 : 12;
 	const char *output_path = "/test/test.lpc";
-	//Serial.printf("1. Run encoder  quality=%d, frame_count=%d\n", settings.quality, settings.frame_count);
 	if (SD_MMC.exists(output_path)) {
 			Serial.println("suppression du fichier de sortie existant");
 			SD_MMC.remove(output_path);
 	}			
+
+	Serial.printf("Encodage width=%d height=%d quality=%d\n", settings.width, settings.height, settings.quality);
+
 	filestream_t stream(SD_MMC, output_path);
+	Serial.printf("AAA\n");
+	jpeg_reader_t jpeg(SD_MMC, settings.path);   // lecture
+	Serial.printf("BBB\n");
 	lpc_encoder_t encoder;
 	encoder.open(settings, &stream);
-	printMemoryStatus();
+	Serial.printf("CCC\n");
 
-	for (uint32_t i = 0; i < settings.frame_count; ++i)
-	{
-		Serial.printf("Encoding image %u/%u\n", i+1, settings.frame_count);
-
-		img_data_t img_rgb(get_img(i, type));
-		Serial.printf("image: %s\n", img_rgb.name);
-		printMemoryStatus();
-		if (!img_rgb.valid) {
-			Serial.println("Image invalide");
-			encoder.close();
-			return 1;
-		}
-		Serial.printf("Image size: %d x %d\n", img_rgb.w, img_rgb.h);
-		encoder.encode_frame(img_rgb.bytes);
-		Serial.println("Frame encoded");
-	}
-	printMemoryStatus();
-
+	encoder.encode_jpeg(&jpeg);
+	Serial.printf("DDD\n");
 	encoder.close();
-	Serial.println("Encoding done");
-	printMemoryStatus();
 	return 0;
 }
+
+/// MAIN LOOP
+
+/*int main(int argc, const char **argv)
+{
+	if (strcmp(argv[1], "decode") == 0)
+	{
+		filestream_t stream(argv[2], "rb");
+		lpc_decoder_t decoder;
+		decoder.open(&stream);
+		const lpc_settings_t settings = decoder.get_settings();
+
+		std::string output = argv[2];
+		output.replace(output.find_last_of('.'), std::string::npos, ".avi");
+		struct mjpegw_context *avi = mjpegw_open(output.c_str(), settings.width, settings.height, settings.frequency, NULL);
+		{
+
+			img_data_t img_rgb(settings.width, settings.height);
+			for (int i = 0; i < settings.frame_count; i++)
+			{
+				decoder.decode_frame(img_rgb.bytes);
+
+				mjpegw_add_frame(avi, img_rgb.bytes, 3);
+			}
+		}
+		mjpegw_close(avi);
+	}
+
+	int type = IMG_LARGE;
+	uint32_t img_count = (type == IMG_NORMAL) ? 14 : 12;
+
+	const char *output_path = "bin/large.lpc";
+	const char *decompress_path = "bin/lpc_0.bmp";
+	lpc_settings_t settings =
+	{
+		.width = 800,
+		.height = 600,
+		.quality = (uint8_t)30,
+		.frequency = 2
+	};
+
+	int actions = 0;
+	if (argc > 1)
+	{
+		std::string cmd = argv[1];
+		for (int i = 2; i < argc; i++)
+			cmd += " " + std::string(argv[i]);
+		actions = parse_cmd(cmd.c_str(), &settings.quality);
+	}
+	bool interactive = actions == 0;
+
+	do {
+
+		while (actions == 0)
+		{
+			printf("What to do ?\n");
+			printf(" 1. Run encoder\n");
+			printf(" 2. Run decoder\n");
+			printf(" 3. Display encoding stats\n");
+			printf(" 4. Set encoding quality\n");
+			LPC_DEBUG_ONLY(printf(" 5. Run unit tests\n"));
+			LPC_DEBUG_ONLY(printf(" 6. Run encoder with procedural image\n"));
+			printf(" q. Exit\n");
+			printf(" > ");
+
+			std::string answer;
+			std::getline(std::cin, answer);
+			actions = parse_cmd(answer.c_str(), &settings.quality);
+		}
+
+		printf("\n");
+
+		if (actions & g_exit)
+		{
+			interactive = false;
+		}
+
+		if (actions & g_run_encode)
+		{
+			#if ESP32
+			filestream_t stream(fs, output_path);
+			#else
+			filestream_t stream(output_path, "wb");
+			#endif
+
+			settings.frame_count = 1;
+
+			lpc_encoder_t encoder;
+			encoder.open(settings, &stream);
+
+			for (uint32_t i = 0; i < settings.frame_count; ++i)
+			{
+				filestream_t jpeg(get_img(i, type), "rb");
+				encoder.encode_jpeg(&jpeg);
+
+				#ifdef LPC_DEBUG
+				if (actions & g_display_stats)
+					encoder.stats.print();
+				#endif
+			}
+
+			encoder.close();
+		}
+
+		#if ESP32 == 0
+		if (actions & g_run_decode)
+		{
+			printf("\n>>>>> Decoding %s\n", output_path);
+
+			filestream_t stream(output_path, "rb");
+
+			lpc_decoder_t decoder;
+			decoder.open(&stream);
+
+			{
+				img_data_t img_rgb(settings.width, settings.height);
+				decoder.decode_frame(img_rgb.bytes);
+
+				img_rgb.dump_bmp(decompress_path);
+			}
+		}
+		#endif
+
+		#ifdef LPC_DEBUG
+		if (actions & g_run_unit_tests)
+		{
+			lpc_unit_tests::run();
+		}
+		#endif
+
+		if (actions & g_procedural_img)
+		{
+			{
+				img_data_t img_rgb(settings.width, settings.height);
+
+				filestream_t stream("bin/procedural.lpc", "wb");
+				settings.frame_count = 3;
+
+				lpc_encoder_t encoder;
+				encoder.open(settings, &stream);
+
+				for (int frame = 0; frame < settings.frame_count; frame++)
+				{
+					// Make a gradient
+					for (int i = 0; i < settings.width; i++)
+					for (int j = 0; j < settings.height; j++)
+					{
+						int idx = (i + j * settings.width) * 3;
+						img_rgb.bytes[idx + 0] = 1;
+						img_rgb.bytes[idx + 1] = 1;
+						img_rgb.bytes[idx + 2] = 1;
+						img_rgb.bytes[idx + min(frame, 3)] = i * 255 / settings.width;
+					}
+					encoder.encode_frame(img_rgb.bytes);
+				}
+
+				encoder.close();
+			}
+			{
+				filestream_t stream("bin/procedural.lpc", "rb");
+				lpc_decoder_t decoder;
+				decoder.open(&stream);
+
+				img_data_t img_rgb(settings.width, settings.height);
+				for (int frame = 0; frame < settings.frame_count; frame++)
+				{
+					decoder.decode_frame(img_rgb.bytes);
+					img_rgb.dump_bmp(("bin/procedural_" + std::to_string(frame) + ".bmp").c_str());
+				}
+			}
+		}
+
+		if (interactive)
+		{
+			actions = 0;
+			printf("\n\n");
+		}
+	}
+	while (interactive);
+}*/

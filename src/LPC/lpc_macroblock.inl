@@ -1,12 +1,15 @@
 #include "lpc.h"
 
-#define MAX_COST 0xFFFFFFFF
+#define MAX_COST(block_size) (block_size*block_size*255)
 #define BIT(mode) (1 << (int)(mode))
 
 static const int MB_SIZE = 16;
 static const int LUMA_BLOCK_COUNT = 4;
 static const int LUMA_BLOCK_SIZE = 4;
 static const int CHROMA_BLOCK_SIZE = 8;
+
+struct neighbour_ctx_t;
+struct mb_residuals_t;
 
 enum mb_type_t : uint8_t
 {
@@ -16,9 +19,9 @@ enum mb_type_t : uint8_t
 
 enum intra_mode_t : uint8_t
 {
-	INTRA_VERTICAL,
-	INTRA_HORIZONTAL,
 	INTRA_DC,
+	INTRA_HORIZONTAL,
+	INTRA_VERTICAL,
 	INTRA_PLANE,
 
 	INTRA_DIAGONAL_DOWN_LEFT,
@@ -80,6 +83,45 @@ struct macroblock_t
 	LPC_DEBUG_ONLY(void print(const char *msg = NULL, bool do_luma = true, bool do_chroma = true) const);
 	LPC_DEBUG_ONLY(void print_luma() const);
 	LPC_DEBUG_ONLY(void print_chroma(bool do_chroma_u = true, bool do_chroma_v = true) const);
+};
+
+struct predicted_macroblock_t
+{
+	macroblock_t mb;
+	union
+	{
+		// 4x4
+		intra_mode_t modes_luma[LUMA_BLOCK_COUNT*LUMA_BLOCK_COUNT];
+		// 16x16
+		struct
+		{
+			intra_mode_t mode_luma;
+			uint8_t cbp_luma;
+		};
+	};
+	intra_mode_t mode_chroma;
+	uint8_t cbp_chroma;
+
+	mb_type_t type;
+	uint8_t qp;
+	int8_t qp_delta;
+	uint8_t qp_chroma_offset;
+
+	void select_intra_modes(const macroblock_t &orig, const neighbour_ctx_t &neighbours);
+	void predict(const neighbour_ctx_t &neighbours);
+
+	void set_qp_delta(int8_t value);
+	void compute_cbp_flags(const mb_residuals_t &residuals);
+
+	void build_residuals(const macroblock_t &orig, mb_residuals_t *residuals) const;
+	void add_residuals(mb_residuals_t &residuals);
+
+	void encode_mb(const neighbour_ctx_t &neighbours, const mb_residuals_t &residuals,
+		cabac_coder_t *cabac) const;
+	void decode_mb(const neighbour_ctx_t &neighbours, mb_residuals_t *residuals,
+		cabac_coder_t *cabac);
+
+	LPC_DEBUG_ONLY(void print() const);
 };
 
 /// COST EVALUATION

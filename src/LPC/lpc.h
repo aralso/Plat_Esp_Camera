@@ -14,8 +14,12 @@
 
 #define LPC_USE_YCBCR 1
 
+#define LPC_ADAPTIVE_QP 0
+
 
 /// Debug macros
+
+#define EXTENDED_STATS 1
 
 #ifdef DEBUG
 #define LPC_DEBUG
@@ -39,6 +43,8 @@ struct lpc_settings_t
 	uint8_t quality; // [0 - 100]
 	uint8_t frame_count;
 	uint8_t frequency; // number of images per second
+	const  char* path; // input path (sur carte sd) or NULL
+	uint8_t action;  // 1:encode
 };
 
 struct lpc_stream_in_t
@@ -64,7 +70,7 @@ struct lpc_stream_in_t
 
 		if (idx == capacity)
 		{
-			capacity = read(cache, LPC_STREAM_CACHE_SIZE);
+			capacity = (uint16_t)read(cache, LPC_STREAM_CACHE_SIZE);
 			idx = 0;
 		}
 
@@ -78,13 +84,34 @@ struct lpc_stream_in_t
 	{
 		LPC_ASSERT(bit_idx == 8);
 
-		int from_cache = capacity - idx;
-		memcpy(data, cache, from_cache);
-		int bytes_read = read(data + from_cache, size - from_cache);
-		idx = capacity = 0;
-		if (bytes_read < (size - from_cache))
-			done = true;
-		return from_cache + bytes_read;
+		size_t bytes_read = 0;
+
+		while (bytes_read < size)
+		{
+			if (idx == capacity)
+			{
+				capacity = (uint16_t)read(cache, LPC_STREAM_CACHE_SIZE);
+				idx = 0;
+			}
+
+			if (idx == capacity)
+			{
+				done = true;
+				break;
+			}
+
+			uint16_t cache_size = capacity - idx;
+			uint16_t read_count = (uint16_t)(size - bytes_read);
+			if (read_count > cache_size)
+				read_count = cache_size;
+
+			if (data)
+				memcpy(data + bytes_read, cache + idx, read_count);
+			bytes_read += read_count;
+			idx += read_count;
+		}
+
+		return bytes_read;
 	}
 
 protected:
@@ -101,7 +128,7 @@ private:
 
 struct lpc_stream_out_t
 {
-	inline void flush() { write(cache, len); len = 0; }
+	inline void flush() { if (len) write(cache, len); len = 0; }
 
 	void write_bit(bool bit)
 	{
@@ -155,15 +182,25 @@ enum
 
 struct lpc_stats_t
 {
+	int num_mb_x, num_mb_y;
 	int num_macroblocks;
 
 	int num_mb_luma_4x4;
-	int num_block_below_threshold[STAT_COUNT];
-	int num_block_match_pred[STAT_COUNT];
+	int num_block_non_coded[4];
+	int num_block_match_pred;
 	int *num_block_per_intra_mode[STAT_COUNT];
+
+	float mse;
+	int qp_avg;
+	int log_var_avg;
+
+	bool has_pixel;
+	uint8_t *debug_img;
+	void set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
 
 	lpc_stats_t();
 	~lpc_stats_t();
+	void reset(int mb_x, int mb_y);
 	void print();
 };
 #endif
@@ -174,11 +211,11 @@ struct lpc_encoder_t
 	void close();
 
 	void encode_frame(const uint8_t *rgb_bytes);
+	void encode_jpeg(lpc_stream_in_t *stream_in);
 
 	LPC_DEBUG_ONLY(lpc_stats_t stats);
 
 private:
-
 	lpc_stream_out_t *stream;
 	uint16_t width;
 	uint16_t height;
@@ -192,8 +229,9 @@ struct lpc_decoder_t
 
 	void decode_frame(uint8_t *rgb_bytes);
 
-private:
+	const lpc_settings_t &get_settings() const { return settings; }
 
+private:
 	lpc_stream_in_t *stream;
 	lpc_settings_t settings;
 };
