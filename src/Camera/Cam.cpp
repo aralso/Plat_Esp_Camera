@@ -103,8 +103,6 @@ void encodeP()
       30,     // quality
       1,      // frame_count
       1,       // frequency
-      nullptr,
-      1
     };
     //encode_lpc(settings);
     encode_lpc2(settings, nullptr, 0, "/sd/lpc_test.jpg");

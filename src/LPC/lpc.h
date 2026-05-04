@@ -13,7 +13,7 @@
 #endif
 
 #define LPC_USE_YCBCR 1
-
+#define LPC_USE_CABAC 1
 #define LPC_ADAPTIVE_QP 0
 
 
@@ -43,8 +43,6 @@ struct lpc_settings_t
 	uint8_t quality; // [0 - 100]
 	uint8_t frame_count;
 	uint8_t frequency; // number of images per second
-	const  char* path; // input path (sur carte sd) or NULL
-	uint8_t action;  // 1:encode
 };
 
 struct lpc_stream_in_t
@@ -78,6 +76,11 @@ struct lpc_stream_in_t
 			done = true;
 
 		return done ? '\0' : cache[idx++];
+	}
+
+	uint16_t read_uint16()
+	{
+		return (((uint16_t)read_byte()) << 8) | (uint16_t)read_byte();
 	}
 
 	inline size_t read_bytes(uint8_t *data, size_t size)
@@ -128,7 +131,14 @@ private:
 
 struct lpc_stream_out_t
 {
-	inline void flush() { if (len) write(cache, len); len = 0; }
+	inline void flush()
+	{
+		if (len) write(cache, len);
+		if (bit_idx != 0) write(&tmp_byte, 1);
+		tmp_byte = 0;
+		bit_idx = 0;
+		len = 0;
+	}
 
 	void write_bit(bool bit)
 	{

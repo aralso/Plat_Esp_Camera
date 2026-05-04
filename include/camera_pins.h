@@ -19,7 +19,7 @@
   #define CAMERA_MODEL_AI_THINKER
 #endif
 #ifdef ESP32_S3
-  #define CAMERA_MODEL_ESP32_S3_CAM
+  #define CAMERA_MODEL_ESP32_S3_CAM  // modele petit
 #endif
 
  

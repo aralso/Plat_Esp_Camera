@@ -127,7 +127,7 @@ struct img_data_t
 		alloc();
 
 		uint8_t *jpg_cast = (uint8_t*)jpeg.c_str();
-		fmt2rgb888(jpg_cast, jpeg.size(), PIXFORMAT_JPEG, bytes);
+		fmt2rgb888(jpg_cast, jpeg.size(), PIXFORMAT_JPEG, bytes, &w, &h);
 	}
 
 	void dump_jpg(const char *path, uint8_t quality) // quality is in [1, 100]

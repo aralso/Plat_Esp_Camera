@@ -778,7 +778,7 @@ namespace lpc_unit_tests
 			encoder.encode_bypass(bit2);
 			encoder.encode_bypass(bit2);
 
-			encoder.encode_terminate(1);
+			encoder.encode_terminate(bit1);
 			stream.flush();
 		}
 
@@ -807,6 +807,8 @@ namespace lpc_unit_tests
 			assert(decoder.decode_bypass() == bit1);
 			assert(decoder.decode_bypass() == bit2);
 			assert(decoder.decode_bypass() == bit2);
+			
+			assert(decoder.decode_terminate() == bit1);
 		}
 	}
 

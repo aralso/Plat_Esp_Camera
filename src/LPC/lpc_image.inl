@@ -104,12 +104,12 @@ void macroblock_t::to_rgb(uint8_t *rgb, int width, int height, int x, int y)
 		{
 			auto &block = luma[block_i * LUMA_BLOCK_COUNT + block_j];
 
-			for (int i = 0; i < 4; i++)
+			for (int i = 0; i < LUMA_BLOCK_SIZE; i++)
 			{
-				for (int j = 0; j < 4; j++)
+				for (int j = 0; j < LUMA_BLOCK_SIZE; j++)
 				{
-					int pos_block_x = block_i * 4 + i;
-					int pos_block_y = block_j * 4 + j;
+					int pos_block_x = block_i * LUMA_BLOCK_SIZE + i;
+					int pos_block_y = block_j * LUMA_BLOCK_SIZE + j;
 
 					int pos_x = base_x + pos_block_x;
 					int pos_y = base_y + pos_block_y;
@@ -117,9 +117,9 @@ void macroblock_t::to_rgb(uint8_t *rgb, int width, int height, int x, int y)
 					if (pos_x >= width || pos_y >= height)
 						continue;
 
-					uint8_t Y = block.Y[i * 4 + j];
-					uint8_t Cb = chroma_u.C[(pos_block_x/2) * 8 + (pos_block_y/2)];
-					uint8_t Cr = chroma_v.C[(pos_block_x/2) * 8 + (pos_block_y/2)];
+					uint8_t Y = block.Y[i * LUMA_BLOCK_SIZE + j];
+					uint8_t Cb = chroma_u.C[(pos_block_x/2) * CHROMA_BLOCK_SIZE + (pos_block_y/2)];
+					uint8_t Cr = chroma_v.C[(pos_block_x/2) * CHROMA_BLOCK_SIZE + (pos_block_y/2)];
 
 					pixels[pos_x + pos_y * width].from_YCbCr(Y, Cb, Cr);
 				}
@@ -146,8 +146,9 @@ struct rgb_jpg_decoder
 
 struct JDEC
 {
-	uint32_t width, height;		/* Size of the input image (pixel) */
-	uint32_t num_mb_x, num_mb_y;
+	uint32_t in_width, in_height;	/* Size of the input image (pixel) */
+	uint32_t out_width, out_height;	/* Size of the output image (pixel) */
+	uint32_t num_mb_x, num_mb_y;	/* Size of the output image (macroblocks) */
 
 	uint32_t dctr;				/* Number of bytes available in the input buffer */
 	uint8_t* dptr;				/* Current data read ptr */
@@ -209,7 +210,6 @@ static uint32_t _jpg_write(JDEC *decoder, rgb_t *input, JRECT *rect)
 	rgb_t *pixels = (rgb_t *)out;
 	macroblock_t *macroblocks = (macroblock_t*)out;
 
-	uint32_t img_width = decoder->width;
 	for (int iy = 0; iy < h; iy++)
 	{
 		for(int ix = 0; ix < w; ix++)
@@ -217,6 +217,10 @@ static uint32_t _jpg_write(JDEC *decoder, rgb_t *input, JRECT *rect)
 			unsigned pos_x = (x + ix);
 			unsigned pos_y = (y + iy);
 			rgb_t &src = input[iy * w + ix];
+
+			// Handle resolution change
+			pos_x = min(pos_x * decoder->out_width / decoder->in_width, decoder->out_width - 1);
+			pos_y = min(pos_y * decoder->out_height / decoder->in_height, decoder->out_height - 1);
 
 			int mb_x = pos_x / MB_SIZE;
 			int mb_y = pos_y / MB_SIZE;
@@ -248,7 +252,7 @@ static uint32_t _jpg_write(JDEC *decoder, rgb_t *input, JRECT *rect)
 JRESULT jd_prepare(JDEC*, void*, unsigned int);
 JRESULT jd_decomp(JDEC*);
 
-void decode_jpeg(lpc_stream_in_t *stream, uint8_t *out)
+void decode_jpeg(lpc_stream_in_t *stream, uint8_t *out, int width, int height)
 {
 	const int work_buf_size = 3100;
 	uint8_t *work = lpc_alloc<uint8_t>(work_buf_size, "JPEG decoder tmp mem");
@@ -256,12 +260,13 @@ void decode_jpeg(lpc_stream_in_t *stream, uint8_t *out)
 	JDEC decoder;
 	decoder.device.input = stream;
 	decoder.device.output = out;
+	decoder.out_width = width;
+	decoder.out_height = height;
+	decoder.num_mb_x = div_round_up(width, MB_SIZE);
+	decoder.num_mb_y = div_round_up(height, MB_SIZE);
 
 	JRESULT jres = jd_prepare(&decoder, work, work_buf_size);
 	LPC_ASSERT(jres == JDR_OK);
-
-	decoder.num_mb_x = div_round_up(decoder.width, MB_SIZE);
-	decoder.num_mb_y = div_round_up(decoder.height, MB_SIZE);
 
 	jres = jd_decomp(&decoder);
 	lpc_free(work);
@@ -748,8 +753,8 @@ static JRESULT mcu_output (
 	JRECT rect;
 
 	mx = jd->msx * 8; my = jd->msy * 8;         /* MCU size (pixel) */
-	rx = (x + mx <= jd->width) ? mx : jd->width - x;  /* Output rectangular size (it may be clipped at right/bottom end) */
-	ry = (y + my <= jd->height) ? my : jd->height - y;
+	rx = (x + mx <= jd->in_width) ? mx : jd->in_width - x;  /* Output rectangular size (it may be clipped at right/bottom end) */
+	ry = (y + my <= jd->in_height) ? my : jd->in_height - y;
 	rect.left = x; rect.right = x + rx - 1;       /* Rectangular area in the frame buffer */
 	rect.top = y; rect.bottom = y + ry - 1;
 
@@ -910,8 +915,8 @@ JRESULT jd_prepare (
 			if (len > JD_SZBUF) return JDR_MEM2;
 			if (jd->infunc(jd, seg, len) != len) return JDR_INP;
 
-			jd->width = LDB_WORD(seg + 3);    /* Image width in unit of pixel */
-			jd->height = LDB_WORD(seg + 1);   /* Image height in unit of pixel */
+			jd->in_width = LDB_WORD(seg + 3);    /* Image width in unit of pixel */
+			jd->in_height = LDB_WORD(seg + 1);   /* Image height in unit of pixel */
 			if (seg[5] != 3) return JDR_FMT3; /* Err: Supports only Y/Cb/Cr format */
 
 			/* Check three image components */
@@ -966,7 +971,7 @@ JRESULT jd_prepare (
 			if (len > JD_SZBUF) return JDR_MEM2;
 			if (jd->infunc(jd, seg, len) != len) return JDR_INP;
 
-			if (!jd->width || !jd->height)
+			if (!jd->in_width || !jd->in_height)
 				return JDR_FMT1; /* Err: Invalid image size */
 
 			if (seg[0] != 3) return JDR_FMT3;       /* Err: Supports only three color components format */
@@ -1033,7 +1038,7 @@ JRESULT jd_prepare (
 /* Start to decompress the JPEG picture                                  */
 /*-----------------------------------------------------------------------*/
 
-JRESULT jd_decomp (JDEC* jd)
+JRESULT jd_decomp(JDEC* jd)
 {
 	unsigned int x, y, mx, my;
 	uint16_t rst, rsc;
@@ -1045,8 +1050,8 @@ JRESULT jd_decomp (JDEC* jd)
 	rst = rsc = 0;
 
 	rc = JDR_OK;
-	for (y = 0; y < jd->height; y += my) {    /* Vertical loop of MCUs */
-		for (x = 0; x < jd->width; x += mx) { /* Horizontal loop of MCUs */
+	for (y = 0; y < jd->in_height; y += my) {    /* Vertical loop of MCUs */
+		for (x = 0; x < jd->in_width; x += mx) { /* Horizontal loop of MCUs */
 			if (jd->nrst && rst++ == jd->nrst) {  /* Process restart interval if enabled */
 				rc = restart(jd, rsc++);
 				if (rc != JDR_OK) return rc;

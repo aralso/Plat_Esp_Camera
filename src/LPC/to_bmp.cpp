@@ -84,11 +84,7 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 
     for(iy=t; iy<b; iy+=jw) {
         o = out+iy+l;
-        for(ix=0; ix<w; ix+= 3) {
-            o[ix] = data[ix+2];
-            o[ix+1] = data[ix+1];
-            o[ix+2] = data[ix];
-        }
+        memcpy(o, data, w);
         data+=w;
     }
     return true;
@@ -104,7 +100,7 @@ static size_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
     return len;
 }
 
-static bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale)
+static bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale, int *width, int *height)
 {
     rgb_jpg_decoder jpeg;
     jpeg.width = 0;
@@ -116,6 +112,8 @@ static bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_sc
     if(esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg) != ESP_OK){
         return false;
     }
+    *width = jpeg.width;
+    *height = jpeg.height;
     return true;
 }
 
@@ -159,11 +157,11 @@ bool jpg2bmp(const uint8_t *src, size_t src_len, uint8_t ** out, size_t * out_le
     return true;
 }
 
-bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf)
+bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, int *width, int *height)
 {
     int pix_count = 0;
     if(format == PIXFORMAT_JPEG) {
-        return jpg2rgb888(src_buf, src_len, rgb_buf, JPG_SCALE_NONE);
+        return jpg2rgb888(src_buf, src_len, rgb_buf, JPG_SCALE_NONE, width, height);
     } else if(format == PIXFORMAT_RGB888) {
         memcpy(rgb_buf, src_buf, src_len);
     } else if(format == PIXFORMAT_RGB565) {
@@ -212,6 +210,10 @@ bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint
     return true;
 }
 
+bool fmt2bmp(uint8_t *src, uint16_t width, uint16_t height, uint8_t ** out, size_t * out_len)
+{
+    return fmt2bmp(src, width * height * 3, width, height, PIXFORMAT_RGB888, out, out_len);
+}
 bool fmt2bmp(uint8_t *src, size_t src_len, uint16_t width, uint16_t height, pixformat_t format, uint8_t ** out, size_t * out_len)
 {
     if(format == PIXFORMAT_JPEG) {
@@ -253,7 +255,12 @@ bool fmt2bmp(uint8_t *src, size_t src_len, uint16_t width, uint16_t height, pixf
 
     //convert data to RGB888
     if(format == PIXFORMAT_RGB888) {
-        memcpy(rgb_buf, src_buf, pix_count*3);
+        for (int i = 0; i < pix_count; i++)
+        {
+            rgb_buf[3*i+0] = src_buf[3*i+2];
+            rgb_buf[3*i+1] = src_buf[3*i+1];
+            rgb_buf[3*i+2] = src_buf[3*i+0];
+        }
     } else if(format == PIXFORMAT_RGB565) {
         int i;
         uint8_t hb, lb;

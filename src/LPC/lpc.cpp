@@ -4,6 +4,7 @@
 
 #include "lpc.h"
 
+#define LPC_VERSION 0
 #define QP_MAX 51
 #define QP_CHROMA_OFFSET 8
 
@@ -97,6 +98,7 @@ void lpc_encoder_t::open(lpc_settings_t settings, lpc_stream_out_t *stream_out)
 	height = settings.height;
 	qp = compute_qp(settings.quality);
 
+	stream->write_byte(LPC_VERSION);
 	stream->write_bytes((uint8_t*)&settings, sizeof(lpc_settings_t));
 }
 
@@ -171,7 +173,7 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 		return;
 	}
 	Serial.printf("Alloc : %d macroblocks\n", num_mb_x * num_mb_y);
-	decode_jpeg(stream_in, (uint8_t*)macroblocks);
+	decode_jpeg(stream_in, (uint8_t*)macroblocks, width, height);
 	Serial.printf("GGG\n");
 
 	LPC_DEBUG_ONLY(stats.reset(num_mb_x, num_mb_y));
@@ -223,6 +225,9 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 void lpc_decoder_t::open(lpc_stream_in_t *stream_in)
 {
 	stream = stream_in;
+
+	int version = stream->read_byte();
+	
 	stream->read_bytes((uint8_t*)&settings, sizeof(lpc_settings_t));
 	LPC_ASSERT(!stream->empty());
 }

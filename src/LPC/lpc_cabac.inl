@@ -140,6 +140,10 @@ void cabac_coder_t::reset_e()
 
 void cabac_coder_t::reset_d()
 {
+#if LPC_USE_CABAC == 0
+	return;
+#endif
+
 	codIRange = 0x01FE;
 
 	codIOffset = 0;
@@ -164,6 +168,10 @@ void cabac_coder_t::encode_bytes(const uint8_t *bytes, size_t byte_count, int co
 
 void cabac_coder_t::encode_bit(bool bin, int context)
 {
+#if LPC_USE_CABAC == 0
+	return stream_out->write_bit(bin);
+#endif
+
 	assert(context < CTX_COUNT);
 
 	cabac_ctx_t &ctx = contexts[context];
@@ -195,6 +203,10 @@ void cabac_coder_t::encode_bit(bool bin, int context)
 
 void cabac_coder_t::encode_bypass(bool bin)
 {
+#if LPC_USE_CABAC == 0
+	return stream_out->write_bit(bin);
+#endif
+
 	codILow <<= 1;
 
 	if (bin)
@@ -222,6 +234,10 @@ void cabac_coder_t::encode_bypass(bool bin)
 
 void cabac_coder_t::encode_terminate(bool bin)
 {
+#if LPC_USE_CABAC == 0
+	return stream_out->write_bit(bin);
+#endif
+
 	codIRange -= 2;
 
 	if (bin)
@@ -254,6 +270,10 @@ void cabac_coder_t::decode_bytes(uint8_t *bytes, size_t byte_count, int context)
 
 bool cabac_coder_t::decode_bit(int context)
 {
+#if LPC_USE_CABAC == 0
+	return stream_in->read_bit();
+#endif
+
 	assert(context < CTX_COUNT);
 
 	if (context == CTX_COUNT)
@@ -268,6 +288,10 @@ bool cabac_coder_t::decode_bit(int context)
 
 bool cabac_coder_t::decode_bypass()
 {
+#if LPC_USE_CABAC == 0
+	return stream_in->read_bit();
+#endif
+
 	codIOffset = (codIOffset << 1) | uint32_t(stream_in->read_bit());
 
 	if (codIOffset >= codIRange)
@@ -281,6 +305,10 @@ bool cabac_coder_t::decode_bypass()
 
 bool cabac_coder_t::decode_terminate()
 {
+#if LPC_USE_CABAC == 0
+	return stream_in->read_bit();
+#endif
+
 	codIRange -= 2;
 
 	if (codIOffset >= codIRange)

@@ -396,7 +396,7 @@ uint8_t requete_Set_String(int param, const char *texte);
 uint8_t requete_Set_Action(const char *reg, const char *data);
 uint16_t trouve_index (uint8_t page);
 uint8_t requete_GetReg(int reg, float *valeur);
-uint8_t encodeFile();
+uint8_t encodeFile(), decodeFile();
 
 
 
@@ -957,6 +957,10 @@ void taskHandler(void *parameter) {
 
                 case EVENT_ENCODE_LPC:
                   encodeFile();
+                  break;
+
+                case EVENT_DECODE_LPC:
+                  decodeFile();
                   break;
 
                 case EVENT_ERREUR:

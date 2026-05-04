@@ -20,10 +20,12 @@
 uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize, uint16_t quality);
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);
 uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1);
-uint8_t encode_lpc3(const lpc_settings_t &settings);
+uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings);
+uint8_t decode_lpc(const char *path_in, uint8_t qual_decod);
 
 char path_c[128];
 uint16_t qual_encod = 30;
+uint16_t qual_decod = 30;
 
 
 // HTML page for SD explorer
@@ -102,6 +104,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                                 <div class="icon move-icon action-icon" onclick="moveItem('${item.name}')"></div>
                                 <div class="icon sd-icon action-icon" onclick="reducItem('${item.name}')">R</div>
                                 <div class="icon sd-icon action-icon" onclick="encodItem('${item.name}')">E</div>
+                                <div class="icon sd-icon action-icon" onclick="decodItem('${item.name}')">D</div>
                             </td>
                         `;
                         tbody.appendChild(row);
@@ -210,7 +213,24 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                   );
             }
         }
-            
+
+        function decodItem(name) {
+            const quality = prompt('Quality:', 50);
+            if (quality >=1 && quality <= 100) {
+              const srcPath = joinPath(currentPath, name);
+              fetch(`/setSD?action=7&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(quality)}`)
+                  .then(response =>
+                    response.text().then(text => {
+                      if (response.ok) {
+                          loadDirectory(currentPath);
+                      } else {
+                          alert("Erreur décodage : code: " + text);
+                      }
+                    })
+                  );
+            }
+        }
+        
         document.getElementById('createDir').onclick = () => {
             const dirName = prompt('Nom du nouveau répertoire:');
             if (dirName) {
@@ -558,12 +578,29 @@ uint8_t encodeFile()
       qual_encod,     // quality
       1,      // frame_count
       1,       // frequency
-      path_c,
-      1  // 1:encode
     };
 
     //uint8_t res = encode_lpc2(settings, jpg_bu, fileSize, path_c);
-    uint8_t res = encode_lpc3(settings);
+    uint8_t res = encode_lpc3(path_c, settings);
+
+  /*if (fs.rename(path1, path2)) {
+    Serial.println("File renamed");
+    return 0;
+  } else {
+    Serial.println("Rename failed");
+    return 1;
+  }*/
+ return res;
+}
+
+
+uint8_t decodeFile()
+{
+
+  Serial.printf("Decoding file %s with quality %i\n", path_c, qual_decod);
+
+
+    uint8_t res = decode_lpc(path_c, qual_decod);
 
   /*if (fs.rename(path1, path2)) {
     Serial.println("File renamed");
@@ -811,11 +848,14 @@ void server_routes_SDCARD()
       } else {
         result = deleteFile(fs, path.c_str());
       }
-    } else if (action == 3) { // Rename
+    }
+    else if (action == 3) { // Rename
       result = renameFile(fs, path.c_str(), out.c_str());
-    } else if (action == 4) { // Move (rename with path)
+    }
+    else if (action == 4) { // Move (rename with path)
       result = renameFile(fs, path.c_str(), out.c_str());
-    } else if (action == 5) { // reduc size et enregistre new image
+    } 
+    else if (action == 5) { // reduc size et enregistre new image
         String out = request->getParam("out")->value();
 
         int size = 0;
@@ -826,7 +866,9 @@ void server_routes_SDCARD()
             return;
         }      
       result = reducFile(fs, path.c_str(), size, quality);
-    } else if (action == 6) { // encode lpc et enregistre new image
+    }
+    else if (action == 6)
+    { // encode lpc et enregistre new image
       strncpy(path_c, path.c_str(), sizeof(path_c));
       path_c[sizeof(path_c) - 1] = '\0';  // carac final
       qual_encod = out.toInt();
@@ -837,7 +879,21 @@ void server_routes_SDCARD()
         erreur_queue++;
       }
       result = 0;
-    } else {
+    }
+    else if (action == 7)
+    { // decode lpc et enregistre new image
+      strncpy(path_c, path.c_str(), sizeof(path_c));
+      path_c[sizeof(path_c) - 1] = '\0';  // carac final
+      qual_decod = out.toInt();
+      systeme_eve_t evt = { EVENT_DECODE_LPC, 0 }; 
+      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+      {
+        if (erreur_queue<5) num_err_queue[erreur_queue]=3;
+        erreur_queue++;
+      }
+      result = 0;
+    }
+    else {
       request->send(400, "text/plain", "Invalid action");
       return;
     }
