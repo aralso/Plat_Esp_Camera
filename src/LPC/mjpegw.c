@@ -1,3 +1,6 @@
+#include <Arduino.h>
+
+
 #include "mjpegw.h"
 
 #include <stdio.h>
@@ -52,6 +55,8 @@ typedef struct
     char     type[4];     // "strl"
 } avi_stream_list;
 
+#pragma pack(push, 1)
+
 typedef struct
 {
     char     id[4];       // "strh"
@@ -94,6 +99,9 @@ typedef struct
     uint32_t bi_clr_used;
     uint32_t bi_clr_important;
 } strf_chunk;
+
+#pragma pack(pop)
+
 
 typedef struct
 {
@@ -214,6 +222,14 @@ static inline mjpegw_mem_interface default_allocator(void)
     };
 }
 
+void debug_ctx(mjpegw_context* avi)
+{
+    printf("f=%p\n", avi->f);
+	/*Serial.printf("f=%p\n", avi->f);*/
+	printf("jpeg_data=%p\n", avi->jpeg_data);
+	printf("idx=%p\n", avi->idx);
+}
+
 //-----------------------------------------------------------------------------------------------------------------------------
 mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t fps, mjpegw_mem_interface* mem)
 {
@@ -235,6 +251,7 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->mem = allocator;
 
     ctx->f = fopen(filename, "wb+");
+    //ctx->f =  filestream_t(SD_MMC, filename, FILE_WRITE);
     if(!ctx->f)
     {
         ctx->mem.free_fn(ctx, ctx->mem.user);
@@ -245,14 +262,18 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->riff.size = 0; // patch later
     memcpy(ctx->riff.avi, "AVI ", 4);
     ctx->riff_pos = ftell(ctx->f);
+    //ctx->riff_pos = ctx->f->position();
+    //ctx->f->write((uint8_t*)&ctx->riff, sizeof(ctx->riff));
     fwrite(&ctx->riff, sizeof(ctx->riff), 1, ctx->f);
 
     memcpy(ctx->hdrl.list, "LIST", 4);
     ctx->hdrl.size = 188;
     memcpy(ctx->hdrl.type, "hdrl", 4);
     fwrite(&ctx->hdrl, sizeof(ctx->hdrl), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->hdrl, sizeof(ctx->hdrl));
 
     ctx->frame_count_pos = ftell(ctx->f) + 32;
+    //ctx->frame_count_pos = ctx->f->position() + 32;
     memcpy(ctx->avih.id, "avih", 4);
     ctx->avih.size = 56;
     ctx->avih.microsec_per_frame = 1000000 / fps;
@@ -266,14 +287,17 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->avih.width = width;
     ctx->avih.height = height;
     fwrite(&ctx->avih, sizeof(ctx->avih), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->avih, sizeof(ctx->avih));
 
     memcpy(ctx->strl.list, "LIST", 4);
     ctx->strl.size = sizeof(strh_chunk) + sizeof(strf_chunk);
     assert(ctx->strl.size == 112);
     memcpy(ctx->strl.type, "strl", 4);
     fwrite(&ctx->strl, sizeof(ctx->strl), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->strl, sizeof(ctx->strl));
 
     ctx->length_pos = ftell(ctx->f) + 44;
+    //ctx->length_pos = ctx->f->position() + 44;
     memcpy(ctx->strh.id, "strh", 4);
     ctx->strh.size = 56;
     memcpy(ctx->strh.type, "vids", 4);
@@ -294,6 +318,7 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strh.frame.right = width;
     ctx->strh.frame.bottom = height;
     fwrite(&ctx->strh, sizeof(ctx->strh), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->strh, sizeof(ctx->strh));
 
     memcpy(ctx->strf.id, "strf", 4);
     ctx->strf.size = sizeof(ctx->strf);
@@ -309,12 +334,15 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strf.bi_clr_used = 0;
     ctx->strf.bi_clr_important = 0;
     fwrite(&ctx->strf, sizeof(ctx->strf), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->strf, sizeof(ctx->strf));
 
     memcpy(ctx->movi.list, "LIST", 4);
     ctx->movi.size = 0; // patch later
     memcpy(ctx->movi.type, "movi", 4);
     ctx->movi_pos = ftell(ctx->f);
+    //ctx->movi_pos = ctx->f->position();
     fwrite(&ctx->movi, sizeof(ctx->movi), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->movi, sizeof(ctx->movi));
 
     ctx->idx_capacity = 256;
     ctx->idx_count = 0;
@@ -322,11 +350,12 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     if (!ctx->idx)
     {
         fclose(ctx->f);
+        //ctx->f = nullptr;
         ctx->mem.free_fn(ctx, ctx->mem.user);
         return NULL;
     }
 
-    ctx->jpeg_capacity = width*height;
+    ctx->jpeg_capacity = width*height*2;
     ctx->jpeg_data = ctx->mem.malloc_fn(ctx->jpeg_capacity, ctx->mem.user);
     ctx->jpeg_size = 0;
 
@@ -340,9 +369,19 @@ void jpeg_write_func(void* context, void* data, int size)
 
     if ((ctx->jpeg_size + size) >= ctx->jpeg_capacity)
     {
-        ctx->jpeg_data = ctx->mem.realloc_fn(ctx->jpeg_data, ctx->jpeg_capacity, ctx->jpeg_size * 2, ctx->mem.user);
-        assert(ctx->jpeg_data);
-        ctx->jpeg_capacity *= 2;
+        uint32_t new_cap = ctx->jpeg_capacity * 2;
+        uint8_t* new_buf =
+            (uint8_t*)ctx->mem.realloc_fn(
+                ctx->jpeg_data,
+                ctx->jpeg_capacity,
+                new_cap,
+                ctx->mem.user);
+
+        if(!new_buf)
+            return; // ou gestion erreur
+
+        ctx->jpeg_data = new_buf;
+        ctx->jpeg_capacity = new_cap;
     }
 
     uint8_t* ptr = (uint8_t*) ctx->jpeg_data;
@@ -371,6 +410,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
     }
 
     long frame_pos = ftell(ctx->f);
+    //long frame_pos = ctx->f->position();
     assert(frame_pos != -1L);
 
     uint32_t chunk_size = ctx->jpeg_size;
@@ -380,12 +420,16 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
     frame_chunk hdr = { .size = chunk_size };
     memcpy(hdr.id, "00dc", 4);
     fwrite(&hdr, sizeof(frame_chunk), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&hdr, sizeof(frame_chunk));
+    
     fwrite(ctx->jpeg_data, 1, ctx->jpeg_size, ctx->f);
+    //ctx->f->write((uint8_t*)ctx->jpeg_data, ctx->jpeg_size);
 
     if (ctx->jpeg_size & 1)
     {
         uint8_t pad = 0;
         fwrite(&pad, 1, 1, ctx->f);
+        //ctx->f->write(&pad, 1);
     }
 
     ctx->movi.size += sizeof(frame_chunk) + chunk_size;
@@ -393,6 +437,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
     idx1_entry* entry = &ctx->idx[ctx->idx_count++];
     memcpy(entry->id, "00dc", 4);
     entry->flags = 0x10;
+    //entry->offset = (uint32_t)(frame_pos - (ctx->movi_pos + 8));
     entry->offset = (uint32_t)(frame_pos - ctx->movi_pos - 8); // relative to 'movi' data start
     entry->size = chunk_size;
 
@@ -406,30 +451,43 @@ void mjpegw_close(mjpegw_context *ctx)
 
     // patch frame count
     fseek(ctx->f, ctx->frame_count_pos, SEEK_SET);
+    //ctx->f->seek(ctx->frame_count_pos, SEEK_SET);
+
     fwrite(&ctx->frame_count, sizeof(uint32_t), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->frame_count, sizeof(uint32_t));
     fseek(ctx->f, ctx->length_pos, SEEK_SET);
+    //ctx->f->seek(ctx->length_pos, SEEK_SET);
     fwrite(&ctx->frame_count, sizeof(uint32_t), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&ctx->frame_count, sizeof(uint32_t));
 
     // write idx1 chunk
     fseek(ctx->f, 0, SEEK_END); 
+    //ctx->f->seek(0, SEEK_END); 
     idx1_header idxh = {0};
     memcpy(idxh.id, "idx1", 4);
     idxh.size = ctx->idx_count * sizeof(idx1_entry);
 
     fwrite(&idxh, sizeof(idx1_header), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&idxh, sizeof(idx1_header));
     if (ctx->idx_count)
         fwrite(ctx->idx, sizeof(idx1_entry), ctx->idx_count, ctx->f);
+        //ctx->f->write((uint8_t*)ctx->idx, sizeof(idx1_entry) * ctx->idx_count);
 
     // patch movi LIST size
     long cur_pos = ftell(ctx->f);
+    //long cur_pos = ctx->f->position();
     fseek(ctx->f, ctx->movi_pos + 4, SEEK_SET);
+    //ctx->f->seek(ctx->movi_pos + 4, SEEK_SET);
     uint32_t movi_size = (uint32_t)(cur_pos - (ctx->movi_pos + 8));
     fwrite(&movi_size, sizeof(uint32_t), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&movi_size, sizeof(uint32_t));
 
     // patch RIFF size
     fseek(ctx->f, ctx->riff_pos + 4, SEEK_SET);
+    //ctx->f->seek(ctx->riff_pos + 4, SEEK_SET);
     uint32_t riff_size = (uint32_t)(cur_pos - (ctx->riff_pos + 8));
     fwrite(&riff_size, sizeof(uint32_t), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&riff_size, sizeof(uint32_t));
 
     if (ctx->idx)
     {

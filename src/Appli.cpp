@@ -252,14 +252,14 @@ void setup_1()
     #endif
 
     // lecture initiale temperature interieure
-    uint8_t Tint_err = lecture_Tint(&Tint);
+    /*uint8_t Tint_err = lecture_Tint(&Tint);
     if ((Tint < 1) || (Tint > 45)) {
       Tint = 20.0;
       Tint_err = 7;
     }
     if (Tint_err) log_erreur(Code_erreur_Tint, Tint_err, 1);
     else
-      Serial.printf("Temp int:%.2f\n\r", Tint);
+      Serial.printf("Temp int:%.2f\n\r", Tint);  */
 }
 
 // apres demarrage reseau

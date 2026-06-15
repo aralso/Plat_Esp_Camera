@@ -1015,6 +1015,7 @@ void setup()
   // Cause reset :
   resetReason0 = (uint8_t) esp_reset_reason();
   Serial.begin(115200);
+  delay(2000);
   //Serial.println("\ndemarrage\n\r");
   //Serial.flush();
 
@@ -1543,7 +1544,7 @@ void setup()
   // ------- changement de frequence CPU -------------------
 
   uint16_t Cpu_freq = getCpuFrequencyMhz();
-  setCpuFrequencyMhz(80);
+  //setCpuFrequencyMhz(80);
   Serial.printf("CPU Freq: avant:%i  apres:%u\n", Cpu_freq, (unsigned int)getCpuFrequencyMhz());
 
 

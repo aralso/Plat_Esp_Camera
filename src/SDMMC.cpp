@@ -24,8 +24,8 @@ uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings);
 uint8_t decode_lpc(const char *path_in, uint8_t qual_decod);
 
 char path_c[128];
-uint16_t qual_encod = 30;
-uint16_t qual_decod = 30;
+uint8_t qual_encod = 30;
+uint8_t qual_decod = 30;
 
 
 // HTML page for SD explorer
@@ -598,7 +598,7 @@ uint8_t decodeFile()
 {
 
   Serial.printf("Decoding file %s with quality %i\n", path_c, qual_decod);
-
+  delay(200);
 
     uint8_t res = decode_lpc(path_c, qual_decod);
 

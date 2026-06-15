@@ -174,7 +174,6 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 	}
 	Serial.printf("Alloc : %d macroblocks\n", num_mb_x * num_mb_y);
 	decode_jpeg(stream_in, (uint8_t*)macroblocks, width, height);
-	Serial.printf("GGG\n");
 
 	LPC_DEBUG_ONLY(stats.reset(num_mb_x, num_mb_y));
 	LPC_DEBUG_ONLY(STATS = &stats);
@@ -197,9 +196,10 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 	LPC_DEBUG_ONLY(stats.log_var_avg = log_var_avg);
 	#endif
 
+	Serial.printf("Encoding %d columns \n", num_mb_x);
 	for (int x = 0; x < num_mb_x; x++)
 	{
-		Serial.printf("Encoding column %d/%d\n", x+1, num_mb_x);
+		//Serial.printf("Encoding column %d/%d\n", x+1, num_mb_x);
 		neighbours.start_column();
 		for (int y = 0; y < num_mb_y; y++)
 		{

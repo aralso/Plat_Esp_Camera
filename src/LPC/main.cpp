@@ -18,6 +18,16 @@
 #include "variables.h"
 /// FILE STREAMS
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void debug_ctx(mjpegw_context* avi);
+
+#ifdef __cplusplus
+}
+#endif
+
 struct jpeg_reader_t : public lpc_stream_in_t
 {
 File file;
@@ -81,6 +91,14 @@ struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
     {
         return file.available() == 0;
     }
+	uint32_t position()
+	{
+		return file.position();
+	}
+	bool seek(uint32_t pos)
+	{
+		return file.seek(pos);
+	}	
 };
 #else
 struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
@@ -237,24 +255,22 @@ uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings)
 	}
 
 	Serial.printf("Encodage %s width=%d height=%d quality=%d\n", output_path.c_str(), settings.width, settings.height, settings.quality);
+	unsigned long start_enc = millis();
 
 	filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
-	Serial.printf("AAA\n");
 	jpeg_reader_t jpeg(SD_MMC, path_in);   // lecture du fichier. Renvoie le nb d'octets lus
-	Serial.printf("BBB\n");
 	lpc_encoder_t encoder;
 	encoder.open(settings, &stream_out);
-	Serial.printf("CCC\n");
 
 	encoder.encode_jpeg(&jpeg);
-	Serial.printf("DDD\n");
 	encoder.close();
+	unsigned long end_enc = millis();
+	Serial.printf("Encoding time: %lu ms\n", end_enc - start_enc);
 	return 0;
 }
 
 uint8_t decode_lpc(const char *path_in, uint8_t qual_decod)
 {
-
 	if (strcmp(get_filename_ext(path_in), "lpc") != 0)
 	{
 		Serial.println("Input file n'est pas un fichier LPC");
@@ -329,7 +345,18 @@ uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *input_path, const char *outpu
 	std::string frame_path = input_path;
 	frame_path.replace(frame_path.find_last_of('.'), std::string::npos, "_frame_");
 
+	Serial.printf("Encodage A: %s width=%d height=%d quality=%d\n", output_path, settings.width, settings.height, settings.quality);
+
 	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, settings.frequency, NULL);
+	if(!avi)
+	{
+		Serial.println("mjpegw_open FAILED");
+		return 1;
+	}
+
+	Serial.printf("avi=%p\n", avi);
+	debug_ctx(avi);
+
 	{
 		img_data_t img_rgb(settings.width, settings.height);
 		for (int i = 0; i < settings.frame_count; i++)
@@ -337,8 +364,13 @@ uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *input_path, const char *outpu
 			lpc.decode_frame(img_rgb.bytes);
 
 			img_rgb.dump_bmp((frame_path + std::to_string(i) + ".bmp").c_str());
+			Serial.println("AB5");
+
+			Serial.printf("avi=%p\n", avi);
+			Serial.printf("pixels=%p\n", img_rgb.bytes);
 
 			mjpegw_add_frame(avi, img_rgb.bytes, 3);
+			Serial.println("AB6");
 		}
 	}
 	mjpegw_close(avi);
