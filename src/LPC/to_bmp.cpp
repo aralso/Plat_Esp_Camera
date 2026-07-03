@@ -210,6 +210,16 @@ bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint
     return true;
 }
 
+// Provide SDK-compatible 4-argument wrapper that preserves the existing 6-arg
+// implementation which returns width/height when needed. This wrapper calls
+// the 6-arg version internally and discards the width/height if not requested.
+bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf)
+{
+    int w = 0, h = 0;
+    // Call the existing 6-arg implementation (overload resolution will pick it).
+    return fmt2rgb888(src_buf, src_len, format, rgb_buf, &w, &h);
+}
+
 bool fmt2bmp(uint8_t *src, uint16_t width, uint16_t height, uint8_t ** out, size_t * out_len)
 {
     return fmt2bmp(src, width * height * 3, width, height, PIXFORMAT_RGB888, out, out_len);

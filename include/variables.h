@@ -32,6 +32,32 @@
 #define SDCARD
 #define CAMERA
 //#define Temp_int_DHT22
+
+// Device address identifier used in filenames (single letter or short string)
+#ifndef ADDRESS
+#define ADDRESS "A"
+#endif
+
+// Default capture parameters (modifiable here)
+// Nombre d'images: 1=one, 2=two, 3=ten, 4=all
+#ifndef CAP_NB_IMAGES
+#define CAP_NB_IMAGES 3
+#endif
+
+// Interval between images in seconds
+#ifndef CAP_INTERVAL_SEC
+#define CAP_INTERVAL_SEC 2
+#endif
+
+// Size code: 1:320,2:480,3:640,4:800,5:1024,6:1280
+#ifndef CAP_SIZE
+#define CAP_SIZE 3
+#endif
+
+// JPEG compression code: 1..7 mapped to qualitative values
+#ifndef CAP_JPG_COMP
+#define CAP_JPG_COMP 3
+#endif
 //#define Temp_int_DS18B20
 
 // Réseau

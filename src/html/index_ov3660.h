@@ -396,6 +396,13 @@ const char index_ov3660_html[] = R"rawliteral(
                 <div id="sidebar">
                     <input type="checkbox" id="nav-toggle-cb" checked="checked">
                     <nav id="menu">
+                        <section id="buttons">
+                            <button id="get-still">Get Still</button>
+                            <button id="save-to-sd">Save to SD</button>
+                            <button id="save-avi-to-sd">Save AVI to SD</button>
+                            <button id="toggle-stream">Start Stream</button>
+                            <button id="face_enroll" class="disabled" disabled="disabled">Enroll Face</button>
+                        </section>
 
                         <section id="xclk-section" class="nothidden">
                             <div class="input-group" id="set-xclk-group">
@@ -625,11 +632,6 @@ const char index_ov3660_html[] = R"rawliteral(
                                 <label class="slider" for="face_recognize"></label>
                             </div>
                         </div>
-                        <section id="buttons">
-                            <button id="get-still">Get Still</button>
-                            <button id="toggle-stream">Start Stream</button>
-                            <button id="face_enroll" class="disabled" disabled="disabled">Enroll Face</button>
-                        </section>
 
 
                         <div style="margin-top: 8px;"><center><span style="font-weight: bold;">Advanced Settings</span></center></div>
@@ -1232,6 +1234,8 @@ document.addEventListener('DOMContentLoaded', function (event) {
   const view = document.getElementById('stream')
   const viewContainer = document.getElementById('stream-container')
   const stillButton = document.getElementById('get-still')
+  const saveToSDButton = document.getElementById('save-to-sd')
+  const saveAviButton = document.getElementById('save-avi-to-sd')
   const streamButton = document.getElementById('toggle-stream')
   const enrollButton = document.getElementById('face_enroll')
   const closeButton = document.getElementById('close-stream')
@@ -1254,6 +1258,29 @@ document.addEventListener('DOMContentLoaded', function (event) {
     stopStream()
     view.src = `${baseHost}/capture?_cb=${Date.now()}`
     show(viewContainer)
+  }
+
+  saveToSDButton.onclick = () => {
+    fetch(`${baseHost}/captureSD`)
+      .then(response => response.text())
+      .then(data => {
+        alert('Image saved to SD card: ' + data);
+      })
+      .catch(error => {
+        alert('Error saving to SD card: ' + error);
+      });
+  }
+
+  // Save AVI to SD (uses server-side defaults defined in variables.h)
+  saveAviButton.onclick = () => {
+    fetch(`${baseHost}/captureAVI`)
+      .then(response => response.text())
+      .then(data => {
+        alert('AVI saved to SD card: ' + data);
+      })
+      .catch(error => {
+        alert('Error saving AVI to SD card: ' + error);
+      });
   }
 
   closeButton.onclick = () => {

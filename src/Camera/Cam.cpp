@@ -20,6 +20,17 @@
 #include "camera_pins.h"
 
 
+// nb images : 1(1) 2(2) 3(10) 4(toutes)
+// Size 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280)
+// Compress jpg  : moins bon  1(5) 2(10) 3(15) 4(20) 5(30) 6(50) (7)60  meilleur
+// global Nb_im+size+qual : A:1+320+1 C:2+320+2 E:3+480+3 H:640+3 K:640+4 N:800+4 Q:800+5 T:800+6 Z:4+1024+6
+// CA-260618-201223-E-323.jpg  .avi  .lpc
+
+// ex :
+// Framesize 0:QQVGA(160) 1:HQVGA(240),2:QVGA(320),3:CIF(400),4:HVGA(480) 5:VGA(640), 6:SVGA(800), 7:XGA(1024), 8:HD(1280), 9:SXGA(1280)
+// Quali cam    : meilleur 0(4) 1(10) 2(14) 3(20) 4(30) 5(50) 6(60) moins bon
+// Compress jpg  : moins bon 0 1(10) 2(14) 3(20) 4(30) 5(50) 6(60) 100  meilleur
+// nom fichier : C01-026-F5-Q3-T0-201001-000001
 
 uint8_t inline initCamera() {
   camera_config_t config;
@@ -83,7 +94,7 @@ uint8_t inline initCamera() {
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
-    Serial.print("Camera Ready! Use 'http://");
+    Serial.println("Camera Ready! Use 'http://cam");
     return 0;
   }
   else

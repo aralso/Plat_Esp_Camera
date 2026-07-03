@@ -37,6 +37,7 @@ extern Preferences preferences_nvs;
 extern AsyncWebServer server;
 #include "html/index_ov2640.h"
 #include "html/index_ov3660.h"
+#include "mjpegw.h"  // used to build MJPEG AVI files on SD card (mjpeg frames)
 
 /*extern const char index_ov2640_html[];
 extern const size_t index_ov2640_html_len;
@@ -621,8 +622,8 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
         int sec = timeinfo.tm_sec;
         fs::FS &fs = SD_MMC; // Assuming fs is SD_MMC
 
-        // Créer le répertoire /YYYY/MM/DD
-        snprintf(dir_path, sizeof(dir_path), "/%04d/%02d/%02d", year, month, day);
+        // Créer le répertoire /YYYY/MM (mois)
+        snprintf(dir_path, sizeof(dir_path), "/%04d/%02d", year, month);
         //Serial.printf("testinf directory: %s\n", dir_path);
         if (!fs.exists(dir_path)) {
             Serial.printf("Creating directory: %s\n", dir_path);
@@ -636,7 +637,41 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
         int attempts = 0;
         
         do {
-            snprintf(file_path, sizeof(file_path), "%s/C%02d_%04d%02d%02d_%02d%02d%02d.jpg", dir_path, NUM_CAMERA, year, month, day, current_hour, current_min, current_sec);
+            // File name: C<ADDRESS>-YYMMDD-HHMMSS-<Global>-<nb><size><comp>.jpg
+            int yy = year % 100;
+            char global_code = 'X';
+            // Map combos to a global letter according to provided table
+            auto size_px = [](int szcode)->int {
+                switch (szcode) {
+                    case 1: return 320; // QVGA
+                    case 2: return 480; // HVGA
+                    case 3: return 640; // VGA
+                    case 4: return 800; // SVGA
+                    case 5: return 1024; // XGA
+                    case 6: return 1280; // SXGA
+                    default: return 0;
+                }
+            };
+
+            auto map_global = [&](int nb, int szcode, int comp)->char {
+                int sz = size_px(szcode);
+                // Exact matches with nb when provided
+                if (nb == 1 && sz == 320 && comp == 1) return 'A';
+                if (nb == 2 && sz == 320 && comp == 2) return 'C';
+                if (nb == 3 && sz == 480 && comp == 3) return 'E';
+                if (nb == 4 && sz == 1024 && comp == 6) return 'Z';
+                // Matches where nb is not specified in the table (wildcard nb)
+                if (sz == 640 && comp == 3) return 'H';
+                if (sz == 640 && comp == 4) return 'K';
+                if (sz == 800 && comp == 4) return 'N';
+                if (sz == 800 && comp == 5) return 'Q';
+                if (sz == 800 && comp == 6) return 'T';
+                return 'X';
+            };
+
+            global_code = map_global(CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+            snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.jpg",
+                     dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec, global_code, CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
             
             if (!fs.exists(file_path)) {
                 break; // Fichier n'existe pas, on peut l'utiliser
@@ -679,6 +714,132 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
             ESP_LOGI(TAG, "JPG: %uB %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
     #endif
     return;
+}
+
+static void capture_handler_AVI(AsyncWebServerRequest *request)
+{
+#ifdef SDCARD
+    lectureHeure(); // update timeinfo
+    char dir_path[32];
+    char file_path[128];
+    int year = timeinfo.tm_year + 1900;
+    int month = timeinfo.tm_mon + 1;
+    int day = timeinfo.tm_mday;
+    int hour = timeinfo.tm_hour;
+    int min = timeinfo.tm_min;
+    int sec = timeinfo.tm_sec;
+    fs::FS &fs = SD_MMC;
+
+    // create directory /YYYY/MM
+    snprintf(dir_path, sizeof(dir_path), "/%04d/%02d", year, month);
+    if (!fs.exists(dir_path)) {
+        Serial.printf("Creating directory: %s\n", dir_path);
+        createDir(fs, dir_path);
+    }
+
+    // Capture first frame to determine resolution
+    camera_fb_t *fb = NULL;
+#ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+    enable_led(true);
+    vTaskDelay(150 / portTICK_PERIOD_MS);
+    fb = esp_camera_fb_get();
+    enable_led(false);
+#else
+    fb = esp_camera_fb_get();
+#endif
+    if (!fb) {
+        ESP_LOGE(TAG, "Camera capture failed");
+        request->send(500, "text/plain", "Camera capture failed");
+        return;
+    }
+
+    int width = fb->width;
+    int height = fb->height;
+
+    size_t rgb_len = (size_t)width * (size_t)height * 3;
+    uint8_t *rgb_buf = (uint8_t*)malloc(rgb_len);
+    if (!rgb_buf) {
+        esp_camera_fb_return(fb);
+        request->send(500, "text/plain", "Memory allocation failed");
+        return;
+    }
+
+    // Convert to RGB888
+    if (!fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf)) {
+        free(rgb_buf);
+        esp_camera_fb_return(fb);
+        request->send(500, "text/plain", "Format conversion failed");
+        return;
+    }
+    esp_camera_fb_return(fb);
+
+    // Build filename
+    int yy = year % 100;
+    char global_code = 'X';
+    auto map_global = [](int nb, int sz, int comp)->char {
+        if (nb == 1 && sz == 1 && comp == 1) return 'A';
+        if (nb == 2 && sz == 1 && comp == 2) return 'C';
+        if (nb == 3 && sz == 2 && comp == 3) return 'E';
+        // add more mappings if needed
+        return 'X';
+    };
+    global_code = map_global(CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+
+    snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
+             dir_path, ADDRESS, yy, month, day, hour, min, sec, global_code, CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+
+    // Open avi writer (fps set to 1 to avoid division by zero for long intervals)
+    struct mjpegw_context *avi = mjpegw_open(file_path, (uint32_t)width, (uint32_t)height, 1, NULL);
+    if (!avi) {
+        free(rgb_buf);
+        request->send(500, "text/plain", "Failed to open AVI file");
+        return;
+    }
+
+    // Map compression code to an approximation of JPEG quality used by mjpegw
+    int qmap[] = {0, 5, 10, 15, 20, 30, 50, 60};
+    int quality = 15;
+    if (CAP_JPG_COMP >=1 && CAP_JPG_COMP <=7) quality = qmap[CAP_JPG_COMP];
+
+    // Add first frame
+    mjpegw_add_frame(avi, rgb_buf, quality);
+    free(rgb_buf);
+
+    // Determine how many frames to capture
+    int frames = CAP_NB_IMAGES;
+    if (CAP_NB_IMAGES == 3) frames = 10; // code 3 => 10 frames per your mapping
+    if (CAP_NB_IMAGES == 4) frames = 10; // 4 means 'all' - fallback to 10
+
+    for (int i = 1; i < frames; i++) {
+        vTaskDelay(CAP_INTERVAL_SEC * 1000 / portTICK_PERIOD_MS);
+#ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+        enable_led(true);
+        vTaskDelay(80 / portTICK_PERIOD_MS);
+#endif
+        camera_fb_t *fbi = esp_camera_fb_get();
+        if (!fbi) break;
+
+        uint8_t *rgb2 = (uint8_t*)malloc((size_t)width * (size_t)height * 3);
+        if (!rgb2) {
+            esp_camera_fb_return(fbi);
+            break;
+        }
+        if (!fmt2rgb888(fbi->buf, fbi->len, fbi->format, rgb2)) {
+            free(rgb2);
+            esp_camera_fb_return(fbi);
+            break;
+        }
+        esp_camera_fb_return(fbi);
+
+        mjpegw_add_frame(avi, rgb2, quality);
+        free(rgb2);
+    }
+
+    mjpegw_close(avi);
+    request->send(200, "text/plain", "AVI saved to SD card");
+#else
+    request->send(500, "text/plain", "SD card not available");
+#endif
 }
 
 static void stream_handler(AsyncWebServerRequest *request)
@@ -1326,6 +1487,11 @@ void server_routes_camera()
 
     server.on("/captureSD", HTTP_GET, [](AsyncWebServerRequest *request){
         capture_handler_SD(request);
+    });
+
+    // Capture AVI (MJPEG stream packaged into an AVI file on SD card)
+    server.on("/captureAVI", HTTP_GET, [](AsyncWebServerRequest *request){
+        capture_handler_AVI(request);
     });
 
     server.on("/stream", HTTP_GET, [](AsyncWebServerRequest *request){

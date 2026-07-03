@@ -197,28 +197,51 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
     uint8_t* rgb_buf = NULL;
     size_t rgb_len;
 
-	// alloc memoire RGB888
-	rgb_len = (size_t)settings.width * (size_t)settings.height * 3 * sizeof(uint8_t);
+	// --- Lightweight probe to extract JPEG dimensions before decoding ---
+	int Jwidth = 0, Jheight = 0;
+	auto getJpegSizeFromBuffer = [](const uint8_t *buf, size_t len, int &out_w, int &out_h)->bool {
+		for (size_t i = 0; i + 9 < len; i++) {
+			if (buf[i] == 0xFF && buf[i+1] == 0xC0) {
+				out_h = (buf[i+5] << 8) + buf[i+6];
+				out_w = (buf[i+7] << 8) + buf[i+8];
+				if ((out_w>100) && (out_w<2000) && (out_h>50) && (out_h<2000)) 
+					return true;
+				else
+					return false;
+			}
+		}
+		return false;
+	};
+
+	if (!getJpegSizeFromBuffer(jpg_bu, jpg_len, Jwidth, Jheight)) {
+		Serial.println("Failed to read JPEG size");
+		free(jpg_bu);
+		encoder.close();
+		return 3;
+	}
+
+	// alloc memoire RGB888 based on source JPEG size (safe allocation)
+	rgb_len = (size_t)Jwidth * (size_t)Jheight * 3 * sizeof(uint8_t);
 	rgb_buf = (uint8_t*)malloc(rgb_len);
 	Serial.println("EnCCC");
-	if (rgb_buf) 
+	if (rgb_buf)
 		memset(rgb_buf, 0, rgb_len);
-    else {
-      free(jpg_bu);
-	  encoder.close();
-      return 9;
-    }
+	else {
+		free(jpg_bu);
+		encoder.close();
+		return 9;
+	}
 
-	int Jwidth, Jheight;
-    if (!fmt2rgb888(jpg_bu, jpg_len, PIXFORMAT_JPEG, rgb_buf, &Jwidth, &Jheight)) {
-        Serial.println("JPEG decode failed");
-        free(jpg_bu);
-        free(rgb_buf);
+	// Decode JPEG to RGB using SDK-style 4-arg fmt2rgb888
+	if (!fmt2rgb888(jpg_bu, jpg_len, PIXFORMAT_JPEG, rgb_buf)) {
+		Serial.println("JPEG decode failed");
+		free(jpg_bu);
+		free(rgb_buf);
 		encoder.close();
 		return 4;
-    }
+	}
 	Serial.printf("width:%i height:%i\n", Jwidth, Jheight);
-    free(jpg_bu);
+	free(jpg_bu);
 
    // 3. encoder RGB888 → LPC
 

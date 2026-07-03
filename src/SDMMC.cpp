@@ -104,7 +104,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                                 <div class="icon move-icon action-icon" onclick="moveItem('${item.name}')"></div>
                                 <div class="icon sd-icon action-icon" onclick="reducItem('${item.name}')">R</div>
                                 <div class="icon sd-icon action-icon" onclick="encodItem('${item.name}')">E</div>
-                                <div class="icon sd-icon action-icon" onclick="decodItem('${item.name}')">D</div>
+                                <div class="icon sd-icon action-icon" onclick="compressItem('${item.name}')">Co</div>
                             </td>
                         `;
                         tbody.appendChild(row);
@@ -214,17 +214,29 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
             }
         }
 
-        function decodItem(name) {
+        function compressItem(name) {
+            const format = prompt(
+            'Format (F1, F2, F3 ou F4):\n' +
+            'F1 : 320x240\n' +
+            'F2 : 480x360\n' +
+            'F3 : 640x480\n' +
+            'F4 : 800x600\n' +
+            'F5 : 1024x768',
+            'F4'
+             );
+            const allowedFormats = ['F1', 'F2', 'F3', 'F4', 'F5'];
             const quality = prompt('Quality:', 50);
-            if (quality >=1 && quality <= 100) {
+            if (quality >=1 && quality <= 100 && allowedFormats.includes(format)) {
+              const formatNumber = parseInt(format.substring(1), 10);
+              const out = `${formatNumber},${quality}`;  // ex:1,50 ou 2,20
               const srcPath = joinPath(currentPath, name);
-              fetch(`/setSD?action=7&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(quality)}`)
+              fetch(`/setSD?action=7&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(out)}`)
                   .then(response =>
                     response.text().then(text => {
                       if (response.ok) {
                           loadDirectory(currentPath);
                       } else {
-                          alert("Erreur décodage : code: " + text);
+                          alert("Erreur compression : code: " + text);
                       }
                     })
                   );
@@ -424,6 +436,18 @@ uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 {
   Serial.printf("Writing JPEG: %s\n", path);
 
+  // Ensure parent directory exists (create if missing)
+  {
+    String sp = String(path);
+    int lastSlash = sp.lastIndexOf('/');
+    if (lastSlash > 0) {
+      String parent = sp.substring(0, lastSlash);
+      if (!fs.exists(parent)) {
+        createDir(fs, parent.c_str());
+      }
+    }
+  }
+
   File file = fs.open(path, FILE_WRITE);
   if (!file)
   {
@@ -452,6 +476,18 @@ uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 uint8_t appendFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 {
   Serial.printf("Appending to file: %s\n", path);
+
+  // Ensure parent directory exists (create if missing)
+  {
+    String sp = String(path);
+    int lastSlash = sp.lastIndexOf('/');
+    if (lastSlash > 0) {
+      String parent = sp.substring(0, lastSlash);
+      if (!fs.exists(parent)) {
+        createDir(fs, parent.c_str());
+      }
+    }
+  }
 
   File file = fs.open(path, FILE_APPEND);
   if (!file)
@@ -615,6 +651,18 @@ uint8_t decodeFile()
 uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len)
 {
     // --- 8. écrire fichier ---
+    // Ensure parent directory exists (create if missing)
+    {
+      String sp = String(newPath);
+      int lastSlash = sp.lastIndexOf('/');
+      if (lastSlash > 0) {
+        String parent = sp.substring(0, lastSlash);
+        if (!fs.exists(parent)) {
+          createDir(fs, parent.c_str());
+        }
+      }
+    }
+
     File outFile = fs.open(newPath, FILE_WRITE);
     if (!outFile) {
         Serial.println("Failed to open output file");
@@ -822,7 +870,7 @@ void server_routes_SDCARD()
     String fs_str = request->getParam("fs")->value();
     String out = request->getParam("out")->value();
     fs::FS &fs = SD_MMC;
-
+    
     // Normalize path for SD_MMC mount point
     /*if (fs_str == "SD_MMC") {
       const String mountPoint = "/sdcard";
@@ -865,6 +913,7 @@ void server_routes_SDCARD()
             Serial.println("Format invalide");
             return;
         }      
+
       result = reducFile(fs, path.c_str(), size, quality);
     }
     else if (action == 6)
@@ -881,17 +930,33 @@ void server_routes_SDCARD()
       result = 0;
     }
     else if (action == 7)
-    { // decode lpc et enregistre new image
-      strncpy(path_c, path.c_str(), sizeof(path_c));
-      path_c[sizeof(path_c) - 1] = '\0';  // carac final
-      qual_decod = out.toInt();
-      systeme_eve_t evt = { EVENT_DECODE_LPC, 0 }; 
-      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
-      {
-        if (erreur_queue<5) num_err_queue[erreur_queue]=3;
-        erreur_queue++;
-      }
-      result = 0;
+    { // compresse image
+        result = 0;
+        String out = request->getParam("out")->value();
+
+        int size = 0;
+        int quality = 0;
+
+        if (sscanf(out.c_str(), "%d,%d", &size, &quality) == 2)
+        {
+          // Size 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280)
+          switch (size) {
+              case 1: size = 320; break;
+              case 2: size = 480;  break;
+              case 3: size = 640;  break;
+              case 4: size = 800;  break;
+              case 5: size = 1024; break;
+              case 6: size = 1280; break;
+              default:
+                  Serial.println("Format inconnu");
+                  result = 1;
+          }
+          if (!result)
+          {
+            Serial.printf("Compressing file %s to width %u quality:%u\n", path.c_str(), size, quality);
+            result = reducFile(fs, path.c_str(), size, quality);
+          }
+        }
     }
     else {
       request->send(400, "text/plain", "Invalid action");

@@ -124,11 +124,41 @@ struct img_data_t
 
 		std::string jpeg(std::istreambuf_iterator<char>(file), (std::istreambuf_iterator<char>()));
 
-		alloc();
+			// Lightweight JPEG size probe: scan for SOF marker (0xFFC0 or 0xFFC2) and read
+			// height/width. This is faster than a full decode and avoids an extra decode
+			// when only dimensions are needed.
+			auto getJpegSizeFromBuffer = [](const uint8_t *buf, size_t len, int &out_w, int &out_h)->bool {
+				for (size_t i = 0; i + 9 < len; i++) {
+					if (buf[i] == 0xFF && buf[i+1] == 0xC0) {
+						out_h = (buf[i+5] << 8) + buf[i+6];
+						out_w = (buf[i+7] << 8) + buf[i+8];
+						if ((out_w>100) && (out_w<2000) && (out_h>50) && (out_h<2000)) 
+							return true;
+						else
+							return false;
+					}
+				}
+				return false;
+			};
 
-		uint8_t *jpg_cast = (uint8_t*)jpeg.c_str();
-		fmt2rgb888(jpg_cast, jpeg.size(), PIXFORMAT_JPEG, bytes, &w, &h);
-	}
+			int iw = 0, ih = 0;
+			uint8_t *jpg_cast = (uint8_t*)jpeg.c_str();
+			if (!getJpegSizeFromBuffer(jpg_cast, jpeg.size(), iw, ih)) {
+				printf("Failed to read JPEG size\n");
+				return;
+			}
+
+			w = iw; h = ih;
+			alloc();
+
+			// Decode using SDK-style fmt2rgb888 (4-arg). We pre-read the dimensions to
+			// allocate the RGB buffer correctly and avoid a separate heavy decode for dims.
+			if (!fmt2rgb888(jpg_cast, jpeg.size(), PIXFORMAT_JPEG, bytes)) {
+				printf("JPEG decode failed\n");
+				if (bytes) { free(bytes); bytes = NULL; }
+				return;
+			}
+		}
 
 	void dump_jpg(const char *path, uint8_t quality) // quality is in [1, 100]
 	{
