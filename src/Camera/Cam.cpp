@@ -53,23 +53,30 @@ uint8_t inline initCamera() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_SVGA;
+  config.frame_size = FRAMESIZE_SXGA;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  // Use latest frame grab mode to avoid serving old frames queued in driver
+  config.grab_mode = CAMERA_GRAB_LATEST;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 12;
+  config.jpeg_quality = 4;
   config.fb_count = 1;
+  // Nota : frame_size initial et jpeg_quality initial definisse la taille maximale qu'on pourra charger
 
   // Charger les valeurs précédemment enregistrées dans NVS
   camera_load_settings(nullptr, &config);
 
+  // Force pixel format to JPEG to avoid expensive on-the-fly conversions
+  config.pixel_format = PIXFORMAT_JPEG;
+
   if (psramFound()) {
     Serial.printf("PS RAM Found [%d]\n", ESP.getPsramSize());
-    config.jpeg_quality = 10;
-    config.fb_count = 2; // 1 seule image 2;
-    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // evite de lire 2° image trop viteCAMERA_GRAB_LATEST;
+    config.jpeg_quality = 4;
+    // Use more frame buffers when PSRAM is available to avoid contention between stream and captures
+  config.fb_count = 4; // increase for robustness (was 3)
+    config.grab_mode = CAMERA_GRAB_LATEST; // prefer the most recent frame
   } else {
     config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 12;
     config.fb_location = CAMERA_FB_IN_DRAM;
     Serial.printf("PS RAM not Found \n");
 

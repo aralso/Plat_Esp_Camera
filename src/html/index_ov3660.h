@@ -1255,9 +1255,18 @@ document.addEventListener('DOMContentLoaded', function (event) {
 
   // Attach actions to buttons
   stillButton.onclick = () => {
-    stopStream()
-    view.src = `${baseHost}/capture?_cb=${Date.now()}`
-    show(viewContainer)
+    // If stream active, stop it cleanly
+    if (streamButton.innerHTML === 'Stop Stream') {
+      view.src = '';
+      streamButton.innerHTML = 'Start Stream';
+      setTimeout(() => {
+        view.src = `${baseHost}/capture?_cb=${Date.now()}`;
+        show(viewContainer);
+      }, 150);
+    } else {
+      view.src = `${baseHost}/capture?_cb=${Date.now()}`;
+      show(viewContainer);
+    }
   }
 
   saveToSDButton.onclick = () => {

@@ -371,17 +371,19 @@ static void capture_handler(AsyncWebServerRequest *request)
 #endif
 
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+    ESP_LOGI(TAG, "capture_handler(): enabling LED and capturing");
     enable_led(true);
     vTaskDelay(150 / portTICK_PERIOD_MS);
     fb = esp_camera_fb_get();
     enable_led(false);
 #else
+    ESP_LOGI(TAG, "capture_handler(): capturing (no LED)");
     fb = esp_camera_fb_get();
 #endif
 
     if (!fb)
     {
-        ESP_LOGE(TAG, "Camera capture failed");
+        ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
         request->send(500, "text/plain", "Camera capture failed");
         return;
     }
@@ -407,8 +409,16 @@ static void capture_handler(AsyncWebServerRequest *request)
             #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
                         fb_len = fb->len;
             #endif
-            buf = fb->buf;
+            // Copy JPEG buffer because fb->buf will be returned to the driver
             buf_len = fb->len;
+            buf = (uint8_t*)malloc(buf_len);
+            if (!buf) {
+                esp_camera_fb_return(fb);
+                ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
+                request->send(500, "text/plain", "Memory allocation failed");
+                return;
+            }
+            memcpy(buf, fb->buf, buf_len);
         }
         else
         {
@@ -417,20 +427,26 @@ static void capture_handler(AsyncWebServerRequest *request)
                         fb_len = buf_len;
             #endif
         }
+
+        int64_t t_ready = esp_timer_get_time();
+        ESP_LOGI(TAG, "capture_handler(): buffer ready %uB %ums (server)", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
+
         esp_camera_fb_return(fb);
         
+        ESP_LOGI(TAG, "capture_handler(): sending response (elapsed %ums)", (unsigned)((esp_timer_get_time() - fr_start) / 1000));
         AsyncWebServerResponse *response = request->beginResponse(200, "image/jpeg", buf, buf_len);
         response->addHeader("Content-Disposition", "inline; filename=capture.jpg");
         response->addHeader("Access-Control-Allow-Origin", "*");
+        response->addHeader("Connection", "close");
         
         char ts[32];
         snprintf(ts, 32, "%lld", esp_timer_get_time() / 1000);
         response->addHeader("X-Timestamp", ts);
         
-        
         request->send(response);
+        ESP_LOGI(TAG, "capture_handler(): request->send returned (elapsed %ums) freeHeap=%u", (unsigned)((esp_timer_get_time() - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
         
-        if (buf && buf_format != PIXFORMAT_JPEG) {
+        if (buf) {
             free(buf);
         }
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
@@ -560,17 +576,19 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
     #endif
 
     #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+        ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
         enable_led(true);
         vTaskDelay(150 / portTICK_PERIOD_MS);
         fb = esp_camera_fb_get();
         enable_led(false);
     #else
+        ESP_LOGI(TAG, "capture_handler_SD(): capturing (no LED)");
         fb = esp_camera_fb_get();
     #endif
 
     if (!fb)
     {
-        ESP_LOGE(TAG, "Camera capture failed");
+        ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
         request->send(500, "text/plain", "Camera capture failed");
         return;
     }
@@ -596,8 +614,16 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
                     fb_len = fb->len;
         #endif
-        buf = fb->buf;
+        // Copy JPEG buffer before returning fb
         buf_len = fb->len;
+        buf = (uint8_t*)malloc(buf_len);
+        if (!buf) {
+            esp_camera_fb_return(fb);
+            ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
+            request->send(500, "text/plain", "Memory allocation failed");
+            return;
+        }
+        memcpy(buf, fb->buf, buf_len);
     }
     else
     {
@@ -606,6 +632,10 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
                     fb_len = buf_len;
         #endif
     }
+
+    int64_t t_ready = esp_timer_get_time();
+    ESP_LOGI(TAG, "capture_handler_SD(): buffer ready %uB %ums freeHeap=%u", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
+
     esp_camera_fb_return(fb);
     
     // Sauvegarde sur SD
@@ -697,16 +727,26 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
         uint8_t result = writeFile(fs, file_path, buf, buf_len);
         if (result == 0) {
             //ESP_LOGI(TAG, "Image saved to %s", file_path);
-            request->send(200, "text/plain", "Image saved to SD card");
+            AsyncWebServerResponse *resp = request->beginResponse(200, "text/plain", "Image saved to SD card");
+            resp->addHeader("Connection", "close");
+            request->send(resp);
         } else {
             ESP_LOGE(TAG, "Failed to save image to %s", file_path);
-            request->send(500, "text/plain", "Failed to save image to SD card");
+            {
+                AsyncWebServerResponse *resp = request->beginResponse(500, "text/plain", "Failed to save image to SD card");
+                resp->addHeader("Connection", "close");
+                request->send(resp);
+            }
         }
     #else
-        request->send(500, "text/plain", "SD card not available");
+        {
+            AsyncWebServerResponse *resp = request->beginResponse(500, "text/plain", "SD card not available");
+            resp->addHeader("Connection", "close");
+            request->send(resp);
+        }
     #endif
     
-    if (buf && buf_format != PIXFORMAT_JPEG) {
+    if (buf) {
         free(buf);
     }
     #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
@@ -740,15 +780,17 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     // Capture first frame to determine resolution
     camera_fb_t *fb = NULL;
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+    ESP_LOGI(TAG, "capture_handler_AVI(): enabling LED and capturing");
     enable_led(true);
     vTaskDelay(150 / portTICK_PERIOD_MS);
     fb = esp_camera_fb_get();
     enable_led(false);
 #else
+    ESP_LOGI(TAG, "capture_handler_AVI(): capturing (no LED)");
     fb = esp_camera_fb_get();
 #endif
     if (!fb) {
-        ESP_LOGE(TAG, "Camera capture failed");
+        ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
         request->send(500, "text/plain", "Camera capture failed");
         return;
     }
@@ -816,7 +858,8 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
         enable_led(true);
         vTaskDelay(80 / portTICK_PERIOD_MS);
 #endif
-        camera_fb_t *fbi = esp_camera_fb_get();
+        camera_fb_t *fbi = NULL;
+        fbi = esp_camera_fb_get();
         if (!fbi) break;
 
         uint8_t *rgb2 = (uint8_t*)malloc((size_t)width * (size_t)height * 3);
@@ -836,9 +879,17 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     }
 
     mjpegw_close(avi);
-    request->send(200, "text/plain", "AVI saved to SD card");
+    {
+        AsyncWebServerResponse *resp = request->beginResponse(200, "text/plain", "AVI saved to SD card");
+        resp->addHeader("Connection", "close");
+        request->send(resp);
+    }
 #else
-    request->send(500, "text/plain", "SD card not available");
+    {
+        AsyncWebServerResponse *resp = request->beginResponse(500, "text/plain", "SD card not available");
+        resp->addHeader("Connection", "close");
+        request->send(resp);
+    }
 #endif
 }
 
