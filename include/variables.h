@@ -3,6 +3,8 @@
 #define VARIABLES_H
 
 #include "../src/lpc/lpc.h"
+#include <Arduino.h>  // for IPAddress type
+#include <stddef.h>  // for size_t
 
 // variables externes
 
@@ -38,26 +40,6 @@
 #define ADDRESS "A"
 #endif
 
-// Default capture parameters (modifiable here)
-// Nombre d'images: 1=one, 2=two, 3=ten, 4=all
-#ifndef CAP_NB_IMAGES
-#define CAP_NB_IMAGES 3
-#endif
-
-// Interval between images in seconds
-#ifndef CAP_INTERVAL_SEC
-#define CAP_INTERVAL_SEC 2
-#endif
-
-// Size code: 1:320,2:480,3:640,4:800,5:1024,6:1280
-#ifndef CAP_SIZE
-#define CAP_SIZE 3
-#endif
-
-// JPEG compression code: 1..7 mapped to qualitative values
-#ifndef CAP_JPG_COMP
-#define CAP_JPG_COMP 3
-#endif
 //#define Temp_int_DS18B20
 
 // Réseau
@@ -68,8 +50,6 @@
 //#define STM32  //incompatible du modbus, sauf à changer les pin
 // #define OTA
 
-#define LATITUDE "48.8461"  // Garches => pour récupération Temp Ext
-#define LONGITUDE "2.1889"
 
 // Definir le canal WIFI ici (doit correspondre au routeur pour l'esp_remote)
 // ⚠️ IMPORTANT : Ce canal DOIT correspondre au canal de votre routeur WiFi
@@ -80,6 +60,64 @@ typedef struct {
   uint8_t type;  // 1: Temperature, 2: Batterie
   float value;
 } Message_EspNow;
+
+// structure des paramètres 
+enum ParamType {
+  U8,
+  U16,
+  U32,
+  STR
+};
+ 
+struct Param {
+  const char* key;
+  uint8_t order;
+  ParamType type;
+ 
+  uint32_t min16;   // numeric lower bound (used for U8/U16/U32)
+  uint32_t max16;   // numeric upper bound
+ 
+  uint32_t def_u16; // default numeric value (fits U8/U16/U32)
+  uint8_t rtc_valid;  // 0: not valid, 1: valid
+  const char* def_str;
+  void* var;
+  uint8_t size;      // taille du buffer (0 pour U8/U16)
+};
+
+// Forward declarations for variables used in PARAMS
+extern uint8_t mode_reseau;
+extern uint16_t nb_reset;
+extern RTC_DATA_ATTR uint8_t periode_cycle;
+extern RTC_DATA_ATTR uint8_t mode_rapide;
+extern uint8_t log_detail;
+extern uint8_t DelaiWebsocket;
+extern RTC_DATA_ATTR uint8_t skip_graph;
+extern uint16_t Seuil_batt_sonde;
+extern RTC_DATA_ATTR uint8_t Nb_jours_Batt_log;
+extern RTC_DATA_ATTR uint16_t prolong_veille;
+extern RTC_DATA_ATTR uint8_t action_stockage;
+extern RTC_DATA_ATTR uint8_t action_envoi;
+extern char nom_routeur[];
+extern char mdp_routeur[];
+extern uint8_t websocket_on;
+extern char ip_websocket[];
+extern uint8_t id_websocket;
+extern uint8_t WIFI_CHANNEL;
+extern RTC_DATA_ATTR uint8_t last_wifi_channel;
+extern IPAddress local_ip;
+extern IPAddress gateway;
+extern IPAddress subnet;
+extern IPAddress primaryDNS;
+extern IPAddress secondaryDNS;
+extern uint8_t cap_nb_images;
+extern uint16_t cap_interval_sec;
+extern uint8_t cap_size;
+extern uint8_t cap_jpg_comp;
+extern char latitude[];
+extern char longitude[];
+
+extern const size_t PARAMS_COUNT;
+extern Param PARAMS[];
 
 //  -------  CONFIGURATION DES PINS
 //  -----------------------------------------------
@@ -257,11 +295,13 @@ constexpr int NB_Graphique =
 constexpr int NB_Val_Graph = 99;
 
 extern uint8_t protocole;
+extern uint16_t nb_reset;
 extern QueueHandle_t eventQueue;  // File d'attente des événements sequenceur
 extern uint16_t erreur_queue;
 extern TimerHandle_t debounceTimer;
 extern RTC_DATA_ATTR uint8_t periode_cycle;
 extern RTC_DATA_ATTR uint8_t mode_rapide;
+extern RTC_DATA_ATTR uint16_t prolong_veille;
 
 #define MAX_DUMP 6900              // 600 + 1050 car par graphique
 extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
@@ -275,7 +315,6 @@ extern uint8_t rtc_valid;  // 0:cold reset  1:reset apres deep sleep
 extern RTC_DATA_ATTR uint16_t   cpt_cycle_batt;                   // Compteur cycles pour mesure batterie
 extern volatile uint8_t ackReceived;  // global pour indiquer que le peer a acké
 extern volatile int ackChannel;       // canal où ça a marché
-extern uint8_t mode_reseau;
 extern uint8_t init_time;
 extern float heure;
 extern RTC_DATA_ATTR uint8_t skip_graph;
@@ -287,6 +326,22 @@ extern RTC_DATA_ATTR float tempI_moy24h, tempE_moy24h, cout_moy24h;
 extern RTC_DATA_ATTR uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
 
 extern char mdp_routeur[];
+extern char nom_routeur[];
+extern uint8_t DelaiWebsocket;
+extern uint8_t log_detail;
+extern uint8_t websocket_on;
+extern char ip_websocket[];
+extern uint8_t id_websocket;
+extern RTC_DATA_ATTR uint8_t action_stockage;
+extern RTC_DATA_ATTR uint8_t action_envoi;
+
+// IP addresses (RAM objects)
+extern IPAddress local_ip;
+extern IPAddress gateway;
+extern IPAddress subnet;
+extern IPAddress primaryDNS;
+extern IPAddress secondaryDNS;
+
 extern RTC_DATA_ATTR int16_t graphique[NB_Val_Graph][NB_Graphique];
 extern uint16_t Seuil_batt_sonde;  // millivolt
 extern uint16_t Seuil_batt_arret_ESP;  // millivolt

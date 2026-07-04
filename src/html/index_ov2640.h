@@ -396,7 +396,7 @@ const char index_ov2640_html[] = R"rawliteral(
                     <input type="checkbox" id="nav-toggle-cb" checked="checked">
                     <nav id="menu">
                         <section id="buttons">
-                            <button id="get-still">Get Still</button>
+                            <button id="get-still">Photo</button>
                             <button id="save-to-sd">Save to SD</button>
                             <button id="save-avi-to-sd">Save AVI to SD</button>
                             <button id="toggle-stream">Start Stream</button>

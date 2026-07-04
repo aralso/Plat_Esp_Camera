@@ -153,58 +153,6 @@ void setup_0()
   }*/
 }
 
-// setup : lecture nvs
-void setup_nvs()
-{
-
-  if (!rtc_valid)  // si le domaine RAM RTC est valide, on ne recharge pas les valeurs de l'eeprom 
-  {
-
-    action_stockage = preferences_nvs.getUChar("AcSt", 0);
-    if (action_stockage < 2)
-      Serial.printf("Action stockage : %i\n\r", action_stockage);
-    else {
-      action_stockage = 0;
-      preferences_nvs.putUChar("AcSt", 0);
-      Serial.println("Raz action stockage: 0");
-    }
-
-    action_envoi = preferences_nvs.getUChar("AcEn", 0);
-    if (action_envoi < 2)         
-      Serial.printf("Action envoi : %i\n\r", action_envoi);
-    else {
-      action_envoi = 0;
-      preferences_nvs.putUChar("AcEn", 0);
-      Serial.println("Raz action envoi: 0");
-    }   
-
-
-    // periode du cycle : lecture Temp ext par internet
-    periode_cycle = preferences_nvs.getUChar("cycle", 0);  // de 10 a 120
-    if ((periode_cycle < 10) || (periode_cycle > 120)) {
-      periode_cycle = 15;
-      preferences_nvs.putUChar("cycle", periode_cycle);
-      Serial.printf("Raz periode cycle : val par defaut %imin\n\r", periode_cycle);
-    }
-    else Serial.printf("periode cycle : %imin\n", periode_cycle);
-  }
-
-    #ifdef ESP_VEILLE
-
-      // Initialisation du temps de reveil pour la sonde, si reveil uart/web
-      prolong_veille = preferences_nvs.getUShort("PVei", 0);
-      if (prolong_veille>=15 && prolong_veille<=600) {
-        Serial.printf("Temps reveil : %i sec\n", prolong_veille);
-      }
-      else
-      {  
-        prolong_veille = 60;
-        preferences_nvs.putUShort("PVei", prolong_veille);
-        Serial.printf("Raz temps reveil : %i sec\n", prolong_veille);
-      }
-    #endif
-}
-
 
 // setup apres la lecture nvs, avant démarrage reseau
 void setup_1()
@@ -358,46 +306,19 @@ uint8_t requete_Set_appli (String param, float valf)
 // type 2
 uint8_t requete_GetReg_appli(int reg, float *valeur)
 {
-  uint8_t res=1;
+  uint8_t res = 1;
 
+  // Most numeric parameters are now returned via the generic PARAMS table.
+  // Keep here only application-specific dynamic reads that are not present
+  // in the PARAMS table.
 
-  if (reg == 9)  // registre 9 : Seuil batterie sonde
-  {
-    res = 0;
-    *valeur = Seuil_batt_sonde;
-  }
-  if (reg == 10)  // registre 10 : Nb de jours Log batterie
-  {
-    res = 0;
-    *valeur = Nb_jours_Batt_log;
-  }
-  if (reg == 16)  // registre 16 : duree allumage
-  {
-    res = 0;
-    *valeur = prolong_veille;
-  }
-  if (reg == 17)  // registre 17 : action stockage
-  {
-    res = 0;
-    *valeur = action_stockage;
-  }
-  if (reg == 18)  // registre 18 : action envoi
-  {
-    res = 0;
-    *valeur = action_envoi;
-  }
-  if (reg == 41)  // registre 41 : canal WiFi actuel
+  if (reg == 41)  // registre 41 : canal WiFi actuel (dynamic)
   {
     res = 0;
     uint8_t current_channel;
     wifi_second_chan_t second;
     esp_wifi_get_channel(&current_channel, &second);
     *valeur = (float)current_channel;
-  }
-  if (reg == 42)  // registre 42 : canal WiFi preferentiel
-  {
-    res = 0;
-    *valeur = WIFI_CHANNEL;
   }
 
   return res;
@@ -409,64 +330,6 @@ uint8_t requete_SetReg_appli(int param, float valeurf)
   int16_t valeur = int16_t(round(valeurf));
   uint8_t res = 1;
 
-  if (param == 9)  // registre 9 : Seuil batterie sonde
-  {
-    if ((valeur >=1800 ) && (valeur <= 4500)) {
-      res = 0;
-      Seuil_batt_sonde = valeur;
-      preferences_nvs.putUShort("SeBa", Seuil_batt_sonde);
-    }
-  }
-
-
-  if (param == 10)  // registre 10 : Nb jours log batterie
-  {
-    if ((valeur) && (valeur < 16)) {
-      res = 0;
-      Nb_jours_Batt_log = valeur;
-      preferences_nvs.putUChar("FrBL", Nb_jours_Batt_log);
-    }
-  }
-  if (param == 16)  // registre 16 : duree allumage
-  {
-    if ((valeur>=15) && (valeur <= 600)) {  // de 15 sec à 10 minutes
-      res = 0;
-      prolong_veille = valeur;
-      preferences_nvs.putUShort("PVei", prolong_veille);
-    }
-  }
-  if (param == 17)  // registre 17 : action stockage
-  {    if ((valeur == 0) || (valeur == 1))
-    {      res = 0;
-      action_stockage = valeur;
-      preferences_nvs.putUChar("AcSt", action_stockage);
-    }
-  }
-  if (param == 18)  // registre 18 : action envoi      
-  {    if ((valeur == 0) || (valeur == 1))
-    {      res = 0;
-      action_envoi = valeur;
-      preferences_nvs.putUChar("AcEn", action_envoi);
-    }
-  }
-
-  if (param == 41)  // registre 41 : last_wifi_channel
-  {
-    if ((valeur) && (valeur <= 13))
-    {
-      res = 0;
-      last_wifi_channel = valeur;
-    }
-  }
-  if (param == 42)  // registre 42 : canal wifi preferentiel
-  {
-    if ((valeur) && (valeur <= 13))
-    {
-      res = 0;
-      WIFI_CHANNEL = valeur;
-      preferences_nvs.putUChar("WifiC", WIFI_CHANNEL);
-    }
-  }
 
   return res;
 }
@@ -478,12 +341,12 @@ uint8_t requete_Get_String_appli(uint8_t type, String var, char *valeur)
   int paramV = var.toInt();
   // valeur limité a 50 caractères
   
-  if (paramV == 11)  // registre 11 : adresse MAC ce module
+  if (paramV == 60)  // registre 60 : adresse MAC ce module
   {
     res = 0;
     strncpy(valeur, WiFi.macAddress().c_str(), 18);
   }
-  if (paramV == 12)  // registre 12 : adresse MAC destinataire
+  if (paramV == 61)  // registre 61 : adresse MAC GW
   {
     res = 0;
     snprintf(valeur, 18,
@@ -511,7 +374,7 @@ uint8_t requete_Set_String_appli(int param, const char *texte)
   uint8_t res=1;
   IPAddress ip;
 
-    if (param == 12)  // registre 12 : adresse Mac dest
+    if (param == 61)  // registre 61 : adresse Mac GW
     {
       if (!parseMacString(texte, mac_gw))
       {
@@ -667,7 +530,7 @@ uint8_t fetch_internet_temp() {
   http.setTimeout(2000); 
 
   char url[150];  // assez grand pour contenir toute l'URL
-  sprintf(url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current=temperature_2m", LATITUDE, LONGITUDE);
+  sprintf(url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current=temperature_2m", latitude, longitude);
 
 
   if (http.begin(url)) {

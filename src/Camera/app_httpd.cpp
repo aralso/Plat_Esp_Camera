@@ -699,9 +699,9 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
                 return 'X';
             };
 
-            global_code = map_global(CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+            global_code = map_global(cap_nb_images, cap_size, cap_jpg_comp);
             snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.jpg",
-                     dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec, global_code, CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+                     dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec, global_code, cap_nb_images, cap_size, cap_jpg_comp);
             
             if (!fs.exists(file_path)) {
                 break; // Fichier n'existe pas, on peut l'utiliser
@@ -825,10 +825,10 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
         // add more mappings if needed
         return 'X';
     };
-    global_code = map_global(CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+    global_code = map_global(cap_nb_images, cap_size, cap_jpg_comp);
 
     snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
-             dir_path, ADDRESS, yy, month, day, hour, min, sec, global_code, CAP_NB_IMAGES, CAP_SIZE, CAP_JPG_COMP);
+             dir_path, ADDRESS, yy, month, day, hour, min, sec, global_code, cap_nb_images, cap_size, cap_jpg_comp);
 
     // Open avi writer (fps set to 1 to avoid division by zero for long intervals)
     struct mjpegw_context *avi = mjpegw_open(file_path, (uint32_t)width, (uint32_t)height, 1, NULL);
@@ -841,19 +841,19 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     // Map compression code to an approximation of JPEG quality used by mjpegw
     int qmap[] = {0, 5, 10, 15, 20, 30, 50, 60};
     int quality = 15;
-    if (CAP_JPG_COMP >=1 && CAP_JPG_COMP <=7) quality = qmap[CAP_JPG_COMP];
+    if (cap_jpg_comp >=1 && cap_jpg_comp <=7) quality = qmap[cap_jpg_comp];
 
     // Add first frame
     mjpegw_add_frame(avi, rgb_buf, quality);
     free(rgb_buf);
 
     // Determine how many frames to capture
-    int frames = CAP_NB_IMAGES;
-    if (CAP_NB_IMAGES == 3) frames = 10; // code 3 => 10 frames per your mapping
-    if (CAP_NB_IMAGES == 4) frames = 10; // 4 means 'all' - fallback to 10
+    int frames = cap_nb_images;
+    if (cap_nb_images == 3) frames = 10; // code 3 => 10 frames per your mapping
+    if (cap_nb_images == 4) frames = 10; // 4 means 'all' - fallback to 10
 
     for (int i = 1; i < frames; i++) {
-        vTaskDelay(CAP_INTERVAL_SEC * 1000 / portTICK_PERIOD_MS);
+        vTaskDelay(cap_interval_sec * 1000 / portTICK_PERIOD_MS);
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
         enable_led(true);
         vTaskDelay(80 / portTICK_PERIOD_MS);

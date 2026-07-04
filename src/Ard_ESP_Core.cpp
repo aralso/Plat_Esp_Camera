@@ -161,6 +161,7 @@ char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
   IPAddress secondaryDNS;    // DNS Secondaire (Google DNS)
 
 
+
 #else  // WT32
   #include <ETH.h>
   #include <AsyncTCP.h>
@@ -197,6 +198,9 @@ uint8_t mode_reseau=13;  //  0:pas de reseau 11:wifi_AP_usine  12:wifi_AP   13:w
 
 char nom_routeur[16]="";
 char mdp_routeur[16]="";
+char latitude[16]="";
+char longitude[16]="";
+
 unsigned long last_remote_Tint_time = 0, last_remote_Text_time=0, last_remote_heure_time=0;
 
 RTC_DATA_ATTR int16_t  graphique [NB_Val_Graph][NB_Graphique];
@@ -1008,6 +1012,109 @@ void init_ram_variables()
   Text=10.0;
 }
 
+uint8_t nvs_read(Param &p) {
+
+  // If the parameter is marked rtc_valid, skip NVS read (value lives in RTC/memory)
+  if (p.rtc_valid) {
+    if (p.key && p.key[0] != '\0') Serial.printf("parametre %s : rtc_valid -> skip NVS read\n", p.key);
+    else Serial.printf("parametre (no-key) : rtc_valid -> skip NVS read\n");
+    return 0; // nothing to read from NVS for RTC-backed parameters
+  }
+
+  switch (p.type) {
+
+      // =========================
+      case U8: {
+        uint8_t v = preferences_nvs.getUChar(p.key, (uint8_t)(p.max16 + 1));
+        uint8_t* ptr = (uint8_t*)p.var;
+
+        if (v < p.min16 || v > p.max16) {
+          v = (uint8_t)p.min16;
+          preferences_nvs.putUChar(p.key, v);
+
+          Serial.printf("****RAZ NVS parametre %s : defaut %u\n", p.key, v);
+          if (ptr) *ptr = v;
+          return 1;
+        }
+
+        if (ptr) *ptr = v;
+        Serial.printf("parametre %s : valeur %u\n", p.key, v);
+        return 0;
+      }
+
+      // =========================
+      case U16: {
+        uint16_t v = preferences_nvs.getUShort(p.key, 0xFFFF);
+        uint16_t* ptr = (uint16_t*)p.var;
+
+        if (v < p.min16 || v > p.max16) {
+          v = (uint16_t)p.min16;
+          preferences_nvs.putUShort(p.key, v);
+
+          Serial.printf("****RAZ NVS parametre %s : defaut %u\n", p.key, v);
+          if (ptr) *ptr = v;
+          return 1;
+        }
+
+        if (ptr) *ptr = v;
+        Serial.printf("parametre %s : valeur %u\n", p.key, v);
+        return 0;
+      }
+
+      // =========================
+      case U32: {
+        uint32_t v = preferences_nvs.getULong(p.key, 0ul);
+
+        // Treat U32 parameters as IPv4 addresses stored in IPAddress objects
+        IPAddress *ipPtr = (IPAddress*)p.var;
+
+        if (v < p.min16 || v > p.max16) {
+          v = (uint32_t)p.min16;
+          if (p.key != nullptr && p.key[0] != '\0') preferences_nvs.putULong(p.key, v);
+
+          IPAddress ip_default(v);
+          Serial.printf("****RAZ NVS parametre %s : defaut %s\n", p.key, ip_default.toString().c_str());
+          if (ipPtr) *ipPtr = ip_default;
+          return 1;
+        }
+
+        IPAddress ip(v);
+        if (ipPtr) *ipPtr = ip;
+        Serial.printf("parametre %s : valeur %s\n", p.key, ip.toString().c_str());
+        return 0;
+      }
+
+      // =========================
+      case STR: {
+        String v = preferences_nvs.getString(p.key, "");
+
+        char* ptr = (char*)p.var;
+
+        // 1) vide = probablement jamais initialisé ou erreur
+        if ((v.length() == 0) || v.length() >= p.size)
+        {
+          v = String(p.def_str);
+
+          preferences_nvs.putString(p.key, v);
+
+          strncpy(ptr, p.def_str, 31);
+          ptr[31] = '\0';
+
+          Serial.printf("****RAZ NVS parametre %s : defaut %s\n", p.key, ptr);
+          return 1;
+        }
+
+        // copie OK
+        strncpy(ptr, v.c_str(), p.size - 1);
+        ptr[p.size - 1] = '\0';
+
+        Serial.printf("parametre %s : valeur %s\n", p.key, ptr);
+        return 0;
+      }    
+  }
+
+  return 1;
+}
 void setup()
 {
   
@@ -1191,76 +1298,24 @@ void setup()
   nb_reset++;
   preferences_nvs.putUShort("nb_reset", nb_reset);
 
-  // mode reseau
-  mode_reseau = preferences_nvs.getUChar("reseau", 0);  // 11:wifi_AP_usine  12:wifi_AP 13:wifi_routeur  14:Ethernet filaire  autre:wifi_routeur
-  if ((mode_reseau<11) || (mode_reseau>14)) {  //init de nvs
-    mode_reseau=11;
-    preferences_nvs.putUChar("reseau", 11);
-    Serial.printf("Raz mode reseau Wifi AP : val par defaut 11\n\r");
+  // lecture de tous les paramètres nvs uint8_t, uint16_t, uint32_t(IP) et string
+  for (size_t i = 0; i < PARAMS_COUNT; ++i) {
+    nvs_read(PARAMS[i]);
   }
-  else Serial.printf("mode reseau : %i\n\r", mode_reseau);
+
 
 
   #ifdef NO_RESEAU
     mode_reseau=0;
   #endif
 
-  // delai écoute websocket
-  DelaiWebsocket = preferences_nvs.getUChar("DelWS", 0);  // en secondes
-  if ((!DelaiWebsocket) || (DelaiWebsocket>30)) { 
-    DelaiWebsocket=1;
-    preferences_nvs.putUChar("DelWS", 1);
-    Serial.printf("New Delai ecoute websocket : val par defaut :1\n\r");
-  }
-  else Serial.printf("Delai ecoute websocket : %i\n\r", DelaiWebsocket);
-
-
-  // lecture de détail_log
-  log_detail = preferences_nvs.getUChar("LogD", 100);
-  if (log_detail > 4)
-  {
-    log_detail = 0; 
-    preferences_nvs.putUChar("LogD", log_detail);
-    Serial.printf("New : Détail_log : %i \n\r", log_detail);
-  }
-  //else
-  //  Serial.printf("Détail log : %i \n\r", log_detail);
-
   uint8_t err_ip=0;
-  // routeur : SSID & mot de passe
-  String storedString = preferences_nvs.getString("Rout", "");
-  if ((storedString.length() < 15) && (storedString.length())) {
-    storedString.toCharArray(nom_routeur, sizeof(nom_routeur));
-    Serial.printf("nom_routeur : %s\n\r", nom_routeur);
-  }
 
-  String storedString2 = preferences_nvs.getString("Mdp", "");
-  if ((storedString.length()) && (storedString2.length() < 15)) {
-    storedString2.toCharArray(mdp_routeur, sizeof(mdp_routeur));
-  }
+
   if (!nom_routeur[0]) {
     err_ip=1;
     Serial.println("pas de routeur");
   }
-  Serial.printf("routeur:%s  mdp:%s\n\r", nom_routeur, mdp_routeur);
-
-  // adresse IP
-  uint32_t storedIP = preferences_nvs.getULong("ipAdd", 0);
-  local_ip =  IPAddress(storedIP);
-  Serial.printf("Adresse IP : %s\n\r", local_ip.toString().c_str());
-
-  storedIP = preferences_nvs.getULong("ipGat", 0);
-  gateway =  IPAddress(storedIP);
-  Serial.printf("Gateway IP : %s\n\r", gateway.toString().c_str());
-
-  storedIP = preferences_nvs.getULong("ipSub", 0);
-  subnet = IPAddress(storedIP);
-
-  storedIP = preferences_nvs.getULong("ipDNS", 0);
-  primaryDNS = IPAddress(storedIP);
-
-  storedIP = preferences_nvs.getULong("ipDNS2", 0);
-  secondaryDNS = IPAddress(storedIP);
 
   if ((!local_ip[0]) || (!gateway[0]))  err_ip=1;
   if ((!subnet[0]) || (!primaryDNS[0]) || (!secondaryDNS[0]))  err_ip=1;
@@ -1329,7 +1384,6 @@ void setup()
     }
 
 
-  setup_nvs();  // NVS appli
 
 
   setup_1();  // --------------   initialisation sonde temperature------------
@@ -2188,66 +2242,51 @@ uint8_t requete_Get_String (uint8_t type, String var, char *valeur)
 
   if (len == 0 || valeur == nullptr) return 1;  // sécurité de base
 
-  if (paramV == 1)  // registre 1 : adresse IP
-  {
-    res = 0;
-    local_ip.toString().toCharArray(valeur, 16);
-  }
-  if (paramV == 2)  // registre 2 : adresse gateway
-  {
-    res = 0;
-    gateway.toString().toCharArray(valeur, 16);
-  }
-  if (paramV == 3)  // registre 3 : adresse subnet
-  {
-    res = 0;
-    subnet.toString().toCharArray(valeur, 16);
-  }
-  if (paramV == 4)  // registre 4 : adresse DNS primaire
-  {
-    res = 0;
-    primaryDNS.toString().toCharArray(valeur, 16);
-  }
-  if (paramV == 5)  // registre 5 : adresse DNS secondaire
-  {
-    res = 0;
-    secondaryDNS.toString().toCharArray(valeur, 16);
-  }
-  if (paramV == 6)  // registre 6 : nom routeur
-  {
-    res = 0;
-    strncpy(valeur, nom_routeur, 16);
-    valeur[15] = '\0';
-  }
-  if (paramV == 7)  // registre 7 : mdp routeur
-  {
-    if (cpt_securite) {
-      res = 0;
-      strncpy(valeur, mdp_routeur, 16);
-      valeur[15] = '\0';
+  // First attempt: generic lookup in PARAMS for matching order
+  size_t n = PARAMS_COUNT;
+  for (size_t i = 0; i < n; ++i) {
+    Param &p = PARAMS[i];
+    if (p.order != (uint8_t)paramV) continue;
+
+    // If string type, copy directly
+    if (p.type == STR) {
+      if (p.var != nullptr) {
+        strncpy(valeur, (const char*)p.var, len);
+        valeur[len-1] = '\0';
+        res = 0;
+      } else if (p.def_str != nullptr) {
+        strncpy(valeur, p.def_str, len);
+        valeur[len-1] = '\0';
+        res = 0;
+      }
     }
-  }
-  if (paramV == 8)  // registre 8 : websocket On
-  {
-    res = 0;
-    valeur[0]=websocket_on+'0';
-    valeur[1] = '\0';
-  }
-  if (paramV == 9)  // registre 9 : adresse websocket
-  {
-    res = 0;
-    strncpy(valeur, ip_websocket, 40);
-    valeur[39] = '\0';
-  }
-  if (paramV == 10)  // registre 10 : websocket Id
-  {
-    res = 0;
-    valeur[0]=id_websocket+'0';
-    valeur[1] = '\0';
+    else if (p.type == U32) {
+      if (p.var != nullptr) {
+        IPAddress ip = *((IPAddress*)p.var);
+        ip.toString().toCharArray(valeur, len);
+        res = 0;
+      }
+    }
+    else if (p.type == U16) {
+      if (p.var != nullptr) {
+        uint16_t v = *((uint16_t*)p.var);
+        snprintf(valeur, len, "%u", (unsigned)v);
+        res = 0;
+      }
+    }
+    else if (p.type == U8) {
+      if (p.var != nullptr) {
+        uint8_t v = *((uint8_t*)p.var);
+        snprintf(valeur, len, "%u", (unsigned)v);
+        res = 0;
+      }
+    }
+
+    if (!res) break; // found and filled
   }
 
+  // application-specific string reads (kept minimal)
   res2 = requete_Get_String_appli(type, var, valeur);
-
 
   return (res+res2-1);
 }
@@ -2559,44 +2598,43 @@ uint8_t requete_GetReg(int reg, float *valeur) {
   uint8_t res = 1;
   uint8_t res2 = 1;
 
-  if (reg == 1)  // registre 1 : mode reseau
-  {
-    res = 0;
-    *valeur = mode_reseau;
-  }
-  if (reg == 2)  // registre 2 : nb_reset
-  {
-    res = 0;
-    *valeur = nb_reset;
+  // First try generic lookup in PARAMS table
+  size_t n = PARAMS_COUNT;
+  for (size_t i = 0; i < n; ++i) {
+    Param &p = PARAMS[i];
+    if (p.order != (uint8_t)reg) continue;
+
+    // If it's a string entry, cannot return numeric here
+    if (p.type == STR) {
+      // Let requete_GetReg_appli or string-get handler handle it
+      break;
+    }
+
+    if (p.var == nullptr) break;
+
+    switch (p.type) {
+      case U8:
+        *valeur = (float)(*((uint8_t*)p.var));
+        res = 0;
+        break;
+      case U16:
+        *valeur = (float)(*((uint16_t*)p.var));
+        res = 0;
+        break;
+      case U32:
+        *valeur = (float)(*((uint32_t*)p.var));
+        res = 0;
+        break;
+      default:
+        break;
+    }
+
+    if (!res) break; // found and set
   }
 
-  if (reg == 4)  // registre 4 : cycle lecture
-  {
-    res = 0;
-    *valeur = periode_cycle;
-  }
-  if (reg == 5)  // registre 5 : cycle rapide
-  {
-    res = 0;
-    *valeur = mode_rapide;
-  }
-  if (reg == 6)  // registre 6 : détail log
-  {
-    res = 0;
-    *valeur = log_detail;
-  }
-
-  if (reg == 8)  // registre 8 : ski_graph : 1 valeur sur x
-  {
-    res = 0;
-    *valeur = skip_graph;
-    //Serial.printf("skip:%i\n\r", skip_graph);
-  }
-
+  // application-specific registry reads
   res2 = requete_GetReg_appli(reg, valeur);
 
-  //if (!res) *valeur = (float)val16;
-  //Serial.printf("val_get:%f\n\r", *valeur);
   return (res+res2-1);
 }
 
@@ -2610,83 +2648,88 @@ uint8_t requete_SetReg(int param, float valeurf)
 
   if (cpt_securite)
   {
-    if (param == 1)  // registre 1 : mode reseau
-    {
-      if ((valeur >= 11) && (valeur <= 14)) {
-        res = 0;
-        mode_reseau = valeur;
-        Serial.printf("modif 1:%i\n\r", mode_reseau);
-        preferences_nvs.putUChar("reseau", valeur);
-      }
-    }
-    if (param == 2)  // registre 2 : nb de reset
-    {
-      res = 0;
-      nb_reset = valeur;
-      preferences_nvs.putUShort("nb_reset", nb_reset);
-    }
+    // Keep special-case behavior for reset (param 3)
     if (param == 3)  // registre 3 : reset par watchdog
+    {
       if (valeur == 13) {
-        //ESP.restart();
         res = 0;
         writeLog('S', 9, 0, 0, "Boot W");
         delay(500);
-        //param_wdt_delay = WDT_TIMEOUT * 12;
         esp_restart();  // Redémarrage logiciel sans effacer la RTC RAM
       }
+    }
 
-    if (param == 4)  // registre 4 : Periode cycle (en minutes)
+    // Try to find the parameter in the generic PARAMS table by order and write via NVS
     {
-      //#ifndef DEBUG
-      if ((valeur >= 5) && (valeur <= 60))  // entre 5 et 60 minutes
+      size_t n = PARAMS_COUNT;
+      for (size_t i = 0; i < n; ++i)
       {
-        res = 0;
-        periode_cycle = valeur;
-        preferences_nvs.putUChar("cycle", periode_cycle);
-        // modification du timer
-        modif_timer_cycle();
-      }
-    }
-    if (param == 5)  // registre 5 : cycle rapide =12
-    {
-      if ((valeur == 12) || (!valeur)) {
-        res = 0;
-        mode_rapide = valeur;
-        preferences_nvs.putUChar("Rap", mode_rapide);
-        modif_timer_cycle();
+        Param &p = PARAMS[i];
+        if (p.order != (uint8_t)param) continue;
+
+        // Only numeric params are handled by SetReg (U8/U16/U32)
+        if (p.type == STR) {
+          // can't set strings via numeric SetReg
+          break;
+        }
+
+        uint32_t minv = p.min16;
+        uint32_t maxv = p.max16;
+
+        // If min/max both zero, treat as no-range check (allow any value)
+        bool in_range = true;
+        if (minv != 0 || maxv != 0) {
+          if ((int32_t)valeur < (int32_t)minv || (int32_t)valeur > (int32_t)maxv) in_range = false;
+        }
+
+        if (!in_range) {
+          // Out of range -> do not write
+          break;
+        }
+
+        // Perform the write according to type
+        if (p.type == U8)
+        {
+          if (p.var != nullptr) {
+            uint8_t v = (uint8_t)valeur;
+            *((uint8_t*)p.var) = v;
+            if (p.key != nullptr && p.key[0] != '\0') preferences_nvs.putUChar(p.key, v);
+            res = 0;
+            // If changing cycle related value trigger timer update when appropriate
+            if (p.var == (void*)&periode_cycle || strcmp(p.key, "cycle") == 0) {
+              modif_timer_cycle();
+            }
+          }
+        }
+        else if (p.type == U16)
+        {
+          if (p.var != nullptr) {
+            uint16_t v = (uint16_t)valeur;
+            *((uint16_t*)p.var) = v;
+            if (p.key != nullptr && p.key[0] != '\0') preferences_nvs.putUShort(p.key, v);
+            res = 0;
+            if (p.var == (void*)&periode_cycle || strcmp(p.key, "cycle") == 0) {
+              modif_timer_cycle();
+            }
+          }
+        }
+        else if (p.type == U32)
+        {
+          if (p.var != nullptr) {
+            uint32_t v = (uint32_t)valeur;
+            // Treat U32 as IPv4 address stored in IPAddress object
+            IPAddress *ipPtr = (IPAddress*)p.var;
+            if (ipPtr) *ipPtr = IPAddress(v);
+            if (p.key != nullptr && p.key[0] != '\0') preferences_nvs.putULong(p.key, v);
+            res = 0;
+          }
+        }
+
+        // handled one entry -> break
+        break;
       }
     }
 
-    if (param == 6)  // registre 6 : détail log
-    {
-      if (valeur <= 4) {
-        res = 0;
-        log_detail = valeur;
-        preferences_nvs.putUChar("LogD", log_detail);
-      }
-    }
-
-    if (param == 7)  // registre 7 : delai ecoute websocket
-    {
-      if ((valeur) && (valeur <= 30)) {
-        res = 0;
-        DelaiWebsocket = valeur;
-        preferences_nvs.putUChar("DelWS", DelaiWebsocket);
-      }
-    }
-
-    if (param == 8)  // registre 8 : skip_graph
-    {
-      if ((valeur) && (valeur <= 50))  // entre 1 et 50
-      {
-        res = 0;
-        skip_graph = (uint8_t)valeur;  // 1 valeur sur x
-        //Serial.printf("skip:%i\n\r", skip_graph);
-        preferences_nvs.putUChar("Skip", skip_graph);
-      }
-    }
-
-    res2 = requete_SetReg_appli(param, valeurf);
 
   }
   //return (res+res2-1);

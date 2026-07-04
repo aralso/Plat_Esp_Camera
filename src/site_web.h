@@ -443,12 +443,14 @@ const char index_html[] PROGMEM = R"rawliteral(
                   8 : Skip graph : 1 valeur sur X<br>
                   9 : Seuil batt sonde<br>
                   10: Freq Log batterie(jours)<br>
-                  11 : consigne économie<br>
-                  12 : temps éveillé (sec) (sonde)<br>
                   16 : duree allumage (sec)<br>
                   17 : action : stockage<br>
                   18 : action : envoi<br>
-                  41 : canal wifi <br>
+                  30 : nb images capturées<br>
+                  31 : intervalle entre captures (sec)<br>
+                  32 : taille image (1-6)<br>
+                  33 : tx compression (1-9)<br>
+                  41 : précédent canal wifi <br>
                   42 : canal wifi prérentiel (sonde)<brW
                   <br>
 
@@ -476,18 +478,18 @@ const char index_html[] PROGMEM = R"rawliteral(
                   </div>
               </div>
               <hr style="width:100px">
-              <p> 1 : adresse IP<br>
-                  2 : gateway IP<br>
-                  3 : subnet IP<br>
-                  4 : DNS primaire<br>
-                  5 : DNS secondaire<br>
-                  6 : nom routeur<br>
-                  7 : mdp routeur<br>
-                  8 : websocket On (1-2)<br>
-                  9 : websocket<br>
-                  10 : websock id<br>
-                  11 : (L)adresse Mac module<br>
-                  12 : adresse Mac dest<br>
+              <p> 50 : adresse IP<br>
+                  51 : gateway IP<br>
+                  52 : subnet IP<br>
+                  53 : DNS primaire<br>
+                  54 : DNS secondaire<br>
+                  55 : nom routeur<br>
+                  56 : mdp routeur<br>
+                  57 : websocket On (1-2)<br>
+                  58 : websocket<br>
+                  59 : websock id<br>
+                  60 : (L)adresse Mac module<br>
+                  61 : adresse Mac GW<br>
     
 
             <div>

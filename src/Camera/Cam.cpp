@@ -32,6 +32,11 @@
 // Compress jpg  : moins bon 0 1(10) 2(14) 3(20) 4(30) 5(50) 6(60) 100  meilleur
 // nom fichier : C01-026-F5-Q3-T0-201001-000001
 
+ uint8_t cap_nb_images;
+ uint16_t cap_interval_sec;
+ uint8_t cap_size;
+ uint8_t cap_jpg_comp;
+
 uint8_t inline initCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
