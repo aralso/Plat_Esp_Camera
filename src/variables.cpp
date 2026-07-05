@@ -15,20 +15,28 @@ Param PARAMS[] = {
   // Parameters from requete_SetReg_appli
   {"SeBa", 9, U16, 1800, 4500, 3000, 0, nullptr, &Seuil_batt_sonde, 0},  // registre 9 : seuil batterie sonde (mV)
   {"FrBL", 10, U8, 1, 15, 7, 0, nullptr, &Nb_jours_Batt_log, 0},         // registre 10 : nb jours log batterie
-  {"PVei", 16, U16, 15, 600, 0, 0, nullptr, &prolong_veille, 0},         // registre 16 : duree allumage (s)
+  {"Allu", 15, U8, 0, 1, 0, 0, nullptr, &pas_de_veille, 0},   // 0:veille 1:pas de mise en veille
+  {"PVei", 16, U16, 15, 600, 0, 0, nullptr, &prolong_veille, 0}, 
+          // registre 16 : duree allumage (s)
 
   // Application settings
   {"AcSt", 17, U8, 0, 1, 0, 0, nullptr, &action_stockage, 0},        // action stockage
   {"AcEn", 18, U8, 0, 1, 0, 0, nullptr, &action_envoi, 0},           // action envoi
 
+
   // Camera capture parameters (moved to high numbers to avoid collision with SetReg)
-  {"cap_nb_images", 30, U8, 1, 4, 3, 0, nullptr, &cap_nb_images, 0},
-  {"cap_interval_sec", 31, U16, 1, 60, 2, 0, nullptr, &cap_interval_sec, 0},
-  {"cap_size", 32, U8, 1, 6, 3, 0, nullptr, &cap_size, 0},
+  {"cap_nb_images", 30, U8, 1, 10, 5, 0, nullptr, &cap_nb_images, 0},
+  {"cap_interv", 31, U8, 1, 50, 10, 0, nullptr, &cap_interval_dsec, 0},  // intervalle entre images en 0.1sec
+  {"cap_size", 32, U8, 1, 8, 4, 0, nullptr, &cap_size, 0},
   {"cap_jpg_comp", 33, U8, 1, 7, 3, 0, nullptr, &cap_jpg_comp, 0},
 
   {"latitude", 34, STR, 0, 0, 0, 0, "48.8461", &latitude, 16},
   {"longitude", 35, STR, 0, 0, 0, 0, "2.3469", &longitude, 16},
+
+  {"im_x_debut", 36, U8, 0, 100, 0, 0, nullptr, &im_x_debut, 0},
+  {"im_x_fin", 37, U8, 0, 100, 100, 0, nullptr, &im_x_fin, 0},
+  {"im_y_debut", 38, U8, 0, 100, 0, 0, nullptr, &im_y_debut, 0},
+  {"im_y_fin", 39, U8, 0, 100, 100, 0, nullptr, &im_y_fin, 0},
 
 
   // WiFi channel (SetReg_appli uses 41/42)
@@ -36,11 +44,11 @@ Param PARAMS[] = {
   {"WifiC", 42, U8, 1, 13, 0, 0, nullptr, &WIFI_CHANNEL, 0},         // registre 42 : canal wifi preferentiel (persisted)
 
   // IP addresses stored as IPAddress objects
-  {"ipAdd", 50, U32, 0, 0xFFFFFFFFu, 0, 0, nullptr, &local_ip, 0},
-  {"ipGat", 51, U32, 0, 0xFFFFFFFFu, 0, 0, nullptr, &gateway, 0},
-  {"ipSub", 52, U32, 0, 0xFFFFFFFFu, 0, 0, nullptr, &subnet, 0},       // 255.255.255.0
-  {"ipDNS", 53, U32, 0, 0xFFFFFFFFu, 0, 0, nullptr, &primaryDNS, 0},   // 8.8.8.8
-  {"ipDNS2", 54, U32, 0, 0xFFFFFFFFu, 0, 0, nullptr, &secondaryDNS, 0},// 8.8.4.4
+  {"ipAdd", 50, IP, 0, 0xFFFFFFFFu, 0, 0, nullptr, &local_ip, 0},
+  {"ipGat", 51, IP, 0, 0xFFFFFFFFu, 0, 0, nullptr, &gateway, 0},
+  {"ipSub", 52, IP, 0, 0xFFFFFFFFu, 0, 0, nullptr, &subnet, 0},       // 255.255.255.0
+  {"ipDNS", 53, IP, 0, 0xFFFFFFFFu, 0, 0, nullptr, &primaryDNS, 0},   // 8.8.8.8
+  {"ipDNS2", 54, IP, 0, 0xFFFFFFFFu, 0, 0, nullptr, &secondaryDNS, 0},// 8.8.4.4
   {"Rout", 55, STR, 0, 0, 0, 0,  "rout", nom_routeur, 16},                // nom routeur  
   {"Mdp", 56, STR, 0, 0, 0, 0, "mdp", mdp_routeur, 16},                
   {"WSOn", 57, U8, 0, 2, 1, 0, nullptr, &websocket_on, 0},            // 0 ou 1

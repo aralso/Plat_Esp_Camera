@@ -26,6 +26,7 @@
 #include "camera.h"
 #include <Preferences.h>
 #include <time.h>
+#include "esp_task_wdt.h"
 
 #ifdef SDCARD
 #include "SDMMC.h"
@@ -325,6 +326,14 @@ static void bmp_handler(AsyncWebServerRequest *request)
 #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
     uint64_t fr_start = esp_timer_get_time();
 #endif
+    // Guard: ensure camera sensor initialized before calling fb_get
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s) {
+        ESP_LOGE(TAG, "Camera not initialized (bmp_handler)");
+        request->send(500, "text/plain", "Camera not initialized");
+        return;
+    }
+
     fb = esp_camera_fb_get();
     if (!fb)
     {
@@ -352,7 +361,20 @@ static void bmp_handler(AsyncWebServerRequest *request)
     response->addHeader("X-Timestamp", ts);
     
     request->send(response);
-    free(buf);
+    // Schedule delayed free to avoid use-after-free while AsyncWebServer is sending
+    if (buf) {
+        esp_timer_handle_t once_timer;
+        esp_timer_create_args_t targs = {
+            .callback = [](void* arg){ free(arg); },
+            .arg = buf,
+            .name = "free_buf"
+        };
+        if (esp_timer_create(&targs, &once_timer) == ESP_OK) {
+            esp_timer_start_once(once_timer, 2000000);
+        } else {
+            free(buf);
+        }
+    }
     
 #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
     uint64_t fr_end = esp_timer_get_time();
@@ -370,6 +392,14 @@ static void capture_handler(AsyncWebServerRequest *request)
     int64_t fr_start = esp_timer_get_time();
 #endif
 
+    // Guard: ensure camera sensor initialized before calling fb_get
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s) {
+        ESP_LOGE(TAG, "Camera not initialized (capture_handler)");
+        request->send(500, "text/plain", "Camera not initialized");
+        return;
+    }
+
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
     ESP_LOGI(TAG, "capture_handler(): enabling LED and capturing");
     enable_led(true);
@@ -377,7 +407,7 @@ static void capture_handler(AsyncWebServerRequest *request)
     fb = esp_camera_fb_get();
     enable_led(false);
 #else
-    ESP_LOGI(TAG, "capture_handler(): capturing (no LED)");
+    ESP_LOGI(TAG, "capture : capturing (no LED)");
     fb = esp_camera_fb_get();
 #endif
 
@@ -429,11 +459,11 @@ static void capture_handler(AsyncWebServerRequest *request)
         }
 
         int64_t t_ready = esp_timer_get_time();
-        ESP_LOGI(TAG, "capture_handler(): buffer ready %uB %ums (server)", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
+        ESP_LOGI(TAG, "capture : buffer ready %uB %ums", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
 
         esp_camera_fb_return(fb);
         
-        ESP_LOGI(TAG, "capture_handler(): sending response (elapsed %ums)", (unsigned)((esp_timer_get_time() - fr_start) / 1000));
+        //ESP_LOGI(TAG, "capture_handler(): sending response (elapsed %ums)", (unsigned)((esp_timer_get_time() - fr_start) / 1000));
         AsyncWebServerResponse *response = request->beginResponse(200, "image/jpeg", buf, buf_len);
         response->addHeader("Content-Disposition", "inline; filename=capture.jpg");
         response->addHeader("Access-Control-Allow-Origin", "*");
@@ -444,14 +474,28 @@ static void capture_handler(AsyncWebServerRequest *request)
         response->addHeader("X-Timestamp", ts);
         
         request->send(response);
-        ESP_LOGI(TAG, "capture_handler(): request->send returned (elapsed %ums) freeHeap=%u", (unsigned)((esp_timer_get_time() - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
+        //ESP_LOGI(TAG, "capture_handler(): request->send returned (elapsed %ums) freeHeap=%u", (unsigned)((esp_timer_get_time() - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
         
+        // Do not free(buf) immediately — AsyncWebServer will send it asynchronously.
+        // Schedule a delayed free (2s) to allow send to complete and avoid use-after-free.
         if (buf) {
-            free(buf);
+            esp_timer_handle_t once_timer;
+            esp_timer_create_args_t targs = {
+                .callback = [](void* arg){ free(arg); },
+                .arg = buf,
+                .name = "free_buf"
+            };
+            if (esp_timer_create(&targs, &once_timer) == ESP_OK) {
+                // start in 2 seconds (2000000 microseconds)
+                esp_timer_start_once(once_timer, 2000000);
+            } else {
+                // fallback: free immediately if timer creation failed
+                free(buf);
+            }
         }
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
                 int64_t fr_end = esp_timer_get_time();
-                ESP_LOGI(TAG, "JPG: %uB %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+                ESP_LOGI(TAG, "capture complete: JPG: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
         #endif
         return;
         #if CONFIG_ESP_FACE_DETECT_ENABLED
@@ -575,23 +619,31 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
         int64_t fr_start = esp_timer_get_time();
     #endif
 
-    #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
-        ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
-        enable_led(true);
-        vTaskDelay(150 / portTICK_PERIOD_MS);
-        fb = esp_camera_fb_get();
-        enable_led(false);
-    #else
-        ESP_LOGI(TAG, "capture_handler_SD(): capturing (no LED)");
-        fb = esp_camera_fb_get();
-    #endif
+        // Guard: ensure camera sensor initialized before calling fb_get
+        sensor_t *s = esp_camera_sensor_get();
+        if (!s) {
+            ESP_LOGE(TAG, "Camera not initialized (capture_handler_SD)");
+            request->send(500, "text/plain", "Camera not initialized");
+            return;
+        }
 
-    if (!fb)
-    {
-        ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
-        request->send(500, "text/plain", "Camera capture failed");
-        return;
-    }
+    #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+            ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
+            enable_led(true);
+            vTaskDelay(150 / portTICK_PERIOD_MS);
+            fb = esp_camera_fb_get();
+            enable_led(false);
+        #else
+            ESP_LOGI(TAG, "capture_SD(): capturing (no LED)");
+            fb = esp_camera_fb_get();
+        #endif
+
+        if (!fb)
+        {
+            ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
+            request->send(500, "text/plain", "Camera capture failed");
+            return;
+        }
 
     buf_format = fb->format;  // Save format before returning fb
 
@@ -634,7 +686,7 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
     }
 
     int64_t t_ready = esp_timer_get_time();
-    ESP_LOGI(TAG, "capture_handler_SD(): buffer ready %uB %ums freeHeap=%u", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
+    ESP_LOGI(TAG, "capture_SD(): buffer ready %uB %ums freeHeap=%u", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
 
     esp_camera_fb_return(fb);
     
@@ -751,7 +803,7 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
     }
     #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
             int64_t fr_end = esp_timer_get_time();
-            ESP_LOGI(TAG, "JPG: %uB %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+            ESP_LOGI(TAG, "capture_SD complete: JPG: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
     #endif
     return;
 }
@@ -779,6 +831,14 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
 
     // Capture first frame to determine resolution
     camera_fb_t *fb = NULL;
+// Ensure sensor initialized
+    sensor_t *s_avi = esp_camera_sensor_get();
+    if (!s_avi) {
+        ESP_LOGE(TAG, "Camera not initialized (capture_handler_AVI)");
+        request->send(500, "text/plain", "Camera not initialized");
+        return;
+    }
+
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
     ESP_LOGI(TAG, "capture_handler_AVI(): enabling LED and capturing");
     enable_led(true);
@@ -827,7 +887,8 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     };
     global_code = map_global(cap_nb_images, cap_size, cap_jpg_comp);
 
-    snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
+    // Use absolute path under SD_MMC mount point (begin was mounted at "/sdcard")
+    snprintf(file_path, sizeof(file_path), "/sdcard%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
              dir_path, ADDRESS, yy, month, day, hour, min, sec, global_code, cap_nb_images, cap_size, cap_jpg_comp);
 
     // Open avi writer (fps set to 1 to avoid division by zero for long intervals)
@@ -853,7 +914,19 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     if (cap_nb_images == 4) frames = 10; // 4 means 'all' - fallback to 10
 
     for (int i = 1; i < frames; i++) {
-        vTaskDelay(cap_interval_sec * 1000 / portTICK_PERIOD_MS);
+        // Wait between frames, reset watchdog periodically during long waits
+        {
+            int wait_ms = cap_interval_dsec * 100; // cap_interval_dsec is in deciseconds
+            const int chunk_ms = 1000; // reset watchdog every 1s
+            while (wait_ms > 0) {
+                int step = (wait_ms > chunk_ms) ? chunk_ms : wait_ms;
+                vTaskDelay(step / portTICK_PERIOD_MS);
+                #ifdef WatchDog
+                    esp_task_wdt_reset();
+                #endif
+                wait_ms -= step;
+            }
+        }
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
         enable_led(true);
         vTaskDelay(80 / portTICK_PERIOD_MS);
@@ -895,116 +968,160 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
 
 static void stream_handler(AsyncWebServerRequest *request)
 {
-    camera_fb_t *fb = NULL;
-    size_t _jpg_buf_len = 0;
-    uint8_t *_jpg_buf = NULL;
-    
-    static int64_t last_frame = 0;
-    if (!last_frame)
-    {
-        last_frame = esp_timer_get_time();
-    }
+    // Use chunked response generator to stream MJPEG continuously.
+    // The generator will capture one frame every 300 ms and write the multipart part.
 
     #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
         enable_led(true);
         isStreaming = true;
     #endif
 
-    // For streaming with AsyncWebServer, we collect frames and send as multipart
-    // Limiting to a few frames per connection for memory efficiency
-    std::vector<uint8_t> response_data;
-    
-    // Add initial boundary
-    String boundary = _STREAM_BOUNDARY;
-    for (char c : boundary) {
-        response_data.push_back(c);
-    }
-    
-    int loop_count = 0;
-    int max_frames = 5;  // Limit frames per request
-    
-    while (loop_count < max_frames)
-    {
-        fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            ESP_LOGE(TAG, "Camera capture failed");
-            break;
-        }
-        
-        if (fb->format != PIXFORMAT_JPEG)
-        {
-            bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-            esp_camera_fb_return(fb);
-            fb = NULL;
-            if (!jpeg_converted)
-            {
-                ESP_LOGE(TAG, "JPEG compression failed");
-                break;
-            }
-        }
-        else
-        {
-            _jpg_buf_len = fb->len;
-            _jpg_buf = fb->buf;
-        }
-        
-        // Add part header
-        char part_buf[128];
-        size_t hlen = snprintf(part_buf, sizeof(part_buf), _STREAM_PART, _jpg_buf_len, (long)esp_timer_get_time() / 1000000, (long)(esp_timer_get_time() % 1000000));
-        for (size_t i = 0; i < hlen; i++) {
-            response_data.push_back(part_buf[i]);
-        }
-        
-        // Add image data
-        for (size_t i = 0; i < _jpg_buf_len; i++) {
-            response_data.push_back(_jpg_buf[i]);
-        }
-        
-        // Add boundary
-        for (char c : boundary) {
-            response_data.push_back(c);
-        }
-        
-        if (fb)
-        {
-            esp_camera_fb_return(fb);
-            fb = NULL;
-        }
-        else if (_jpg_buf)
-        {
-            free(_jpg_buf);
-            _jpg_buf = NULL;
-        }
-        
-        int64_t fr_end = esp_timer_get_time();
-        int64_t frame_time = fr_end - last_frame;
-        frame_time /= 1000;
-        
-        #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-                uint32_t avg_frame_time = ra_filter_run(&ra_filter, frame_time);
-                ESP_LOGI(TAG, "MJPG: %uB %ums (%.1ffps), AVG: %ums (%.1ffps)",
-                        (uint32_t)(_jpg_buf_len),
-                        (uint32_t)frame_time, 1000.0 / (uint32_t)frame_time,
-                        avg_frame_time, 1000.0 / avg_frame_time);
-        #endif
-        
-        last_frame = fr_end;
-        loop_count++;
-        
-        vTaskDelay(300 / portTICK_PERIOD_MS);
-    }
+    const char *boundary = _STREAM_BOUNDARY;
+    const size_t boundary_len = strlen(boundary);
 
+    // State for streaming without allocating a large contiguous buffer
+    struct StreamState {
+        size_t sent_total = 0;      // total bytes already sent
+        char hdr[128];              // header buffer
+        size_t hlen = 0;            // header length
+        camera_fb_t *fb = NULL;     // camera frame when JPEG (owned until returned)
+        uint8_t *jpg_buf = NULL;    // jpg buffer when produced by frame2jpg (owned)
+        size_t jpg_len = 0;         // jpg length
+        size_t frame_size = 0;      // total size = hlen + jpg_len + boundary_len
+    };
+
+    static StreamState state;
+
+    // Generator writes parts in three segments: header, jpg payload, boundary
+    std::function<size_t(uint8_t*, size_t, size_t)> stream_generator = [&](uint8_t *outBuf, size_t maxLen, size_t index) -> size_t {
+        if (maxLen == 0) return 0;
+
+        // If it's time to generate a new frame (index equals sent_total), capture
+        if (index == state.sent_total) {
+            // Delay between frames
+            vTaskDelay(300 / portTICK_PERIOD_MS);
+
+            // Clean previous resources if any (shouldn't normally exist)
+            if (state.fb) { esp_camera_fb_return(state.fb); state.fb = NULL; }
+            if (state.jpg_buf) { free(state.jpg_buf); state.jpg_buf = NULL; state.jpg_len = 0; }
+
+            // Ensure sensor initialized
+            sensor_t *s2 = esp_camera_sensor_get();
+            if (!s2) {
+                ESP_LOGE(TAG, "stream_generator(): Camera not initialized");
+                return 0;
+            }
+
+            camera_fb_t *fb = esp_camera_fb_get();
+            if (!fb) {
+                ESP_LOGE(TAG, "stream_generator(): Camera capture failed");
+                return 0; // terminate stream
+            }
+
+            size_t jpg_len = 0;
+            uint8_t *jpg_buf = NULL;
+
+            if (fb->format == PIXFORMAT_JPEG) {
+                jpg_len = fb->len;
+                // Keep fb until we've finished sending its buffer
+                state.fb = fb;
+            } else {
+                // Convert to JPEG (allocates jpg_buf)
+                if (!frame2jpg(fb, 80, &jpg_buf, &jpg_len)) {
+                    esp_camera_fb_return(fb);
+                    ESP_LOGE(TAG, "stream_generator(): JPEG compression failed");
+                    return 0;
+                }
+                // Returned the fb immediately since we have jpg_buf
+                esp_camera_fb_return(fb);
+                fb = NULL;
+                state.jpg_buf = jpg_buf;
+                state.jpg_len = jpg_len;
+            }
+
+            // Prepare header
+            state.hlen = snprintf(state.hdr, sizeof(state.hdr), _STREAM_PART, (int)jpg_len, (long)esp_timer_get_time() / 1000000, (long)(esp_timer_get_time() % 1000000));
+            state.frame_size = state.hlen + jpg_len + boundary_len;
+        }
+
+        // If no frame ready, end
+        if (state.frame_size == 0) return 0;
+
+        size_t offset = index - state.sent_total;
+        if (offset >= state.frame_size) return 0;
+
+        size_t remaining = state.frame_size - offset;
+        size_t to_send = remaining;
+        if (to_send > maxLen) to_send = maxLen;
+
+        // Determine which segment we're in and copy accordingly
+        size_t sent = 0;
+
+        // Header segment
+        if (offset < state.hlen) {
+            size_t avail = state.hlen - offset;
+            size_t c = (avail < to_send) ? avail : to_send;
+            memcpy(outBuf + sent, state.hdr + offset, c);
+            sent += c;
+            offset += c;
+            to_send -= c;
+        }
+
+        // JPEG payload segment
+        if (to_send > 0 && offset >= state.hlen && offset < state.hlen + (state.fb ? state.fb->len : state.jpg_len)) {
+            size_t jpg_offset = offset - state.hlen;
+            size_t jpg_avail = (state.fb ? state.fb->len : state.jpg_len) - jpg_offset;
+            size_t c = (jpg_avail < to_send) ? jpg_avail : to_send;
+            if (state.fb) {
+                memcpy(outBuf + sent, state.fb->buf + jpg_offset, c);
+            } else {
+                memcpy(outBuf + sent, state.jpg_buf + jpg_offset, c);
+            }
+            sent += c;
+            offset += c;
+            to_send -= c;
+        }
+
+        // Boundary segment
+        if (to_send > 0 && offset >= state.hlen + (state.fb ? state.fb->len : state.jpg_len)) {
+            size_t bound_offset = offset - state.hlen - (state.fb ? state.fb->len : state.jpg_len);
+            size_t bound_avail = boundary_len - bound_offset;
+            size_t c = (bound_avail < to_send) ? bound_avail : to_send;
+            memcpy(outBuf + sent, boundary + bound_offset, c);
+            sent += c;
+            offset += c;
+            to_send -= c;
+        }
+
+        // If we've completed sending the frame, advance sent_total and free resources
+        if ((index - state.sent_total) + sent >= state.frame_size) {
+            state.sent_total += state.frame_size;
+            // free jpg_buf if used
+            if (state.jpg_buf) { free(state.jpg_buf); state.jpg_buf = NULL; state.jpg_len = 0; }
+            // return fb if used
+            if (state.fb) { esp_camera_fb_return(state.fb); state.fb = NULL; }
+            state.frame_size = 0;
+            state.hlen = 0;
+        }
+
+        return sent;
+    };
+
+    // Start chunked response
+    AsyncWebServerResponse *response = request->beginChunkedResponse(_STREAM_CONTENT_TYPE,
+        [stream_generator](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+            return stream_generator(buffer, maxLen, index);
+        }
+    );
+    response->addHeader("Access-Control-Allow-Origin", "*");
+    response->addHeader("X-Framerate", "60");
+    request->send(response);
+
+    // When response ends, turn off LED
     #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
         isStreaming = false;
         enable_led(false);
     #endif
-
-    // Send the complete response
-    AsyncWebServerResponse *response = request->beginResponse(200, _STREAM_CONTENT_TYPE, response_data.data(), response_data.size());
-    response->addHeader("Access-Control-Allow-Origin", "*");
-    response->addHeader("X-Framerate", "60");
-    request->send(response);
 }
 
 static void cmd_handler(AsyncWebServerRequest *request)
@@ -1543,6 +1660,15 @@ void server_routes_camera()
     // Capture AVI (MJPEG stream packaged into an AVI file on SD card)
     server.on("/captureAVI", HTTP_GET, [](AsyncWebServerRequest *request){
         capture_handler_AVI(request);
+    });
+
+    // CORS preflight for stream (respond to OPTIONS requests)
+    server.on("/stream", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *resp = request->beginResponse(200);
+        resp->addHeader("Access-Control-Allow-Origin", "*");
+        resp->addHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+        resp->addHeader("Access-Control-Allow-Headers", "Content-Type");
+        request->send(resp);
     });
 
     server.on("/stream", HTTP_GET, [](AsyncWebServerRequest *request){

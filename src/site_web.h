@@ -7,7 +7,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="apple-mobile-web-app-capable" content="no">
 <meta name="mobile-web-app-capable" content="no">
-<title>Chaudiere</title>
+<title>Camera</title>
 <style>
   body {font-family: Arial,Helvetica,sans-serif;background: #181818;color: #EFEFEF;font-size: 16px}
   section.main { display: flex }
@@ -443,6 +443,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                   8 : Skip graph : 1 valeur sur X<br>
                   9 : Seuil batt sonde<br>
                   10: Freq Log batterie(jours)<br>
+                  15: pas de mise en veille<br>
                   16 : duree allumage (sec)<br>
                   17 : action : stockage<br>
                   18 : action : envoi<br>
@@ -450,6 +451,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                   31 : intervalle entre captures (sec)<br>
                   32 : taille image (1-6)<br>
                   33 : tx compression (1-9)<br>
+                  36 : image x début<br>
+                  37 : image x fin<br>
+                  38 : image y début<br>
+                  39 : image y fin<br>
                   41 : précédent canal wifi <br>
                   42 : canal wifi prérentiel (sonde)<brW
                   <br>

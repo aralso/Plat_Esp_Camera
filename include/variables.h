@@ -65,8 +65,9 @@ typedef struct {
 enum ParamType {
   U8,
   U16,
-  U32,
-  STR
+  IP,
+  STR,
+  U32
 };
  
 struct Param {
@@ -110,11 +111,16 @@ extern IPAddress subnet;
 extern IPAddress primaryDNS;
 extern IPAddress secondaryDNS;
 extern uint8_t cap_nb_images;
-extern uint16_t cap_interval_sec;
+extern uint8_t cap_interval_dsec;
 extern uint8_t cap_size;
 extern uint8_t cap_jpg_comp;
 extern char latitude[];
 extern char longitude[];
+extern uint8_t pas_de_veille;
+extern uint8_t im_x_debut;
+extern uint8_t im_x_fin;
+extern uint8_t im_y_debut;
+extern uint8_t im_y_fin;
 
 extern const size_t PARAMS_COUNT;
 extern Param PARAMS[];

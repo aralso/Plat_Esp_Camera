@@ -11,6 +11,9 @@
 #include "camera.h"
 #include "../lpc/lpc.h"
 
+// size/code helpers moved to end of file
+// (size_to_code and code_to_size are defined at the end of this TU)
+
 // issu de :     zhuhai-esp /  ESP32-S3-Goouuu-Cam
 
 //#include "header.h"
@@ -20,11 +23,12 @@
 #include "camera_pins.h"
 
 
-// nb images : 1(1) 2(2) 3(10) 4(toutes)
-// Size 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280)
-// Compress jpg  : moins bon  1(5) 2(10) 3(15) 4(20) 5(30) 6(50) (7)60  meilleur
+// nb images : 1(1) 2(2) 3(4) 4(8) 5(16) 6(32) 7(64)
+// Size 0:160 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280) 7:1600 8:2048
+// Compress jpg  : moins bon 0(0%-63) 1(5%-55) 2(10%-50) 3(15%-40) 4(20%-30) 5(30%-20) 6(50%-12) 7(60%-8) 8(80%-6) 9(100%-4) meilleur
 // global Nb_im+size+qual : A:1+320+1 C:2+320+2 E:3+480+3 H:640+3 K:640+4 N:800+4 Q:800+5 T:800+6 Z:4+1024+6
 // CA-260618-201223-E-323.jpg  .avi  .lpc
+
 
 // ex :
 // Framesize 0:QQVGA(160) 1:HQVGA(240),2:QVGA(320),3:CIF(400),4:HVGA(480) 5:VGA(640), 6:SVGA(800), 7:XGA(1024), 8:HD(1280), 9:SXGA(1280)
@@ -33,9 +37,13 @@
 // nom fichier : C01-026-F5-Q3-T0-201001-000001
 
  uint8_t cap_nb_images;
- uint16_t cap_interval_sec;
+ uint8_t cap_interval_dsec;
  uint8_t cap_size;
  uint8_t cap_jpg_comp;
+ uint8_t im_x_debut;
+ uint8_t im_x_fin;
+ uint8_t im_y_debut;
+ uint8_t im_y_fin;
 
 uint8_t inline initCamera() {
   camera_config_t config;
@@ -247,4 +255,136 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     uint8_t res = sauve_image(fs, newPath.c_str(), jpg_out, jpg_len);
 
     return res;
+}
+
+// --- Helpers moved here: size/code mapping and JPEG compression mappings ---
+
+// Size mapping helpers (codes -> widths) with framesize mapping
+typedef struct { uint16_t width; framesize_t cam_size; } size_entry_t;
+static const size_entry_t size_table[] = {
+    {96,   FRAMESIZE_96X96},
+    {160,  FRAMESIZE_QQVGA},
+    {176,  FRAMESIZE_QCIF},
+    {240,  FRAMESIZE_HQVGA},
+    {240,  FRAMESIZE_240X240},
+    {320,  FRAMESIZE_QVGA},
+    {400,  FRAMESIZE_CIF},
+    {480,  FRAMESIZE_HVGA},
+    {640,  FRAMESIZE_VGA},
+    {720,  FRAMESIZE_P_HD},
+    {800,  FRAMESIZE_SVGA},
+    {864,  FRAMESIZE_P_3MP},
+    {1024, FRAMESIZE_XGA},
+    {1080, FRAMESIZE_P_FHD},
+    {1280, FRAMESIZE_HD},
+    {1280, FRAMESIZE_SXGA},
+    {1600, FRAMESIZE_UXGA},
+    {1920, FRAMESIZE_FHD},
+    {2048, FRAMESIZE_QXGA},
+    {2560, FRAMESIZE_QHD},
+    {2560, FRAMESIZE_WQXGA},
+    {2560, FRAMESIZE_QSXGA}
+};
+static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]);
+
+// Given an image width (size), return the code (index) and output cam_size via reference.
+// Uses the lower-threshold rule: choose the largest entry width <= size.
+uint8_t size_to_code(uint16_t size, framesize_t &cam_size, uint8_t &code)
+{
+    uint8_t idx = 0;
+    for (size_t i = 0; i < size_table_count; ++i) {
+        if (size >= size_table[i].width) idx = (uint8_t)i;
+        else break;
+    }
+    code = idx;
+    cam_size = size_table[idx].cam_size;
+    return code;
+}
+
+// Given a framesize (cam_size), return the code and representative width via reference.
+// If exact framesize not found in the table, the function returns the closest match by search (first match not found -> last).
+uint8_t camsize_to_code(framesize_t cam_size, uint8_t &code, uint16_t &rep_width)
+{
+    for (size_t i = 0; i < size_table_count; ++i) {
+        if (size_table[i].cam_size == cam_size) {
+            code = (uint8_t)i;
+            rep_width = size_table[i].width;
+            return code;
+        }
+    }
+    // Not found: return last entry
+    code = (uint8_t)(size_table_count - 1);
+    rep_width = size_table[code].width;
+    return code;
+}
+
+// Given a code (index), return representative width and framesize (clamped to table bounds).
+uint8_t code_to_size(uint8_t in_code, uint16_t &rep_width, framesize_t &cam_size)
+{
+    uint8_t c = in_code;
+    if ((size_t)c >= size_table_count) c = (uint8_t)(size_table_count - 1);
+    rep_width = size_table[c].width;
+    cam_size = size_table[c].cam_size;
+    return c;
+}
+
+// JPEG compression mapping table
+// Entry: code, tc_comp_jpg (percent representative), tx_comp_cam (camera jpeg_quality)
+struct comp_entry_t { uint8_t code; uint8_t tc_comp_jpg; uint8_t tx_comp_cam; };
+
+static const comp_entry_t comp_table[] = {
+    {0, 0,   63},
+    {1, 5,   55},
+    {2, 10,  50},
+    {3, 15,  40},
+    {4, 20,  30},
+    {5, 30,  20},
+    {6, 50,  12},
+    {7, 60,   8},
+    {8, 80,   6},
+    {9, 100,  4}
+};
+static const size_t comp_table_count = sizeof(comp_table) / sizeof(comp_table[0]);
+
+// Convert txJpg (percent, 0..100) to code and txCam (jpeg_quality):
+// - chooses the largest tc_comp_jpg threshold <= txJpg (lower-threshold rule)
+// - returns the code (also written to 'code') and sets txCam to the mapped camera quality
+uint8_t tx_compjpg_to_code(uint8_t txJpg, uint8_t &txCam, uint8_t &code)
+{
+    uint8_t c = 0;
+    for (size_t i = 0; i < comp_table_count; ++i) {
+        if (txJpg >= comp_table[i].tc_comp_jpg) c = (uint8_t)i;
+        else break;
+    }
+    code = c;
+    txCam = comp_table[c].tx_comp_cam;
+    return code;
+}
+
+// Inverse: given txCam (camera jpeg_quality), choose the nearest comp_table entry by absolute difference
+// and return the representative txJpg and code
+uint8_t txcam_to_compjpg(uint8_t txCam, uint8_t &txJpg, uint8_t &code)
+{
+    int best_idx = 0;
+    int best_diff = abs((int)comp_table[0].tx_comp_cam - (int)txCam);
+    for (size_t i = 1; i < comp_table_count; ++i) {
+        int diff = abs((int)comp_table[i].tx_comp_cam - (int)txCam);
+        if (diff < best_diff) {
+            best_diff = diff;
+            best_idx = (int)i;
+        }
+    }
+    code = (uint8_t)best_idx;
+    txJpg = comp_table[best_idx].tc_comp_jpg;
+    return code;
+}
+
+// Inverse: given code, return txJpg and txCam (clamped)
+uint8_t code_to_compjpg(uint8_t in_code, uint8_t &txJpg, uint8_t &txCam)
+{
+    uint8_t c = in_code;
+    if ((size_t)c >= comp_table_count) c = (uint8_t)(comp_table_count - 1);
+    txJpg = comp_table[c].tc_comp_jpg;
+    txCam = comp_table[c].tx_comp_cam;
+    return c;
 }

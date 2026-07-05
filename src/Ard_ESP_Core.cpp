@@ -117,6 +117,7 @@ uint8_t err_wifi_repet;  // permet de resetter si le wifi ne se rétablit pas au
 
 uint8_t init_masquage=1;
 uint8_t cpt24h_batt;
+uint8_t pas_de_veille;
 
 uint8_t sdcard_ok, camera_ok;
 
@@ -1029,7 +1030,7 @@ uint8_t nvs_read(Param &p) {
         uint8_t* ptr = (uint8_t*)p.var;
 
         if (v < p.min16 || v > p.max16) {
-          v = (uint8_t)p.min16;
+          v = (uint8_t)p.def_u16;
           preferences_nvs.putUChar(p.key, v);
 
           Serial.printf("****RAZ NVS parametre %s : defaut %u\n", p.key, v);
@@ -1048,7 +1049,7 @@ uint8_t nvs_read(Param &p) {
         uint16_t* ptr = (uint16_t*)p.var;
 
         if (v < p.min16 || v > p.max16) {
-          v = (uint16_t)p.min16;
+          v = (uint16_t)p.def_u16;
           preferences_nvs.putUShort(p.key, v);
 
           Serial.printf("****RAZ NVS parametre %s : defaut %u\n", p.key, v);
@@ -1062,14 +1063,14 @@ uint8_t nvs_read(Param &p) {
       }
 
       // =========================
-      case U32: {
+      case IP: {
         uint32_t v = preferences_nvs.getULong(p.key, 0ul);
 
-        // Treat U32 parameters as IPv4 addresses stored in IPAddress objects
+        // Treat IP parameters as IPv4 addresses stored in IPAddress objects
         IPAddress *ipPtr = (IPAddress*)p.var;
 
         if (v < p.min16 || v > p.max16) {
-          v = (uint32_t)p.min16;
+          v = (uint32_t)p.def_u16;
           if (p.key != nullptr && p.key[0] != '\0') preferences_nvs.putULong(p.key, v);
 
           IPAddress ip_default(v);
@@ -2260,7 +2261,7 @@ uint8_t requete_Get_String (uint8_t type, String var, char *valeur)
         res = 0;
       }
     }
-    else if (p.type == U32) {
+    else if (p.type == IP) {
       if (p.var != nullptr) {
         IPAddress ip = *((IPAddress*)p.var);
         ip.toString().toCharArray(valeur, len);
@@ -2483,7 +2484,7 @@ uint8_t requete_Set_String(int param, const char *texte)
   {
     IPAddress ip;
     
-    if (param == 1)  // registre 1 : Adresse IP
+    if (param == 50)  // registre 50 : Adresse IP
     {
       if (ip.fromString(texte))
       {
@@ -2495,7 +2496,7 @@ uint8_t requete_Set_String(int param, const char *texte)
         local_ip = ip;
       }
     }
-    if (param == 2)  // registre 2 : Adresse gateway
+    if (param == 51)  // registre 51 : Adresse gateway
     {
       if (ip.fromString(texte))
       {
@@ -2505,7 +2506,7 @@ uint8_t requete_Set_String(int param, const char *texte)
         gateway = ip;
       }
     }
-    if (param == 3)  // registre 3 : Adresse subnet
+    if (param == 52)  // registre 52 : Adresse subnet
     {
       if (ip.fromString(texte))
       {
@@ -2515,7 +2516,7 @@ uint8_t requete_Set_String(int param, const char *texte)
         subnet = ip;
       }
     }
-    if (param == 4)  // registre 4 : Adresse DNS
+    if (param == 53)  // registre 53 : Adresse DNS
     {
       if (ip.fromString(texte))
       {
@@ -2525,7 +2526,7 @@ uint8_t requete_Set_String(int param, const char *texte)
         primaryDNS = ip;
       }
     }
-    if (param == 5)  // registre 5 : Adresse DNS2
+    if (param == 54)  // registre 5 : Adresse DNS2
     {
       if (ip.fromString(texte))
       {
@@ -2535,14 +2536,14 @@ uint8_t requete_Set_String(int param, const char *texte)
         secondaryDNS = ip;
       }
     }
-    if ((param == 6) && (strlen(texte) <= 15)) // registre 6 : nom routeur
+    if ((param == 55) && (strlen(texte) <= 15)) // registre 55 : nom routeur
     {
       res = 0;
       preferences_nvs.putString("Rout", texte);
       strncpy(nom_routeur, texte, sizeof(nom_routeur) - 1);
       nom_routeur[sizeof(nom_routeur) - 1] = '\0';  // Assure la terminaison
     }
-    if ((param == 7) && (strlen(texte) <= 15)) // registre 7 : mdp routeur
+    if ((param == 56) && (strlen(texte) <= 15)) // registre 7 : mdp routeur
     {
       res = 0;
       preferences_nvs.putString("Mdp", texte);
@@ -2550,7 +2551,7 @@ uint8_t requete_Set_String(int param, const char *texte)
       mdp_routeur[sizeof(mdp_routeur) - 1] = '\0';  // Assure la terminaison
     }
 
-    if (param == 8)  // registre 8 : websocket On
+    if (param == 57)  // registre 57 : websocket On
     {
       if (isdigit(*texte))
       {
@@ -2565,14 +2566,14 @@ uint8_t requete_Set_String(int param, const char *texte)
         }
       }
     }
-    if (param == 9)  // registre 9 : adresse websocket
+    if (param == 58)  // registre 58 : adresse websocket
     {
       res = 0;
       preferences_nvs.putString("WSock", texte);
       strncpy(ip_websocket, texte, sizeof(ip_websocket) - 1);
       ip_websocket[sizeof(ip_websocket) - 1] = '\0';  // Assure la terminaison
     }
-    if (param == 10)  // registre 10 : websocket id : 1 à 10
+    if (param == 59)  // registre 59 : websocket id : 1 à 10
     {
       if (isdigit(*texte))
       {
@@ -3507,6 +3508,13 @@ void passage_deep_sleep(uint64_t temps)
 {
   uint64_t sleep_us = min(temps, 60ULL * 60ULL * 1000000ULL);
 
+  // If the global flag pas_de_veille is set, skip entering deep sleep
+  if (pas_de_veille) {
+    Serial.printf("passage_deep_sleep(): pas_de_veille==1 -> skipping deep sleep (requested %llu us)\n", (unsigned long long)sleep_us);
+    Serial.flush();
+    return;
+  }
+
   Serial.printf("PIN_REVEIL state = %d\n", digitalRead(PIN_REVEIL));
   Serial.flush();
 
@@ -3514,7 +3522,7 @@ void passage_deep_sleep(uint64_t temps)
   Serial.flush();
   delay(100);
 
-  esp_sleep_enable_timer_wakeup(temps);
+  esp_sleep_enable_timer_wakeup(sleep_us);
   #ifdef ESP32_v1
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_REVEIL, 0); // Réveil par bouton (0 = bas)
   #endif
