@@ -688,6 +688,10 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
     int64_t t_ready = esp_timer_get_time();
     ESP_LOGI(TAG, "capture_SD(): buffer ready %uB %ums freeHeap=%u", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
 
+    // Save image dimensions before returning fb
+    int img_width = fb->width;
+    int img_height = fb->height;
+
     esp_camera_fb_return(fb);
     
     // Sauvegarde sur SD
@@ -721,39 +725,45 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
         do {
             // File name: C<ADDRESS>-YYMMDD-HHMMSS-<Global>-<nb><size><comp>.jpg
             int yy = year % 100;
-            char global_code = 'X';
-            // Map combos to a global letter according to provided table
-            auto size_px = [](int szcode)->int {
-                switch (szcode) {
-                    case 1: return 320; // QVGA
-                    case 2: return 480; // HVGA
-                    case 3: return 640; // VGA
-                    case 4: return 800; // SVGA
-                    case 5: return 1024; // XGA
-                    case 6: return 1280; // SXGA
-                    default: return 0;
+            // Global code fixed to 'Z'
+            char global_code = 'Z';
+
+            // 1) Map number of images to the nearest power-of-two code: 1->1, 2->2, 3->4 (code 3), 4->4 (code 3), 5->8 (code 4), ...
+            auto map_nb_images_code = [&](int nb)->int {
+                // Returns k such that code corresponds to pow = 2^(k-1), choosing the nearest power-of-two.
+                // Tie (equal distance) -> choose the higher power (next).
+                if (nb <= 1) return 1;
+                int k = 1;
+                while (k < 16) {
+                    int powv = 1 << (k-1); // 2^(k-1)
+                    int next_pow = 1 << k;
+                    if (nb == powv) return k;
+                    if (nb > powv && nb < next_pow) {
+                        int dprev = nb - powv;
+                        int dnext = next_pow - nb;
+                        if (dprev < dnext) return k; // closer to prev
+                        return k + 1; // closer to next or tie -> next
+                    }
+                    k++;
                 }
+                return 16; // cap
             };
 
-            auto map_global = [&](int nb, int szcode, int comp)->char {
-                int sz = size_px(szcode);
-                // Exact matches with nb when provided
-                if (nb == 1 && sz == 320 && comp == 1) return 'A';
-                if (nb == 2 && sz == 320 && comp == 2) return 'C';
-                if (nb == 3 && sz == 480 && comp == 3) return 'E';
-                if (nb == 4 && sz == 1024 && comp == 6) return 'Z';
-                // Matches where nb is not specified in the table (wildcard nb)
-                if (sz == 640 && comp == 3) return 'H';
-                if (sz == 640 && comp == 4) return 'K';
-                if (sz == 800 && comp == 4) return 'N';
-                if (sz == 800 && comp == 5) return 'Q';
-                if (sz == 800 && comp == 6) return 'T';
-                return 'X';
-            };
+            int images_code = map_nb_images_code(cap_nb_images);
 
-            global_code = map_global(cap_nb_images, cap_size, cap_jpg_comp);
+            // 2) Framesize code: derive from actual image width using size_to_code
+            uint8_t size_code = 0;
+            framesize_t cam_size = (framesize_t)0;
+            // img_width captured earlier
+            size_to_code((uint16_t)img_width, cam_size, size_code);
+
+            // 3) Compression code: normalize using code_to_compjpg
+            uint8_t comp_txJpg = 0, comp_txCam = 0;
+            uint8_t comp_code = code_to_compjpg((uint8_t)cap_jpg_comp, comp_txJpg, comp_txCam);
+
             snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.jpg",
-                     dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec, global_code, cap_nb_images, cap_size, cap_jpg_comp);
+                     dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec,
+                     global_code, images_code, size_code, comp_code);
             
             if (!fs.exists(file_path)) {
                 break; // Fichier n'existe pas, on peut l'utiliser
@@ -875,21 +885,45 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     }
     esp_camera_fb_return(fb);
 
-    // Build filename
+    // Build filename using same rules as "save photo to sd":
+    // Global code fixed to 'Z'
     int yy = year % 100;
-    char global_code = 'X';
-    auto map_global = [](int nb, int sz, int comp)->char {
-        if (nb == 1 && sz == 1 && comp == 1) return 'A';
-        if (nb == 2 && sz == 1 && comp == 2) return 'C';
-        if (nb == 3 && sz == 2 && comp == 3) return 'E';
-        // add more mappings if needed
-        return 'X';
+    char global_code = 'Z';
+
+    // 1) Map number of images to the nearest power-of-two code: 1->1,2->2,3->4(code 3),4->4(code 3),5->8(code4),...
+    auto map_nb_images_code = [&](int nb)->int {
+        // Returns k for pow = 2^(k-1). Tie -> choose higher.
+        if (nb <= 1) return 1;
+        int k = 1;
+        while (k < 16) {
+            int powv = 1 << (k-1);
+            int next_pow = 1 << k;
+            if (nb == powv) return k;
+            if (nb > powv && nb < next_pow) {
+                int dprev = nb - powv;
+                int dnext = next_pow - nb;
+                if (dprev < dnext) return k;
+                return k + 1;
+            }
+            k++;
+        }
+        return 16;
     };
-    global_code = map_global(cap_nb_images, cap_size, cap_jpg_comp);
+    int images_code = map_nb_images_code(cap_nb_images);
+
+    // 2) Framesize code derived from actual image width
+    uint8_t size_code = 0;
+    framesize_t cam_size = (framesize_t)0;
+    size_to_code((uint16_t)width, cam_size, size_code);
+
+    // 3) Compression code normalized
+    uint8_t txJpg = 0, txCam = 0;
+    uint8_t comp_code = code_to_compjpg((uint8_t)cap_jpg_comp, txJpg, txCam);
 
     // Use absolute path under SD_MMC mount point (begin was mounted at "/sdcard")
     snprintf(file_path, sizeof(file_path), "/sdcard%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
-             dir_path, ADDRESS, yy, month, day, hour, min, sec, global_code, cap_nb_images, cap_size, cap_jpg_comp);
+             dir_path, ADDRESS, yy, month, day, hour, min, sec,
+             global_code, images_code, size_code, comp_code);
 
     // Open avi writer (fps set to 1 to avoid division by zero for long intervals)
     struct mjpegw_context *avi = mjpegw_open(file_path, (uint32_t)width, (uint32_t)height, 1, NULL);
