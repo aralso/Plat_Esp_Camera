@@ -199,9 +199,11 @@ void traitement_rx(UartMessage_t* mess);
 uint8_t requete_Get_appli(const char* var, float* valeur);
 uint8_t requete_Set_appli(String param, float valf);
 uint8_t requete_GetReg(int reg, float* valeur);
-void enreg_video();
-void prise_video();
-void prise_photo();
+void capture_video_sd();
+void capture_photo_sd();
+
+// Capture AVI in background (no HTTP response). Implemented in app_httpd.cpp
+void capture_avi_background();
 int encode_lpc(const lpc_settings_t &settings);
 void printMemoryStatus();
 

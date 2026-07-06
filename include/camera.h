@@ -14,10 +14,10 @@ void encodeP();
 // Size/codec helpers
 // New signatures: each function provides the other two values via output parameters.
 // - size_to_code: input width (pixels), outputs framesize (cam_size) and code (index), returns code
-// - camsize_to_code: input framesize (cam_size), outputs code and representative width, returns code
+// - camcode_to_code: input framesize (cam_code), outputs code and representative width, returns code
 // - code_to_size: input code, outputs representative width and framesize, returns code
 uint8_t size_to_code(uint16_t size, framesize_t &cam_size, uint8_t &code);
-uint8_t camsize_to_code(framesize_t cam_size, uint8_t &code, uint16_t &rep_width);
+uint8_t camcode_to_code(framesize_t cam_size, uint8_t &code, uint16_t &rep_width);
 uint8_t code_to_size(uint8_t code, uint16_t &rep_width, framesize_t &cam_size);
 
 // JPEG compression mapping helpers
@@ -27,5 +27,7 @@ uint8_t tx_compjpg_to_code(uint8_t txJpg, uint8_t &txCam, uint8_t &code);
 uint8_t txcam_to_compjpg(uint8_t txCam, uint8_t &txJpg, uint8_t &code);
 // inverse: from code to txJpg and txCam
 uint8_t code_to_compjpg(uint8_t code, uint8_t &txJpg, uint8_t &txCam);
+
+uint8_t nbIm_to_code (uint8_t nb_images);
 
 #endif

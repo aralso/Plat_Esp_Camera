@@ -267,6 +267,15 @@ void appli_event_off(systeme_eve_t evt)
 {
 }
 
+// Called from the event loop when EVENT_PRISE_VIDEO is dequeued.
+// Delegate actual AVI capture to the background capture function implemented
+// in the camera HTTP module so the event task performs the long-running work.
+void capture_video_sd()
+{
+    Serial.println("capture_video_sd(): event— starting background AVI capture");
+    capture_avi_background();
+}
+
 // type 1
 uint8_t requete_Get_appli(const char* var, float *valeur)
   //uint8_t requete_Get_appli (String var, float *valeur) 
@@ -869,13 +878,4 @@ uint8_t envoi_now(uint8_t channel, esp_now_peer_info_t * peerInfo)
   return result;
 }
 
-// prise de video , enreg SDcard, compression petite image et envoi
-void enreg_video()
-{
 
-}
-
-void prise_video()
-{}
-void prise_photo()
-{}

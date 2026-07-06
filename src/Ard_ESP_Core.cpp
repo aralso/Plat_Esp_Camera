@@ -953,11 +953,11 @@ void taskHandler(void *parameter) {
                     break;
 
                 case EVENT_PRISE_VIDEO:
-                  prise_video();
+                  capture_video_sd();
                   break;
 
                 case EVENT_PRISE_PHOTO:
-                  prise_photo();
+                  capture_photo_sd();
                   break;
 
                 case EVENT_ENCODE_LPC:
@@ -1392,7 +1392,7 @@ void setup()
 
   if (!force_stay_awake)  // n'envoie pas la video si reveil par PIN_REVEIL
   {
-    //enreg_video();
+    //capture_video_sd();
   }
 
 
@@ -2461,7 +2461,18 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
       delay(200);
       Serial.printf("relance serveur web\n\r");
     }
-
+    // capture photo_sd
+    if (strcmp(reg, "PHOTO") == 0) 
+    { 
+      res=0; 
+      capture_photo_sd();
+    }
+    // capture video_sd
+    if (strcmp(reg, "VIDEO") == 0) 
+    { 
+      res=0; 
+      capture_video_sd();
+    }
   
     res2 = requete_action_appli(reg, data);
   }

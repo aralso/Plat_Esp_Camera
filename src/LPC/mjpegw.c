@@ -445,6 +445,53 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
+// Add a function that writes a pre-encoded JPEG frame directly to the AVI
+void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jpeg_len)
+{
+    if (!ctx || !jpeg_buf) return;
+
+    if(ctx->idx_count >= ctx->idx_capacity)
+    {
+        uint32_t new_capacity = ctx->idx_capacity * 2;
+        idx1_entry* new_idx = ctx->mem.realloc_fn(ctx->idx, sizeof(idx1_entry) * ctx->idx_capacity,
+                                                  sizeof(idx1_entry) * new_capacity, ctx->mem.user);
+
+        assert(new_idx != NULL);
+        ctx->idx = new_idx;
+        ctx->idx_capacity = new_capacity;
+    }
+
+    long frame_pos = ftell(ctx->f);
+    assert(frame_pos != -1L);
+
+    uint32_t chunk_size = jpeg_len;
+    if (jpeg_len & 1)
+        chunk_size++;
+
+    frame_chunk hdr = { .size = chunk_size };
+    memcpy(hdr.id, "00dc", 4);
+    fwrite(&hdr, sizeof(frame_chunk), 1, ctx->f);
+
+    fwrite(jpeg_buf, 1, jpeg_len, ctx->f);
+
+    if (jpeg_len & 1)
+    {
+        uint8_t pad = 0;
+        fwrite(&pad, 1, 1, ctx->f);
+    }
+
+    ctx->movi.size += sizeof(frame_chunk) + chunk_size;
+
+    idx1_entry* entry = &ctx->idx[ctx->idx_count++];
+    memcpy(entry->id, "00dc", 4);
+    entry->flags = 0x10;
+    entry->offset = (uint32_t)(frame_pos - ctx->movi_pos - 8);
+    entry->size = chunk_size;
+
+    ctx->frame_count++;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------------
 void mjpegw_close(mjpegw_context *ctx)
 {
     assert(ctx);

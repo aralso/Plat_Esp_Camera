@@ -258,79 +258,80 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
 }
 
 // --- Helpers moved here: size/code mapping and JPEG compression mappings ---
+// Size 0:160 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280) 7:1600 8:2048
 
 // Size mapping helpers (codes -> widths) with framesize mapping
-typedef struct { uint16_t width; framesize_t cam_size; } size_entry_t;
+typedef struct { uint16_t width; framesize_t cam_code; uint8_t code; } size_entry_t;
 static const size_entry_t size_table[] = {
-    {96,   FRAMESIZE_96X96},
-    {160,  FRAMESIZE_QQVGA},
-    {176,  FRAMESIZE_QCIF},
-    {240,  FRAMESIZE_HQVGA},
-    {240,  FRAMESIZE_240X240},
-    {320,  FRAMESIZE_QVGA},
-    {400,  FRAMESIZE_CIF},
-    {480,  FRAMESIZE_HVGA},
-    {640,  FRAMESIZE_VGA},
-    {720,  FRAMESIZE_P_HD},
-    {800,  FRAMESIZE_SVGA},
-    {864,  FRAMESIZE_P_3MP},
-    {1024, FRAMESIZE_XGA},
-    {1080, FRAMESIZE_P_FHD},
-    {1280, FRAMESIZE_HD},
-    {1280, FRAMESIZE_SXGA},
-    {1600, FRAMESIZE_UXGA},
-    {1920, FRAMESIZE_FHD},
-    {2048, FRAMESIZE_QXGA},
-    {2560, FRAMESIZE_QHD},
-    {2560, FRAMESIZE_WQXGA},
-    {2560, FRAMESIZE_QSXGA}
+    {96,   FRAMESIZE_96X96,  0},
+    {160,  FRAMESIZE_QQVGA,  0},
+    {176,  FRAMESIZE_QCIF,   0},
+    {240,  FRAMESIZE_HQVGA,  1},
+    {240,  FRAMESIZE_240X240,1},
+    {320,  FRAMESIZE_QVGA,   1},
+    {400,  FRAMESIZE_CIF,    2},
+    {480,  FRAMESIZE_HVGA,   2},
+    {640,  FRAMESIZE_VGA,    3},
+    {720,  FRAMESIZE_P_HD,   4},
+    {800,  FRAMESIZE_SVGA,   4},
+    {864,  FRAMESIZE_P_3MP,  5},
+    {1024, FRAMESIZE_XGA,    5},
+    {1080, FRAMESIZE_P_FHD,  6},
+    {1280, FRAMESIZE_HD,     6},
+    {1280, FRAMESIZE_SXGA,   6},
+    {1600, FRAMESIZE_UXGA,   7},
+    {1920, FRAMESIZE_FHD,    8},
+    {2048, FRAMESIZE_QXGA,   8},
+    {2560, FRAMESIZE_QHD,    9},
+    {2560, FRAMESIZE_WQXGA,  9},
+    {2560, FRAMESIZE_QSXGA,  9}
 };
 static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]);
 
 // Given an image width (size), return the code (index) and output cam_size via reference.
 // Uses the lower-threshold rule: choose the largest entry width <= size.
-uint8_t size_to_code(uint16_t size, framesize_t &cam_size, uint8_t &code)
+uint8_t size_to_code(uint16_t size, framesize_t &cam_code, uint8_t &code)
 {
     uint8_t idx = 0;
     for (size_t i = 0; i < size_table_count; ++i) {
         if (size >= size_table[i].width) idx = (uint8_t)i;
         else break;
     }
-    code = idx;
-    cam_size = size_table[idx].cam_size;
-    return code;
+    code = size_table[idx].code;
+    cam_code = size_table[idx].cam_code;
+    return 0;
 }
 
-// Given a framesize (cam_size), return the code and representative width via reference.
+// Given a framesize (cam_code), return the code and representative width via reference.
 // If exact framesize not found in the table, the function returns the closest match by search (first match not found -> last).
-uint8_t camsize_to_code(framesize_t cam_size, uint8_t &code, uint16_t &rep_width)
+uint8_t camcode_to_code(framesize_t cam_code, uint8_t &code, uint16_t &rep_width)
 {
-    for (size_t i = 0; i < size_table_count; ++i) {
-        if (size_table[i].cam_size == cam_size) {
-            code = (uint8_t)i;
-            rep_width = size_table[i].width;
-            return code;
-        }
-    }
-    // Not found: return last entry
-    code = (uint8_t)(size_table_count - 1);
-    rep_width = size_table[code].width;
-    return code;
+    uint8_t c = cam_code;
+    if ((size_t)c >= size_table_count) c = (uint8_t)(size_table_count - 1);
+    rep_width = size_table[c].width;
+    code = size_table[c].code;
+    return 0;
 }
 
 // Given a code (index), return representative width and framesize (clamped to table bounds).
-uint8_t code_to_size(uint8_t in_code, uint16_t &rep_width, framesize_t &cam_size)
+uint8_t code_to_size(uint8_t code, uint16_t &rep_width, framesize_t &cam_code)
 {
-    uint8_t c = in_code;
-    if ((size_t)c >= size_table_count) c = (uint8_t)(size_table_count - 1);
-    rep_width = size_table[c].width;
-    cam_size = size_table[c].cam_size;
-    return c;
+    for (size_t i = 0; i < size_table_count; ++i) {
+        if (size_table[i].code == code) {
+            cam_code = size_table[i].cam_code;
+            rep_width = size_table[i].width;
+            return 0;
+        }
+    }
+    // Not found: return VGA
+    cam_code = size_table[8].cam_code;
+    rep_width = size_table[8].width;
+    return 1;
 }
 
 // JPEG compression mapping table
 // Entry: code, tc_comp_jpg (percent representative), tx_comp_cam (camera jpeg_quality)
-struct comp_entry_t { uint8_t code; uint8_t tc_comp_jpg; uint8_t tx_comp_cam; };
+struct comp_entry_t { uint8_t code; uint8_t tx_comp_jpg; uint8_t tx_comp_cam; };
 
 static const comp_entry_t comp_table[] = {
     {0, 0,   63},
@@ -353,7 +354,7 @@ uint8_t tx_compjpg_to_code(uint8_t txJpg, uint8_t &txCam, uint8_t &code)
 {
     uint8_t c = 0;
     for (size_t i = 0; i < comp_table_count; ++i) {
-        if (txJpg >= comp_table[i].tc_comp_jpg) c = (uint8_t)i;
+        if (txJpg >= comp_table[i].tx_comp_jpg) c = (uint8_t)i;
         else break;
     }
     code = c;
@@ -375,7 +376,7 @@ uint8_t txcam_to_compjpg(uint8_t txCam, uint8_t &txJpg, uint8_t &code)
         }
     }
     code = (uint8_t)best_idx;
-    txJpg = comp_table[best_idx].tc_comp_jpg;
+    txJpg = comp_table[best_idx].tx_comp_jpg;
     return code;
 }
 
@@ -384,7 +385,20 @@ uint8_t code_to_compjpg(uint8_t in_code, uint8_t &txJpg, uint8_t &txCam)
 {
     uint8_t c = in_code;
     if ((size_t)c >= comp_table_count) c = (uint8_t)(comp_table_count - 1);
-    txJpg = comp_table[c].tc_comp_jpg;
+    txJpg = comp_table[c].tx_comp_jpg;
     txCam = comp_table[c].tx_comp_cam;
     return c;
+}
+
+uint8_t nbIm_to_code (uint8_t nb_images)
+{
+    uint8_t p = 1;
+
+    while (nb_images > 1 && p < 8)
+    {
+        p++;
+        nb_images >>= 1;
+    }
+
+    return p;
 }

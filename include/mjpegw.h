@@ -71,6 +71,12 @@ struct mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_
 //                                  1: Noticeable. About 1/6 the size of 3, or 1/3 the size of 2.
 void mjpegw_add_frame(struct mjpegw_context *ctx, const void* pixels, const int quality);
 
+// Adds a pre-encoded JPEG frame (MJPG) directly to the AVI
+//          [ctx]               Previous created context
+//          [jpeg_buf]          Pointer to JPEG data
+//          [jpeg_len]          Length of jpeg data in bytes
+void mjpegw_add_frame_jpg(struct mjpegw_context *ctx, const void* jpeg_buf, uint32_t jpeg_len);
+
 
 //-----------------------------------------------------------------------------------------------------------------------------
 // Finalizes and closes the AVI file
