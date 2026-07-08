@@ -14,6 +14,7 @@
 #include <ESPAsyncWebServer.h>
 
 #include "camera_pins.h"
+#include "LPC/lpc.h"
 //#include "header.h"
 //#include "esp_jpg_decode.h"
 
@@ -434,7 +435,7 @@ uint8_t readFile(fs::FS &fs, const char *path) {
 
 uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 {
-  Serial.printf("Writing JPEG: %s\n", path);
+  //Serial.printf("Writing JPEG: %s\n", path);
 
   // Ensure parent directory exists (create if missing)
   {
@@ -460,7 +461,7 @@ uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 
   if (written == len)
   {
-    Serial.println("JPEG written successfully");
+    //Serial.println("JPEG written successfully");
     res=0;
   }
   else

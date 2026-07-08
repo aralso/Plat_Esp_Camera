@@ -21,19 +21,53 @@
 #define heap_caps_malloc(a, b) malloc(a)
 #define IRAM_ATTR
 
+#include "variables.h" // provide extern uint8_t log_detail
+
+// Map log_detail levels to ESP_LOGx behavior in host build.
+// log_detail: 0=NONE,1=ERROR,2=WARN,3=INFO,4=DEBUG
+#ifndef ESP_LOGE
 template<typename... Types>
 static inline void ESP_LOGE(const char *tag, Types... types)
 {
-	printf("[ERROR] %s ");
-	printf(types...);
+    if (log_detail >= 1) {
+        printf("[ERROR] %s ", tag);
+        printf(types...);
+    }
 }
+#endif
 
+#ifndef ESP_LOGW
 template<typename... Types>
 static inline void ESP_LOGW(const char *tag, Types... types)
 {
-	printf("[WARNING] %s ");
-	printf(types...);
+    if (log_detail >= 2) {
+        printf("[WARNING] %s ", tag);
+        printf(types...);
+    }
 }
+#endif
+
+#ifndef ESP_LOGI
+template<typename... Types>
+static inline void ESP_LOGI(const char *tag, Types... types)
+{
+    if (log_detail >= 3) {
+        printf("[INFO] %s ", tag);
+        printf(types...);
+    }
+}
+#endif
+
+#ifndef ESP_LOGD
+template<typename... Types>
+static inline void ESP_LOGD(const char *tag, Types... types)
+{
+    if (log_detail >= 4) {
+        printf("[DEBUG] %s ", tag);
+        printf(types...);
+    }
+}
+#endif
 
 typedef enum {
 	JPG_SCALE_NONE,

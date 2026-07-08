@@ -123,7 +123,7 @@ typedef struct
 
 // AVI capture session state used to perform non-blocking captures across multiple
 // event loop invocations. The HTTP handler posts EVENT_PRISE_VIDEO and returns;
-// the event loop calls prise_video() which calls capture_avi_background(), and
+// the event loop calls prise_video() which calls capture_avi_b(), and
 // after each frame a FreeRTOS one-shot timer re-posts EVENT_PRISE_VIDEO until
 // the requested number of frames has been captured.
 static struct {
@@ -148,7 +148,7 @@ static void avi_timer_cb(TimerHandle_t xTimer)
     if (eventQueue) {
         BaseType_t ok = xQueueSend(eventQueue, &evt, 0);
         if (ok != pdTRUE) {
-            ESP_LOGE(TAG, "avi_timer_cb: failed to post EVENT_PRISE_VIDEO");
+        if (log_detail >= 1) ESP_LOGE(TAG, "avi_timer_cb: failed to post EVENT_PRISE_VIDEO");
         }
     }
 }
@@ -326,7 +326,7 @@ static int run_face_recognition(fb_data_t *fb, std::list<dl::detect::result_t> *
 
     if (enrolled_count < FACE_ID_SAVE_NUMBER && is_enrolling){
         id = recognizer.enroll_id(tensor, landmarks, "", true);
-        ESP_LOGI(TAG, "Enrolled ID: %d", id);
+        if (log_detail >= 3) ESP_LOGI(TAG, "Enrolled ID: %d", id);
         rgb_printf(fb, FACE_COLOR_CYAN, "ID[%u]", id);
     }
 
@@ -351,7 +351,7 @@ void enable_led(bool en)
     }
     ledc_set_duty(CONFIG_LED_LEDC_SPEED_MODE, CONFIG_LED_LEDC_CHANNEL, duty);
     ledc_update_duty(CONFIG_LED_LEDC_SPEED_MODE, CONFIG_LED_LEDC_CHANNEL);
-    ESP_LOGI(TAG, "Set LED intensity to %d", duty);
+    if (log_detail >= 3) ESP_LOGI(TAG, "Set LED intensity to %d", duty);
 }
 #endif
 
@@ -364,7 +364,7 @@ static void bmp_handler(AsyncWebServerRequest *request)
     // Guard: ensure camera sensor initialized before calling fb_get
     sensor_t *s = esp_camera_sensor_get();
     if (!s) {
-        ESP_LOGE(TAG, "Camera not initialized (bmp_handler)");
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (bmp_handler)");
         request->send(500, "text/plain", "Camera not initialized");
         return;
     }
@@ -372,7 +372,7 @@ static void bmp_handler(AsyncWebServerRequest *request)
     fb = esp_camera_fb_get();
     if (!fb)
     {
-        ESP_LOGE(TAG, "Camera capture failed");
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera capture failed");
         request->send(500, "text/plain", "Camera capture failed");
         return;
     }
@@ -382,7 +382,7 @@ static void bmp_handler(AsyncWebServerRequest *request)
     bool converted = frame2bmp(fb, &buf, &buf_len);
     esp_camera_fb_return(fb);
     if(!converted){
-        ESP_LOGE(TAG, "BMP Conversion failed");
+        if (log_detail >= 1) ESP_LOGE(TAG, "BMP Conversion failed");
         request->send(500, "text/plain", "BMP Conversion failed");
         return;
     }
@@ -413,7 +413,7 @@ static void bmp_handler(AsyncWebServerRequest *request)
     
 #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
     uint64_t fr_end = esp_timer_get_time();
-    ESP_LOGI(TAG, "BMP: %llums, %uB", (uint64_t)((fr_end - fr_start) / 1000), buf_len);
+    if (log_detail >= 3) ESP_LOGI(TAG, "BMP: %llums, %uB", (uint64_t)((fr_end - fr_start) / 1000), buf_len);
 #endif
 }
 
@@ -430,19 +430,19 @@ static void capture_handler(AsyncWebServerRequest *request)
     // Guard: ensure camera sensor initialized before calling fb_get
     sensor_t *s = esp_camera_sensor_get();
     if (!s) {
-        ESP_LOGE(TAG, "Camera not initialized (capture_handler)");
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (capture_handler)");
         request->send(500, "text/plain", "Camera not initialized");
         return;
     }
 
 #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
-    ESP_LOGI(TAG, "capture_handler(): enabling LED and capturing");
+    if (log_detail >= 3) ESP_LOGI(TAG, "capture_handler(): enabling LED and capturing");
     enable_led(true);
     vTaskDelay(150 / portTICK_PERIOD_MS);
     fb = esp_camera_fb_get();
     enable_led(false);
 #else
-    ESP_LOGI(TAG, "capture : capturing (no LED)");
+    if (log_detail >= 3) ESP_LOGI(TAG, "capture : capturing (no LED)");
     fb = esp_camera_fb_get();
 #endif
 
@@ -479,7 +479,7 @@ static void capture_handler(AsyncWebServerRequest *request)
             buf = (uint8_t*)malloc(buf_len);
             if (!buf) {
                 esp_camera_fb_return(fb);
-                ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
+                if (log_detail >= 1) ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
                 request->send(500, "text/plain", "Memory allocation failed");
                 return;
             }
@@ -494,7 +494,7 @@ static void capture_handler(AsyncWebServerRequest *request)
         }
 
         int64_t t_ready = esp_timer_get_time();
-        ESP_LOGI(TAG, "capture : buffer ready %uB %ums", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
+        if (log_detail >= 3) ESP_LOGI(TAG, "capture : buffer ready %uB %ums", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
 
         esp_camera_fb_return(fb);
         
@@ -530,7 +530,7 @@ static void capture_handler(AsyncWebServerRequest *request)
         }
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
                 int64_t fr_end = esp_timer_get_time();
-                ESP_LOGI(TAG, "capture complete: JPG: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+                if (log_detail >= 3) ESP_LOGI(TAG, "capture complete: JPG: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
         #endif
         return;
         #if CONFIG_ESP_FACE_DETECT_ENABLED
@@ -571,7 +571,7 @@ static void capture_handler(AsyncWebServerRequest *request)
                 out_height = fb->height;
                 out_buf = (uint8_t*)malloc(out_len);
                 if (!out_buf) {
-                    ESP_LOGE(TAG, "out_buf malloc failed");
+                    if (log_detail >= 1) ESP_LOGE(TAG, "out_buf malloc failed");
                     esp_camera_fb_return(fb);
                     request->send(500, "text/plain", "Memory allocation failed");
                     return;
@@ -580,7 +580,7 @@ static void capture_handler(AsyncWebServerRequest *request)
                 esp_camera_fb_return(fb);
                 if (!s) {
                     free(out_buf);
-                    ESP_LOGE(TAG, "to rgb888 failed");
+                    if (log_detail >= 1) ESP_LOGE(TAG, "to rgb888 failed");
                     request->send(500, "text/plain", "Format conversion failed");
                     return;
                 }
@@ -619,7 +619,7 @@ static void capture_handler(AsyncWebServerRequest *request)
             }
 
             if (!s) {
-                ESP_LOGE(TAG, "JPEG compression failed");
+                if (log_detail >= 1) ESP_LOGE(TAG, "JPEG compression failed");
                 request->send(500, "text/plain", "JPEG compression failed");
                 return;
             }
@@ -639,7 +639,7 @@ static void capture_handler(AsyncWebServerRequest *request)
             }
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
             int64_t fr_end = esp_timer_get_time();
-            ESP_LOGI(TAG, "FACE: %uB %ums %s%d", (uint32_t)(buf_len), (uint32_t)((fr_end - fr_start) / 1000), detected ? "DETECTED " : "", face_id);
+            if (log_detail >= 3) ESP_LOGI(TAG, "FACE: %uB %ums %s%d", (uint32_t)(buf_len), (uint32_t)((fr_end - fr_start) / 1000), detected ? "DETECTED " : "", face_id);
         #endif
         #endif
 }
@@ -651,7 +651,7 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
     systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };
     BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
     if (xres != pdTRUE) {
-        ESP_LOGE(TAG, "capture_handler_PHOTO(): failed to post EVENT_PRISE_PHOTO to eventQueue");
+        if (log_detail >= 1) ESP_LOGE(TAG, "capture_handler_PHOTO(): failed to post EVENT_PRISE_PHOTO to eventQueue");
         request->send(500, "text/plain", "Failed to start PHOTO capture");
     } else {
         AsyncWebServerResponse *resp = request->beginResponse(200, "text/plain", "PHOTO capture started");
@@ -674,24 +674,24 @@ void capture_photo_sd()
         // Guard: ensure camera sensor initialized before calling fb_get
         sensor_t *s = esp_camera_sensor_get();
         if (!s) {
-            ESP_LOGE(TAG, "Camera not initialized (capture_handler_SD)");
+            if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (capture_handler_SD)");
             return;
         }
 
     #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
-            ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
+            if (log_detail >= 3) ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
             enable_led(true);
             vTaskDelay(150 / portTICK_PERIOD_MS);
             fb = esp_camera_fb_get();
             enable_led(false);
         #else
-            ESP_LOGI(TAG, "capture_SD(): capturing (no LED)");
+            if (log_detail >= 4) ESP_LOGD(TAG, "capture_SD(): capturing (no LED)");
             fb = esp_camera_fb_get();
         #endif
 
         if (!fb)
         {
-            ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
+            if (log_detail >= 1) ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
             return;
         }
 
@@ -721,7 +721,7 @@ void capture_photo_sd()
         buf = (uint8_t*)malloc(buf_len);
         if (!buf) {
             esp_camera_fb_return(fb);
-            ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
+            if (log_detail >= 1) ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
             return;
         }
         memcpy(buf, fb->buf, buf_len);
@@ -734,8 +734,9 @@ void capture_photo_sd()
         #endif
     }
 
-    int64_t t_ready = esp_timer_get_time();
-    ESP_LOGI(TAG, "capture_SD(): buffer ready %uB %ums freeHeap=%u", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000), (unsigned)ESP.getFreeHeap());
+    uint16_t temps_ready = (esp_timer_get_time() - fr_start) / 1000;
+
+    if (log_detail >= 4) ESP_LOGD(TAG, "capture_SD(): buffer ready %uB %ums freeHeap=%u", (unsigned)buf_len, (unsigned)temps_ready, (unsigned)ESP.getFreeHeap());
 
     // Save image dimensions before returning fb
     int img_width = fb->width;
@@ -774,25 +775,26 @@ void capture_photo_sd()
         do {
             // File name: C<ADDRESS>-YYMMDD-HHMMSS-<Global>-<nb><size><comp>.jpg
             int yy = year % 100;
-            // Global code fixed to 'Z'
-            char global_code = 'Z';
-
+            // Compute global code from triplet (images=1 for single photo, size_code and compression code)
+            int images_code = 1; // single photo
 
             // 2) Framesize code: derive from actual image width using size_to_code
             uint8_t size_code = 0;
             framesize_t cam_size = (framesize_t)0;
             // img_width captured earlier
             size_to_code((uint16_t)img_width, cam_size, size_code);
-            Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n", img_width, (int)cam_size, (int)size_code);
+            //Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n", img_width, (int)cam_size, (int)size_code);
 
             // 3) Compression code: normalize using code_to_compjpg
             uint8_t comp_txJpg = 0, comp_txCam = 0;
             code_to_compjpg((uint8_t)cap_jpg_comp, comp_txJpg, comp_txCam);
-            Serial.printf("Compression: cap_jpg_comp=%d -> txJpg=%d, txCam=%d)\n", (int)cap_jpg_comp, (int)comp_txJpg, (int)comp_txCam);
+            //Serial.printf("Compression: cap_jpg_comp=%d -> txJpg=%d, txCam=%d)\n", (int)cap_jpg_comp, (int)comp_txJpg, (int)comp_txCam);
+
+            char global_code = triplet_to_global(1, size_code, cap_jpg_comp);
 
             snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-1%d%d.jpg",
                      dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec,
-                     global_code, size_code, comp_code);
+                     global_code, size_code, cap_jpg_comp);
             
             if (!fs.exists(file_path)) {
                 break; // Fichier n'existe pas, on peut l'utiliser
@@ -817,9 +819,9 @@ void capture_photo_sd()
         // Sauvegarder le fichier
         uint8_t result = writeFile(fs, file_path, buf, buf_len);
         if (result == 0) {
-            ESP_LOGI(TAG, "Image saved to %s", file_path);
+            if (log_detail >= 4) ESP_LOGD(TAG, "Image saved to %s  %ims", file_path, (uint32_t)((esp_timer_get_time() - fr_start) / 1000)-temps_ready);
         } else {
-            ESP_LOGE(TAG, "Failed to save image to %s", file_path);
+            if (log_detail >= 1) ESP_LOGE(TAG, "Failed to save image to %s", file_path);
         }
     #else
         {
@@ -834,7 +836,8 @@ void capture_photo_sd()
     }
     #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
             int64_t fr_end = esp_timer_get_time();
-            ESP_LOGI(TAG, "capture_SD complete: JPG: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+            uint16_t temp_sd = (fr_end - fr_start) / 1000 - temps_ready;
+            if (log_detail >= 3) ESP_LOGI(TAG, "JPG: %s  %uB temps: %ums %ums", file_path, (uint32_t)(fb_len), temps_ready, temp_sd);
     #endif
     return;
 }
@@ -846,7 +849,7 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
     systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };
     BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
     if (xres != pdTRUE) {
-        ESP_LOGE(TAG, "capture_handler_AVI(): failed to post EVENT_PRISE_VIDEO to eventQueue");
+        if (log_detail >= 1) ESP_LOGE(TAG, "capture_handler_AVI(): failed to post EVENT_PRISE_VIDEO to eventQueue");
         request->send(500, "text/plain", "Failed to start AVI capture");
     } else {
         AsyncWebServerResponse *resp = request->beginResponse(200, "text/plain", "AVI capture started");
@@ -858,7 +861,7 @@ static void capture_handler_AVI(AsyncWebServerRequest *request)
 // Background AVI capture implementation. Can be invoked from prise_video() which runs in the
 // event handling task. This function performs the AVI capture and logs results; it does not
 // interact with HTTP requests.
-void capture_avi_background()
+void capture_avi_b()
 {
 #ifdef SDCARD
    if (sdcard_ok)
@@ -872,18 +875,17 @@ void capture_avi_background()
     // Ensure sensor initialized
     sensor_t *s_avi = esp_camera_sensor_get();
     if (!s_avi) {
-        ESP_LOGE(TAG, "capture_avi: Camera not initialized");
+        if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Camera not initialized");
         return;
     }
 
     // Shared session timestamp (set when starting a new session)
-    unsigned long t_session_start = 0;
+    unsigned long  fr_start = millis(); // session start timestamp (ms)
 
     // If no session active -> start session and capture first frame
     if (!avi_session.active)
     {
         lectureHeure(); // update timeinfo
-        t_session_start = millis(); // session start timestamp (ms)
         char dir_path[32];
         int year = timeinfo.tm_year + 1900;
         int month = timeinfo.tm_mon + 1;
@@ -904,116 +906,108 @@ void capture_avi_background()
         // Capture first frame (with optional LED)
         camera_fb_t *fb = NULL;
 
+        unsigned long t_capture_end = 0;
+
         #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
                 enable_led(true);
                 vTaskDelay(150 / portTICK_PERIOD_MS);
+                t_capture_start = millis();
                 fb = esp_camera_fb_get();
+                t_capture_end = millis();
                 enable_led(false);
         #else
                 fb = esp_camera_fb_get();
+                t_capture_end = millis();
         #endif
 
         if (!fb) {
-            ESP_LOGE(TAG, "capture_avi_background: Camera capture failed (first frame)");
+            if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Camera capture failed (first frame)");
             return;
         }
 
         int width = fb->width;
         int height = fb->height;
-        unsigned long t_first_capture = millis();
-        ESP_LOGI(TAG, "capture_avi: first frame captured in %u ms (%d X %d)", (unsigned)(t_first_capture - t_session_start), width, height);
-
-
-      /*  size_t rgb_len = (size_t)width * (size_t)height * 3;
-        uint8_t *rgb_buf = (uint8_t*)malloc(rgb_len);
-        if (!rgb_buf) {
-            esp_camera_fb_return(fb);
-            ESP_LOGE(TAG, "capture_avi_background: Memory allocation failed");
-            return;
-        }
-
-        unsigned long t_conv_start = millis();
-        if (!fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf)) {
-            free(rgb_buf);
-            esp_camera_fb_return(fb);
-            ESP_LOGE(TAG, "capture_avi_background: Format conversion failed");
-            return;
-        }
-        unsigned long t_conv_end = millis();
-        ESP_LOGI(TAG, "capture_avi: image conversion took %u ms", (unsigned)(t_conv_end - t_conv_start));
-        esp_camera_fb_return(fb);  */
+        unsigned long temps_capture = (unsigned)(t_capture_end - fr_start);
 
         // Build filename
         char dir_path_small[32];
         snprintf(dir_path_small, sizeof(dir_path_small), "/%04d/%02d", year, month);
         int yy = year % 100;
-        char global_code = 'Z';
         // Use the user-selected code directly as images_code (clamped 1..9)
         int images_code = nbIm_to_code(cap_nb_images);
-        Serial.printf("capture_avi: cap_nb_images=%d, images_code=%d\n", cap_nb_images, images_code);
+        //Serial.printf("capture_avi: cap_nb_images=%d, images_code=%d\n", cap_nb_images, images_code);
 
         if (images_code < 1) images_code = 1;
         if (images_code > 9) images_code = 9;
-        uint8_t size_code = 0; framesize_t cam_size = (framesize_t)0;
+
+        // 2) Framesize code: derive from actual image width using size_to_code
+        uint8_t size_code = 0;
+        framesize_t cam_size = (framesize_t)0;
+        // img_width captured earlier
         size_to_code((uint16_t)width, cam_size, size_code);
-        uint8_t txJpg=0, txCam=0;
-        uint8_t comp_code = code_to_compjpg((uint8_t)cap_jpg_comp, txJpg, txCam);
+
+        // 3) Compression code: normalize using code_to_compjpg
+        uint8_t comp_txJpg = 0, comp_txCam = 0;
+        code_to_compjpg((uint8_t)cap_jpg_comp, comp_txJpg, comp_txCam);
+
+        char global_code = triplet_to_global((uint8_t)images_code, size_code, cap_jpg_comp);
 
         snprintf(avi_session.file_path, sizeof(avi_session.file_path), "/sdcard%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
                  dir_path_small, ADDRESS, yy, month, day, hour, min, sec,
-                 global_code, images_code, size_code, comp_code);
+                 global_code, images_code, size_code, cap_jpg_comp);
 
-        ESP_LOGI(TAG, "capture_avi: starting AVI to %s", avi_session.file_path);
+        if (log_detail >= 3) ESP_LOGI(TAG, "Starting AVI to %s", avi_session.file_path);
 
         // Open avi writer
-        avi_session.avi = mjpegw_open(avi_session.file_path, (uint32_t)width, (uint32_t)height, 1, NULL);
+        // Choose microseconds per frame to match capture interval so autoplay shows all frames
+        uint32_t interval_ms = (uint32_t)cap_interval_dsec * 100; // cap_interval_dsec is in deciseconds
+        uint32_t microsec_per_frame = (interval_ms > 0) ? (interval_ms * 1000) : 1000000; // default 1s
+        avi_session.avi = mjpegw_open(avi_session.file_path, (uint32_t)width, (uint32_t)height, microsec_per_frame, NULL);
         unsigned long t_open_end = millis();
         if (!avi_session.avi) {
-            //free(rgb_buf);
-            ESP_LOGE(TAG, "capture_avi: Failed to open AVI file (took %u ms)", (unsigned)(t_open_end - t_session_start));
+            if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Failed to open AVI file (took %u ms)", (unsigned)(t_open_end - t_capture_end));
             return;
         }
-        ESP_LOGI(TAG, "capture_avi: avi_open  %u ms", (unsigned)(t_open_end - t_session_start));
+        uint16_t temps_open = (t_open_end - t_capture_end);
+        if (log_detail >= 3) ESP_LOGI(TAG, "capture_avi: avi_open  %u ms", (unsigned)temps_open);
 
         uint8_t quality = 15;
-        code_to_compjpg ((uint8_t)cap_jpg_comp, quality, txCam);
 
-        // Add first frame - if camera gives JPEG, write it directly to AVI to avoid decode/encode
+        // Add first frame - prefer direct JPEG if camera already provided JPEG
+        unsigned long temps_add = 0;
         if (fb->format == PIXFORMAT_JPEG) {
-            unsigned long t_add_start = millis();
             mjpegw_add_frame_jpg(avi_session.avi, fb->buf, fb->len);
             unsigned long t_add_end = millis();
-            ESP_LOGI(TAG, "capture_avi: mjpegw_add_frame_jpg first took %u ms", (unsigned)(t_add_end - t_session_start));
+            temps_add = (unsigned)(t_add_end - t_open_end);
             esp_camera_fb_return(fb);
-        } else
-        {
+        } else {
             // Fallback: convert to RGB and add frame as before
             size_t rgb_len = (size_t)width * (size_t)height * 3;
             uint8_t *rgb_buf = (uint8_t*)malloc(rgb_len);
             if (!rgb_buf) {
                 esp_camera_fb_return(fb);
-                ESP_LOGE(TAG, "capture_avi: Memory allocation failed");
+                if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Memory allocation failed");
                 mjpegw_close(avi_session.avi);
                 avi_session.avi = NULL;
                 return;
             }
-            unsigned long t_conv_start = millis();
             if (!fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf)) {
                 free(rgb_buf);
                 esp_camera_fb_return(fb);
-                ESP_LOGE(TAG, "capture_avi: Format conversion failed");
+                if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Format conversion failed");
                 mjpegw_close(avi_session.avi);
                 avi_session.avi = NULL;
                 return;
             }
-            unsigned long t_add_start = millis();
             mjpegw_add_frame(avi_session.avi, rgb_buf, quality);
             unsigned long t_add_end = millis();
-            ESP_LOGI(TAG, "capture_avi: mjpegw_add_frame first took %u ms", (unsigned)(t_add_end - t_session_start));
+            temps_add = (unsigned)(t_add_end - t_open_end);
             free(rgb_buf);
             esp_camera_fb_return(fb);
         }
 
+        // Single combined log for this frame: capture time and add (SD write) time
+        if (log_detail >= 3) ESP_LOGI(TAG, "Frame 1 capt=%u ms open=%u ms add=%u ms", (unsigned)temps_capture, (unsigned)temps_open, (unsigned)temps_add);
         // Initialize session state
         int frames = cap_nb_images;
         avi_session.frames_total = frames;
@@ -1029,21 +1023,21 @@ void capture_avi_background()
             if (avi_session.timer == NULL) {
                 avi_session.timer = xTimerCreate("AVI_T", pdMS_TO_TICKS((uint32_t)cap_interval_dsec * 100), pdFALSE, NULL, avi_timer_cb);
                 if (avi_session.timer == NULL) {
-                    ESP_LOGE(TAG, "capture_avi: failed to create timer");
+                    if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: failed to create timer");
                     // Not fatal: we will proceed but cannot schedule next frames automatically
                 }
             }
             if (avi_session.timer) {
                 xTimerChangePeriod(avi_session.timer, pdMS_TO_TICKS((uint32_t)cap_interval_dsec * 100), 0);
                 xTimerStart(avi_session.timer, 0);
-                ESP_LOGI(TAG, "capture_avi: scheduled next frame in %ums", (unsigned)(cap_interval_dsec*100));
+                if (log_detail >= 4) ESP_LOGD(TAG, "capture_avi: scheduled next frame in %ums", (unsigned)(cap_interval_dsec*100));
             }
         } else {
             // No more frames required; finalize immediately
             mjpegw_close(avi_session.avi);
             avi_session.avi = NULL;
             avi_session.active = false;
-            ESP_LOGI(TAG, "capture_avi: AVI saved to SD card: %s", avi_session.file_path);
+            if (log_detail >= 3) ESP_LOGI(TAG, "capture_avi: AVI saved to SD card: %s", avi_session.file_path);
         }
 
         return;
@@ -1055,59 +1049,67 @@ void capture_avi_background()
             enable_led(true);
             vTaskDelay(80 / portTICK_PERIOD_MS);
     #endif
-        camera_fb_t *fbi = esp_camera_fb_get();
-        if (!fbi) {
-            ESP_LOGE(TAG, "capture_avi: failed to get frame during session");
-            // Optionally reschedule to try again
-            if (avi_session.timer) xTimerStart(avi_session.timer, 0);
-            return;
-        }
-        unsigned long t_frame_capture = millis();
-        ESP_LOGI(TAG, "capture_avi: captured frame %d in %u ms since session start", avi_session.frames_captured + 1, (unsigned)(t_frame_capture - t_session_start));
+        unsigned long t_capture_end = 0;
+        #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
+                camera_fb_t *fbi = esp_camera_fb_get();
+                t_capture_end = millis();
+                enable_led(false);
+        #else
+                camera_fb_t *fbi = esp_camera_fb_get();
+                t_capture_end = millis();   
+        #endif
 
-        if (fbi->format == PIXFORMAT_JPEG)
-        {
-            unsigned long t_add_start = millis();
-            mjpegw_add_frame_jpg(avi_session.avi, fbi->buf, fbi->len);
-            unsigned long t_add_end = millis();
-            ESP_LOGI(TAG, "capture_avi: mjpegw_add_frame_jpg for frame %d took %u ms", avi_session.frames_captured + 1, (unsigned)(t_add_end - t_add_start));
-            esp_camera_fb_return(fbi);
-        } else {
-            uint8_t *rgb2 = (uint8_t*)malloc((size_t)avi_session.width * (size_t)avi_session.height * 3);
-            if (!rgb2) {
-                esp_camera_fb_return(fbi);
-                ESP_LOGE(TAG, "capture_avi: malloc failed for frame");
+            if (!fbi) {
+                if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: failed to get frame during session");
+                // Optionally reschedule to try again
                 if (avi_session.timer) xTimerStart(avi_session.timer, 0);
                 return;
             }
-            unsigned long t_conv2_start = millis();
-            if (!fmt2rgb888(fbi->buf, fbi->len, fbi->format, rgb2)) {
+
+            unsigned long temps_capture = (unsigned)(t_capture_end - fr_start);
+            unsigned long temps_add = 0;
+            unsigned long t_add_end=0;
+
+            if (fbi->format == PIXFORMAT_JPEG) {
+                mjpegw_add_frame_jpg(avi_session.avi, fbi->buf, fbi->len);
+                t_add_end = millis();
+                temps_add = (unsigned)(t_add_end - t_capture_end);
+                esp_camera_fb_return(fbi);
+            } else {
+                uint8_t *rgb2 = (uint8_t*)malloc((size_t)avi_session.width * (size_t)avi_session.height * 3);
+                if (!rgb2) {
+                    esp_camera_fb_return(fbi);
+                    if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: malloc failed for frame");
+                    if (avi_session.timer) xTimerStart(avi_session.timer, 0);
+                    return;
+                }
+                if (!fmt2rgb888(fbi->buf, fbi->len, fbi->format, rgb2)) {
+                    free(rgb2);
+                    esp_camera_fb_return(fbi);
+                    if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: fmt2rgb888 failed");
+                    if (avi_session.timer) xTimerStart(avi_session.timer, 0);
+                    return;
+                }
+
+                mjpegw_add_frame(avi_session.avi, rgb2, avi_session.quality);
+                t_add_end = millis();
+                temps_add = (unsigned)(t_add_end - t_capture_end);
                 free(rgb2);
                 esp_camera_fb_return(fbi);
-                ESP_LOGE(TAG, "capture_avi: fmt2rgb888 failed");
-                if (avi_session.timer) xTimerStart(avi_session.timer, 0);
-                return;
             }
-            unsigned long t_conv2_end = millis();
-            ESP_LOGI(TAG, "capture_avi: conversion for frame %d took %u ms", avi_session.frames_captured + 1, (unsigned)(t_conv2_end - t_conv2_start));
-            esp_camera_fb_return(fbi);
 
-            unsigned long t_add2_start = millis();
-            mjpegw_add_frame(avi_session.avi, rgb2, avi_session.quality);
-            unsigned long t_add2_end = millis();
-            ESP_LOGI(TAG, "capture_avi: mjpegw_add_frame for frame %d took %u ms", avi_session.frames_captured + 1, (unsigned)(t_add2_end - t_add2_start));
-            free(rgb2);
-        }
+            // Single combined log for this frame: capture time and add (SD write) time
+            if (log_detail >= 3) ESP_LOGI(TAG, "Frame %d capt=%u ms add=%u ms", avi_session.frames_captured + 1, (unsigned)temps_capture, (unsigned)temps_add);
 
-        avi_session.frames_captured++;
-        avi_session.frames_remaining--;
+            avi_session.frames_captured++;
+            avi_session.frames_remaining--;
 
         if (avi_session.frames_remaining > 0) {
             // Schedule next capture via timer
             if (avi_session.timer) {
                 xTimerChangePeriod(avi_session.timer, pdMS_TO_TICKS((uint32_t)cap_interval_dsec * 100), 0);
                 xTimerStart(avi_session.timer, 0);
-                ESP_LOGI(TAG, "capture_avi: captured %d/%d - scheduled next in %ums", avi_session.frames_captured, avi_session.frames_total, (unsigned)(cap_interval_dsec*100));
+                if (log_detail >= 4) ESP_LOGD(TAG, "capture_avi: captured %d/%d - scheduled next in %ums", avi_session.frames_captured, avi_session.frames_total, (unsigned)(cap_interval_dsec*100));
             } else {
                 // If no timer available, fallback to immediate re-post (not ideal)
                 systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };
@@ -1123,16 +1125,15 @@ void capture_avi_background()
             }
             avi_session.active = false;
             unsigned long t_end = millis();
-            ESP_LOGI(TAG, "capture_avi: AVI capture complete %s (%d frames)", avi_session.file_path, avi_session.frames_captured);
-            ESP_LOGI(TAG, "capture_avi: total session time %u ms", (unsigned)(t_end - t_session_start));
+            if (log_detail >= 3) ESP_LOGI(TAG, "AVI capture complete %s (%d frames) close=%u ms", avi_session.file_path, avi_session.frames_captured, t_end-t_add_end);
         }
     }
    }
    else
-        ESP_LOGE(TAG, "capture_avi: SD card not ok");
+        if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: SD card not ok");
 
 #else
-    ESP_LOGE(TAG, "capture_avi: SD card not available");
+    if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: SD card not available");
 #endif
 }
 
@@ -1178,13 +1179,13 @@ static void stream_handler(AsyncWebServerRequest *request)
             // Ensure sensor initialized
             sensor_t *s2 = esp_camera_sensor_get();
             if (!s2) {
-                ESP_LOGE(TAG, "stream_generator(): Camera not initialized");
+                if (log_detail >= 1) ESP_LOGE(TAG, "stream_generator(): Camera not initialized");
                 return 0;
             }
 
             camera_fb_t *fb = esp_camera_fb_get();
             if (!fb) {
-                ESP_LOGE(TAG, "stream_generator(): Camera capture failed");
+                if (log_detail >= 1) ESP_LOGE(TAG, "stream_generator(): Camera capture failed");
                 return 0; // terminate stream
             }
 
@@ -1199,7 +1200,7 @@ static void stream_handler(AsyncWebServerRequest *request)
                 // Convert to JPEG (allocates jpg_buf)
                 if (!frame2jpg(fb, 80, &jpg_buf, &jpg_len)) {
                     esp_camera_fb_return(fb);
-                    ESP_LOGE(TAG, "stream_generator(): JPEG compression failed");
+                    if (log_detail >= 1) ESP_LOGE(TAG, "stream_generator(): JPEG compression failed");
                     return 0;
                 }
                 // Returned the fb immediately since we have jpg_buf
@@ -1309,7 +1310,7 @@ static void cmd_handler(AsyncWebServerRequest *request)
     }
 
     int val = atoi(value);
-    ESP_LOGI(TAG, "%s = %d", variable, val);
+    if (log_detail >= 3) ESP_LOGI(TAG, "%s = %d", variable, val);
     sensor_t *s = esp_camera_sensor_get();
     int res = camera_set_parameter(s, variable, val, true);
 
@@ -1337,7 +1338,7 @@ static void cmd_handler(AsyncWebServerRequest *request)
     else if (!strcmp(variable, "face_enroll")){
         res = 0;
         is_enrolling = !is_enrolling;
-        ESP_LOGI(TAG, "Enrolling: %s", is_enrolling?"true":"false");
+        if (log_detail >= 3) ESP_LOGI(TAG, "Enrolling: %s", is_enrolling?"true":"false");
     }
     else if (!strcmp(variable, "face_recognize")) {
         res = 0;
@@ -1349,7 +1350,7 @@ static void cmd_handler(AsyncWebServerRequest *request)
 #endif
 #endif
     if (res < 0) {
-        ESP_LOGI(TAG, "Unknown command: %s", variable);
+        if (log_detail >= 3) ESP_LOGI(TAG, "Unknown command: %s", variable);
         request->send(500, "text/plain", "Command failed");
         return;
     }
@@ -1648,7 +1649,7 @@ static void xclk_handler(AsyncWebServerRequest *request)
         return;
     }
     
-    ESP_LOGI(TAG, "Set XCLK: %d MHz", xclk);
+    if (log_detail >= 3) ESP_LOGI(TAG, "Set XCLK: %d MHz", xclk);
 
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_xclk(s, LEDC_TIMER_0, xclk);
@@ -1673,7 +1674,7 @@ static void reg_handler(AsyncWebServerRequest *request)
     mask = atoi(request->getParam("mask")->value().c_str());
     val = atoi(request->getParam("val")->value().c_str());
     
-    ESP_LOGI(TAG, "Set Register: reg: 0x%02x, mask: 0x%02x, value: 0x%02x", reg, mask, val);
+    if (log_detail >= 3) ESP_LOGI(TAG, "Set Register: reg: 0x%02x, mask: 0x%02x, value: 0x%02x", reg, mask, val);
 
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_reg(s, reg, mask, val);
@@ -1703,7 +1704,7 @@ static void greg_handler(AsyncWebServerRequest *request)
         request->send(500, "text/plain", "Register read failed");
         return;
     }
-    ESP_LOGI(TAG, "Get Register: reg: 0x%02x, mask: 0x%02x, value: 0x%02x", reg, mask, res);
+    if (log_detail >= 3) ESP_LOGI(TAG, "Get Register: reg: 0x%02x, mask: 0x%02x, value: 0x%02x", reg, mask, res);
 
     char buffer[20];
     const char * val = itoa(res, buffer, 10);
@@ -1729,7 +1730,7 @@ static void pll_handler(AsyncWebServerRequest *request)
     int pclken = parse_get_var(request, "pclken", 0);
     int pclk = parse_get_var(request, "pclk", 0);
 
-    ESP_LOGI(TAG, "Set Pll: bypass: %d, mul: %d, sys: %d, root: %d, pre: %d, seld5: %d, pclken: %d, pclk: %d", bypass, mul, sys, root, pre, seld5, pclken, pclk);
+    if (log_detail >= 3) ESP_LOGI(TAG, "Set Pll: bypass: %d, mul: %d, sys: %d, root: %d, pre: %d, seld5: %d, pclken: %d, pclk: %d", bypass, mul, sys, root, pre, seld5, pclken, pclk);
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_pll(s, bypass, mul, sys, root, pre, seld5, pclken, pclk);
     if (res) {
@@ -1755,7 +1756,7 @@ static void win_handler(AsyncWebServerRequest *request)
     bool scale = parse_get_var(request, "scale", 0) == 1;
     bool binning = parse_get_var(request, "binning", 0) == 1;
 
-    ESP_LOGI(TAG, "Set Window: Start: %d %d, End: %d %d, Offset: %d %d, Total: %d %d, Output: %d %d, Scale: %u, Binning: %u", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+    if (log_detail >= 3) ESP_LOGI(TAG, "Set Window: Start: %d %d, End: %d %d, Offset: %d %d, Total: %d %d, Output: %d %d, Scale: %u, Binning: %u", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
     if (res) {
@@ -1790,7 +1791,7 @@ static void index_handler(AsyncWebServerRequest *request)
             request->send(200, "text/html", (const uint8_t*)index_ov2640_html, index_ov2640_html_len);
         }  
     } else {
-        ESP_LOGE(TAG, "Camera sensor not found");
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera sensor not found");
         request->send(500);
     }
 }
@@ -1869,5 +1870,5 @@ void server_routes_camera()
         win_handler(request);
     });
 
-    ESP_LOGI(TAG, "Camera server routes registered");
+    if (log_detail >= 3) ESP_LOGI(TAG, "Camera server routes registered");
 }

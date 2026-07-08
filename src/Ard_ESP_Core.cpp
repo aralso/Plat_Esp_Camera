@@ -1116,6 +1116,24 @@ uint8_t nvs_read(Param &p) {
 
   return 1;
 }
+
+void apply_log_detail(int log_detail)
+{
+esp_log_level_t lvl;
+if (log_detail <= 0) lvl = ESP_LOG_NONE;
+else if (log_detail == 1) lvl = ESP_LOG_ERROR;
+else if (log_detail == 2) lvl = ESP_LOG_WARN;
+else if (log_detail == 3) lvl = ESP_LOG_INFO;
+else if (log_detail == 4) lvl = ESP_LOG_DEBUG;
+else  lvl = ESP_LOG_VERBOSE;   // 5
+
+esp_log_level_set("*", lvl);
+// Optionnel : activer/désactiver des tags spécifiques plus finement
+// if (log_detail >= 4) esp_log_level_set("mjpegw", ESP_LOG_DEBUG);
+// else esp_log_level_set("mjpegw", ESP_LOG_NONE);
+}
+
+
 void setup()
 {
   
@@ -2329,7 +2347,11 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
     if (strcmp(reg, "MEM") == 0) 
     { 
       res=0; 
-      printMemoryStatus();
+      vTaskDelay(80 / portTICK_PERIOD_MS);
+      Serial.println("Affichage de la mémoire disponible :");
+      vTaskDelay(80 / portTICK_PERIOD_MS);
+      //printMemoryStatus();
+      vTaskDelay(80 / portTICK_PERIOD_MS);
     }
 
     // efface la memoire NVS
@@ -2739,6 +2761,16 @@ uint8_t requete_SetReg(int param, float valeurf)
 
         // handled one entry -> break
         break;
+      }
+    }
+    if (param==6)  // log_detail
+    {
+      if (log_detail<6)
+      {
+        apply_log_detail(log_detail);
+        Serial.printf("log_detail:%i\n\r", log_detail);
+        esp_log_level_t lvl = esp_log_level_get("mjpegw");
+        Serial.printf("mjpegw level = %d\n", (int)lvl);
       }
     }
 

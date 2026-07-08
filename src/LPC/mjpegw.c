@@ -2,6 +2,7 @@
 
 
 #include "mjpegw.h"
+#include "variables.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -231,7 +232,7 @@ void debug_ctx(mjpegw_context* avi)
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
-mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t fps, mjpegw_mem_interface* mem)
+mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t microsec_per_frame, mjpegw_mem_interface* mem)
 {
     mjpegw_context* ctx = NULL;
 
@@ -246,7 +247,8 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
 
     ctx->width  = width;
     ctx->height = height;
-    ctx->fps = fps;
+    // store an estimated fps (may be 0 if microsec_per_frame > 1e6)
+    ctx->fps = (microsec_per_frame > 0) ? (1000000 / microsec_per_frame) : 0;
     ctx->frame_count = 0;
     ctx->mem = allocator;
 
@@ -276,7 +278,8 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     //ctx->frame_count_pos = ctx->f->position() + 32;
     memcpy(ctx->avih.id, "avih", 4);
     ctx->avih.size = 56;
-    ctx->avih.microsec_per_frame = 1000000 / fps;
+    // microseconds per frame (set from caller)
+    ctx->avih.microsec_per_frame = microsec_per_frame;
     ctx->avih.max_bytes_per_sec = 0;
     ctx->avih.padding_granularity = 0;
     ctx->avih.flags = 0x10; // HAS_INDEX
@@ -306,8 +309,20 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strh.priority = 0;
     ctx->strh.language = 0;
     ctx->strh.initial_frames = 0;
-    ctx->strh.scale = 1;
-    ctx->strh.rate = fps;
+    // Use microsecond-based scale/rate so players can compute exact durations >1s
+    // Simplify rate/scale = 1000000 / microsec_per_frame by gcd to avoid very large numbers
+    uint32_t nom = 1000000u;
+    uint32_t den = microsec_per_frame;
+    // gcd
+    uint32_t a = nom, b = den;
+    while (b != 0) {
+        uint32_t t = a % b;
+        a = b;
+        b = t;
+    }
+    uint32_t g = (a == 0) ? 1 : a;
+    ctx->strh.rate = nom / g;
+    ctx->strh.scale = den / g;
     ctx->strh.start = 0;
     ctx->strh.length = 0; // patch later
     ctx->strh.suggested_buffer_size = ctx->width*ctx->height*3;
@@ -434,12 +449,20 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
 
     ctx->movi.size += sizeof(frame_chunk) + chunk_size;
 
-    idx1_entry* entry = &ctx->idx[ctx->idx_count++];
+    // Debug: record index entry and log details
+    idx1_entry* entry = &ctx->idx[ctx->idx_count];
     memcpy(entry->id, "00dc", 4);
     entry->flags = 0x10;
     //entry->offset = (uint32_t)(frame_pos - (ctx->movi_pos + 8));
     entry->offset = (uint32_t)(frame_pos - ctx->movi_pos - 8); // relative to 'movi' data start
     entry->size = chunk_size;
+
+    if (log_detail >= 4) {
+        ESP_LOGD("mjpegw", "add_frame: idx=%u pos=%ld offset=%u size=%u jpeg_size=%u movi_pos=%ld",
+                 (unsigned)ctx->idx_count, frame_pos, entry->offset, entry->size, (unsigned)ctx->jpeg_size, ctx->movi_pos);
+    }
+
+    ctx->idx_count++;
 
     ctx->frame_count++;
 }
@@ -482,12 +505,19 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
 
     ctx->movi.size += sizeof(frame_chunk) + chunk_size;
 
-    idx1_entry* entry = &ctx->idx[ctx->idx_count++];
+    // Debug: record index entry and log details
+    idx1_entry* entry = &ctx->idx[ctx->idx_count];
     memcpy(entry->id, "00dc", 4);
     entry->flags = 0x10;
     entry->offset = (uint32_t)(frame_pos - ctx->movi_pos - 8);
     entry->size = chunk_size;
 
+    if (log_detail >= 3) {
+        ESP_LOGI("mjpegw", "add_frame_jpg: idx=%u pos=%ld offset=%u size=%u jpeg_len=%u movi_pos=%ld",
+                 (unsigned)ctx->idx_count, frame_pos, entry->offset, entry->size, (unsigned)jpeg_len, ctx->movi_pos);
+    }
+
+    ctx->idx_count++;
     ctx->frame_count++;
 }
 
@@ -497,15 +527,20 @@ void mjpegw_close(mjpegw_context *ctx)
     assert(ctx);
 
     // patch frame count
+    // Use idx_count (number of index entries actually written) as authoritative
+    uint32_t final_frame_count = ctx->idx_count;
+    // Update stored frame_count to be consistent
+    ctx->frame_count = final_frame_count;
+
     fseek(ctx->f, ctx->frame_count_pos, SEEK_SET);
     //ctx->f->seek(ctx->frame_count_pos, SEEK_SET);
 
-    fwrite(&ctx->frame_count, sizeof(uint32_t), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->frame_count, sizeof(uint32_t));
+    fwrite(&final_frame_count, sizeof(uint32_t), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&final_frame_count, sizeof(uint32_t));
     fseek(ctx->f, ctx->length_pos, SEEK_SET);
     //ctx->f->seek(ctx->length_pos, SEEK_SET);
-    fwrite(&ctx->frame_count, sizeof(uint32_t), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->frame_count, sizeof(uint32_t));
+    fwrite(&final_frame_count, sizeof(uint32_t), 1, ctx->f);
+    //ctx->f->write((uint8_t*)&final_frame_count, sizeof(uint32_t));
 
     // write idx1 chunk
     fseek(ctx->f, 0, SEEK_END); 
@@ -520,12 +555,26 @@ void mjpegw_close(mjpegw_context *ctx)
         fwrite(ctx->idx, sizeof(idx1_entry), ctx->idx_count, ctx->f);
         //ctx->f->write((uint8_t*)ctx->idx, sizeof(idx1_entry) * ctx->idx_count);
 
+    // Debug: dump last idx entry for verification
+    if (log_detail >= 4) ESP_LOGD("mjpegw", "mjpegw_close: idx_count=%u frame_count=%u", (unsigned)ctx->idx_count, (unsigned)ctx->frame_count);
+    if (ctx->idx_count > 0) {
+        idx1_entry *last = &ctx->idx[ctx->idx_count - 1];
+        char idc[5] = {0};
+        memcpy(idc, last->id, 4);
+        if (log_detail >= 4) ESP_LOGD("mjpegw", "mjpegw_close: last_idx id=%s flags=0x%08x offset=%u size=%u", idc, (unsigned)last->flags, (unsigned)last->offset, (unsigned)last->size);
+    }
+
     // patch movi LIST size
     long cur_pos = ftell(ctx->f);
     //long cur_pos = ctx->f->position();
+
+    // movi_size should represent the size of the 'movi' data only (frames). Since we wrote idx1 after movi,
+    // subtract idx1 chunk size (header + entries) to compute movi_size precisely.
+    uint32_t idx_section_size = sizeof(idx1_header) + (ctx->idx_count * sizeof(idx1_entry));
+    uint32_t movi_size = (uint32_t)(cur_pos - (ctx->movi_pos + 8) - idx_section_size);
+
     fseek(ctx->f, ctx->movi_pos + 4, SEEK_SET);
     //ctx->f->seek(ctx->movi_pos + 4, SEEK_SET);
-    uint32_t movi_size = (uint32_t)(cur_pos - (ctx->movi_pos + 8));
     fwrite(&movi_size, sizeof(uint32_t), 1, ctx->f);
     //ctx->f->write((uint8_t*)&movi_size, sizeof(uint32_t));
 

@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include "FS.h"
 #include "SD_MMC.h"
+#include "LPC/lpc.h"
 
 uint8_t sd_init();
 uint8_t listDir(fs::FS &fs, const char *dirname, uint8_t levels);

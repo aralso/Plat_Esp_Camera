@@ -30,4 +30,11 @@ uint8_t code_to_compjpg(uint8_t code, uint8_t &txJpg, uint8_t &txCam);
 
 uint8_t nbIm_to_code (uint8_t nb_images);
 
+// Global code mapping helpers
+// Convert a triplet (images_code, size_code, comp_code) into a single global char code
+char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code);
+// Parse a global char code into the triplet; returns true if found
+bool global_to_triplet(char global_code, uint8_t &images_code, uint8_t &size_code, uint8_t &comp_code);
+
+
 #endif

@@ -272,8 +272,8 @@ void appli_event_off(systeme_eve_t evt)
 // in the camera HTTP module so the event task performs the long-running work.
 void capture_video_sd()
 {
-    Serial.println("capture_video_sd(): event— starting background AVI capture");
-    capture_avi_background();
+    //Serial.println("capture_video_sd(): event— starting background AVI capture");
+    capture_avi_b();
 }
 
 // type 1

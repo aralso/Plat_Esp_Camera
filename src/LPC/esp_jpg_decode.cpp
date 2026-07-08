@@ -63,7 +63,7 @@ static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
     if (len) {
         len = jpeg->reader(jpeg->arg, jpeg->index, buf, len);
         if (!len) {
-            ESP_LOGE(TAG, "Read Fail at %u/%u", jpeg->index, jpeg->len);
+            if (log_detail >= 1) ESP_LOGE(TAG, "Read Fail at %u/%u", jpeg->index, jpeg->len);
         }
         jpeg->index += len;
     }
@@ -85,7 +85,7 @@ esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jp
 
     JRESULT jres = jd_prepare(&decoder, _jpg_read, work, 3100, &jpeg);
     if(jres != JDR_OK){
-        ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
+        if (log_detail >= 1) ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
         return ESP_FAIL;
     }
 
@@ -104,7 +104,7 @@ esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jp
     writer(arg, output_width, output_height, output_width, output_height, NULL);
 
     if (jres != JDR_OK) {
-        ESP_LOGE(TAG, "JPG Decompression Failed! %s", jd_errors[jres]);
+        if (log_detail >= 1) ESP_LOGE(TAG, "JPG Decompression Failed! %s", jd_errors[jres]);
         return ESP_FAIL;
     }
     //check if all data has been consumed.

@@ -30,12 +30,6 @@
 // CA-260618-201223-E-323.jpg  .avi  .lpc
 
 
-// ex :
-// Framesize 0:QQVGA(160) 1:HQVGA(240),2:QVGA(320),3:CIF(400),4:HVGA(480) 5:VGA(640), 6:SVGA(800), 7:XGA(1024), 8:HD(1280), 9:SXGA(1280)
-// Quali cam    : meilleur 0(4) 1(10) 2(14) 3(20) 4(30) 5(50) 6(60) moins bon
-// Compress jpg  : moins bon 0 1(10) 2(14) 3(20) 4(30) 5(50) 6(60) 100  meilleur
-// nom fichier : C01-026-F5-Q3-T0-201001-000001
-
  uint8_t cap_nb_images;
  uint8_t cap_interval_dsec;
  uint8_t cap_size;
@@ -44,6 +38,36 @@
  uint8_t im_x_fin;
  uint8_t im_y_debut;
  uint8_t im_y_fin;
+
+
+
+// Size mapping helpers (codes -> widths) with framesize mapping
+typedef struct { uint16_t width; uint16_t height; framesize_t cam_code; uint8_t code; } size_entry_t;
+static const size_entry_t size_table[] = {
+    {96,   96,   FRAMESIZE_96X96,  0},
+    {160,  120,  FRAMESIZE_QQVGA,  0},
+    {176,  144,  FRAMESIZE_QCIF,   0},
+    {240,  176,  FRAMESIZE_HQVGA,  1},
+    {240,  240,  FRAMESIZE_240X240,1},
+    {320,  240,  FRAMESIZE_QVGA,   1},
+    {400,  296,  FRAMESIZE_CIF,    2},
+    {480,  320,  FRAMESIZE_HVGA,   2},
+    {640,  480,  FRAMESIZE_VGA,    3},
+    {720,  480,  FRAMESIZE_P_HD,   4},
+    {800,  600,  FRAMESIZE_SVGA,   4},
+    {864,  648,  FRAMESIZE_P_3MP,  5},
+    {1024, 768,  FRAMESIZE_XGA,    5},
+    {1080, 720,  FRAMESIZE_P_FHD,  6},
+    {1280, 720,  FRAMESIZE_HD,     6},
+    {1280, 1024, FRAMESIZE_SXGA,   6},
+    {1600, 1200, FRAMESIZE_UXGA,   7},
+    {1920, 1080, FRAMESIZE_FHD,    8},
+    {2048, 1536, FRAMESIZE_QXGA,   8},
+    {2560, 1440, FRAMESIZE_QHD,    9},
+    {2560, 1600, FRAMESIZE_WQXGA,  9},
+    {2560, 1920, FRAMESIZE_QSXGA,  9}
+};
+static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]);
 
 uint8_t inline initCamera() {
   camera_config_t config;
@@ -85,7 +109,7 @@ uint8_t inline initCamera() {
     Serial.printf("PS RAM Found [%d]\n", ESP.getPsramSize());
     config.jpeg_quality = 4;
     // Use more frame buffers when PSRAM is available to avoid contention between stream and captures
-  config.fb_count = 4; // increase for robustness (was 3)
+    config.fb_count = 4; // increase for robustness (was 3)
     config.grab_mode = CAMERA_GRAB_LATEST; // prefer the most recent frame
   } else {
     config.frame_size = FRAMESIZE_SVGA;
@@ -104,13 +128,55 @@ uint8_t inline initCamera() {
   // restaurer les réglages stockés sur NVS
   camera_load_settings(s, nullptr);
 
+  //camera_set_parameter(s, "framesize", fs, false);
+  s->set_framesize(s, (framesize_t)9);
+
   //s->set_vflip(s, 1);      // flip it back
   //s->set_brightness(s, 1); // up the brightness just a bit
   //s->set_saturation(s, 0); // lower the saturation
   return 0;
 }
 
+uint8_t configCamera()
+{
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    Serial.println("Failed to get camera sensor");
+    return 1;
+  }
 
+  // Set the frame size and JPEG quality based on the global variables codes
+  uint16_t width;
+  uint16_t height;
+  framesize_t cam_size;
+  code_to_size(cap_size, width, cam_size);
+  height = size_table[cam_size].height;
+  s->set_framesize(s, cam_size);
+
+  uint8_t txjpg;
+  uint8_t txcam;
+  code_to_compjpg(cap_jpg_comp, txjpg, txcam);
+  s->set_quality(s, txcam);
+
+  // Additional camera settings can be configured here if needed
+  uint16_t x_S = (uint32_t) width * im_x_debut / 100;
+  uint16_t x_E = (uint32_t) width * im_x_fin / 100;
+  uint16_t y_S = (uint32_t) height * im_y_debut / 100;
+  uint16_t y_E = (uint32_t) height * im_y_fin / 100;
+  if ((x_E > x_S) && (y_E > y_S) && (x_E <= width) && (y_E <= height))
+  {  
+    Serial.printf("Camera windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
+    if ((im_x_debut) || (im_x_fin < 100) || (im_y_debut) || (im_y_fin < 100))
+    {
+        int res = 0;
+       //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
+       //int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+        Serial.printf("Camera windowing applied %d\n", res);
+    }
+  }
+
+  return 0;
+}
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
@@ -122,6 +188,7 @@ uint8_t setup_camera() {
     Serial.println("Camera initialization failed");
     return 1;
   }
+  configCamera();
 }
 
 void encodeP()
@@ -257,36 +324,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     return res;
 }
 
-// --- Helpers moved here: size/code mapping and JPEG compression mappings ---
-// Size 0:160 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280) 7:1600 8:2048
 
-// Size mapping helpers (codes -> widths) with framesize mapping
-typedef struct { uint16_t width; framesize_t cam_code; uint8_t code; } size_entry_t;
-static const size_entry_t size_table[] = {
-    {96,   FRAMESIZE_96X96,  0},
-    {160,  FRAMESIZE_QQVGA,  0},
-    {176,  FRAMESIZE_QCIF,   0},
-    {240,  FRAMESIZE_HQVGA,  1},
-    {240,  FRAMESIZE_240X240,1},
-    {320,  FRAMESIZE_QVGA,   1},
-    {400,  FRAMESIZE_CIF,    2},
-    {480,  FRAMESIZE_HVGA,   2},
-    {640,  FRAMESIZE_VGA,    3},
-    {720,  FRAMESIZE_P_HD,   4},
-    {800,  FRAMESIZE_SVGA,   4},
-    {864,  FRAMESIZE_P_3MP,  5},
-    {1024, FRAMESIZE_XGA,    5},
-    {1080, FRAMESIZE_P_FHD,  6},
-    {1280, FRAMESIZE_HD,     6},
-    {1280, FRAMESIZE_SXGA,   6},
-    {1600, FRAMESIZE_UXGA,   7},
-    {1920, FRAMESIZE_FHD,    8},
-    {2048, FRAMESIZE_QXGA,   8},
-    {2560, FRAMESIZE_QHD,    9},
-    {2560, FRAMESIZE_WQXGA,  9},
-    {2560, FRAMESIZE_QSXGA,  9}
-};
-static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]);
 
 // Given an image width (size), return the code (index) and output cam_size via reference.
 // Uses the lower-threshold rule: choose the largest entry width <= size.
@@ -402,3 +440,105 @@ uint8_t nbIm_to_code (uint8_t nb_images)
 
     return p;
 }
+
+// ---------- Global code mapping ----------
+// Table entry mapping a single-char global code to the triplet (images_code, size_code, comp_code)
+typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_entry_t;
+
+// Unified static table mapping single-char global code to the triplet (images_code, size_code, comp_code)
+// A..Z entries, A fixed to 100 (1,0,0), Z fixed to 789 (7,8,9), intermediates unique.
+static global_entry_t global_table[] = {
+    { 'A', 1, 0, 0 }, // 100 (fixed)
+    { 'B', 1, 0, 1 },
+    { 'C', 1, 0, 2 },
+    { 'D', 1, 1, 3 },
+    { 'E', 1, 2, 4 },
+    { 'F', 2, 2, 4 },
+    { 'G', 2, 3, 5 },
+    { 'H', 2, 4, 6 },
+    { 'I', 3, 4, 6 },
+    { 'J', 3, 5, 7 },
+    { 'K', 4, 5, 7 },
+    { 'L', 4, 6, 8 },
+    { 'M', 5, 6, 8 },
+    { 'N', 5, 7, 8 },
+    { 'O', 6, 7, 8 },
+    { 'P', 6, 7, 9 },
+    { 'Q', 6, 8, 9 },
+    { 'R', 7, 0, 1 },
+    { 'S', 7, 1, 2 },
+    { 'T', 7, 2, 3 },
+    { 'U', 7, 3, 4 },
+    { 'V', 7, 4, 5 },
+    { 'W', 7, 5, 6 },
+    { 'X', 7, 6, 7 },
+    { 'Y', 7, 7, 8 },
+    { 'Z', 7, 8, 9 }  // 789 (fixed)
+};
+static const size_t global_table_count = sizeof(global_table)/sizeof(global_table[0]);
+
+
+static const global_entry_t* global_to_triplet_det(char gc)
+{
+    for (size_t i = 0; i < global_table_count; ++i) {
+        if (global_table[i].gc == gc) return &global_table[i];
+    }
+    return NULL;
+}
+
+bool global_to_triplet(char global_code, uint8_t &images_code, uint8_t &size_code, uint8_t &comp_code)
+{
+    const global_entry_t* e = global_to_triplet_det(global_code);
+    if (!e) return false;
+    images_code = e->images;
+    size_code = e->size;
+    comp_code = e->comp;
+    return true;
+}
+
+char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code)
+{
+    // Exact match first
+    for (size_t i = 0; i < global_table_count; ++i)
+    {
+        if (global_table[i].images == images_code && global_table[i].size == size_code && global_table[i].comp == comp_code)
+            return global_table[i].gc;
+    }
+
+    // No exact match: choose the entry with the smallest signed sum difference
+    // diff_signed = (g.images - images_code) + (g.size - size_code) + (g.comp - comp_code)
+    // Primary key: minimal abs(diff_signed)
+    // Tie-breaker: minimal sum of absolute differences
+
+    int best_idx = -1;
+    int best_abs_signed = INT32_MAX;
+    int best_abs_sum = INT32_MAX;
+
+    for (size_t i = 0; i < global_table_count; ++i) {
+        const global_entry_t &g = global_table[i];
+        int diff_images = (int)g.images - (int)images_code;
+        int diff_size = (int)g.size - (int)size_code;
+        int diff_comp = (int)g.comp - (int)comp_code;
+        int signed_sum = diff_images + diff_size + diff_comp;
+        int abs_signed = (signed_sum >= 0) ? signed_sum : -signed_sum;
+        int abs_sum = abs(diff_images) + abs(diff_size) + abs(diff_comp);
+
+        if (abs_signed < best_abs_signed) {
+            best_abs_signed = abs_signed;
+            best_abs_sum = abs_sum;
+            best_idx = (int)i;
+        } else if (abs_signed == best_abs_signed) {
+            if (abs_sum < best_abs_sum) {
+                best_abs_sum = abs_sum;
+                best_idx = (int)i;
+            }
+        }
+        //Serial.printf("triplet_to_global: checking %c: diff_images=%d, diff_size=%d, diff_comp=%d, signed_sum=%d, abs_signed=%d, abs_sum=%d\n",
+        //    g.gc, diff_images, diff_size, diff_comp, signed_sum, abs_signed, abs_sum);
+    }
+
+    if (best_idx >= 0) return global_table[best_idx].gc;
+    return 'Z';
+}
+
+

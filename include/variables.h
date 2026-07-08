@@ -2,9 +2,21 @@
 
 #define VARIABLES_H
 
-#include "../src/lpc/lpc.h"
-#include <Arduino.h>  // for IPAddress type
 #include <stddef.h>  // for size_t
+
+#ifdef __cplusplus
+  #include <Arduino.h>  // for IPAddress, String types
+  // Forward-declare C++ LPC types/functions so C files including this header don't
+  // try to parse C++-only declarations or include C++ headers like <cassert>.
+  struct lpc_settings_t;
+  int encode_lpc(const lpc_settings_t &settings);
+#else
+  // C-mode: provide opaque declarations for Arduino C++ types so C files can
+  // reference extern variables without including Arduino headers.
+  typedef struct IPAddress IPAddress;
+  typedef struct String String;
+#endif
+
 
 // variables externes
 
@@ -62,15 +74,15 @@ typedef struct {
 } Message_EspNow;
 
 // structure des paramètres 
-enum ParamType {
+typedef enum ParamType {
   U8,
   U16,
   IP,
   STR,
   U32
-};
- 
-struct Param {
+} ParamType;
+
+typedef struct Param {
   const char* key;
   uint8_t order;
   ParamType type;
@@ -83,7 +95,7 @@ struct Param {
   const char* def_str;
   void* var;
   uint8_t size;      // taille du buffer (0 pour U8/U16)
-};
+} Param;
 
 // Forward declarations for variables used in PARAMS
 extern uint8_t mode_reseau;
@@ -197,14 +209,22 @@ void maj_etat_chaudiere_delai(uint8_t delai);
 void modif_timer_cycle(void);
 void traitement_rx(UartMessage_t* mess);
 uint8_t requete_Get_appli(const char* var, float* valeur);
+#ifdef __cplusplus
 uint8_t requete_Set_appli(String param, float valf);
+#else
+uint8_t requete_Set_appli(const char* param, float valf);
+#endif
 uint8_t requete_GetReg(int reg, float* valeur);
 void capture_video_sd();
 void capture_photo_sd();
 
 // Capture AVI in background (no HTTP response). Implemented in app_httpd.cpp
-void capture_avi_background();
+void capture_avi_b();
+
+// encode_lpc is a C++ function; only declare for C++ compilation
+#ifdef __cplusplus
 int encode_lpc(const lpc_settings_t &settings);
+#endif
 void printMemoryStatus();
 
 void passage_deep_sleep(uint64_t temps);
@@ -298,9 +318,13 @@ typedef struct {
 
 #define DEBOUNCE_INTERVAL 300  // Temps anti-rebond en ms
 
-constexpr int NB_Graphique =
-    6;  // Temp Ext, Temp int, Chaud, MoyText, MoyTint, Cout,
+#ifdef __cplusplus
+constexpr int NB_Graphique = 6;  // Temp Ext, Temp int, Chaud, MoyText, MoyTint, Cout,
 constexpr int NB_Val_Graph = 99;
+#else
+#define NB_Graphique 6
+#define NB_Val_Graph 99
+#endif
 
 extern uint8_t protocole;
 extern uint16_t nb_reset;
@@ -377,12 +401,21 @@ void setup_2();
 uint8_t requete_action_appli(const char* reg, const char* data);
 void appli_event_on(systeme_eve_t evt);
 void appli_event_off(systeme_eve_t evt);
+#ifdef __cplusplus
 uint8_t requete_Get_appli(String var, float* valeur);
-uint8_t requete_Set_appli(String param, int val);
+uint8_t requete_Set_appli(String param, float valf);
 uint8_t requete_GetReg_appli(int reg, float* valeur);
 uint8_t requete_SetReg_appli(int param, float valeurf);
 uint8_t requete_Get_String_appli(uint8_t type, String var, char* valeur);
 uint8_t requete_Set_String_appli(int param, const char* texte);
+#else
+uint8_t requete_Get_appli(const char* var, float* valeur);
+uint8_t requete_Set_appli(const char* param, float valf);
+uint8_t requete_GetReg_appli(int reg, float* valeur);
+uint8_t requete_SetReg_appli(int param, float valeurf);
+uint8_t requete_Get_String_appli(uint8_t type, const char* var, char* valeur);
+uint8_t requete_Set_String_appli(int param, const char* texte);
+#endif
 uint8_t lecture_Tint(float* mesure);
 uint8_t lecture_Text(float* mesure);
 void event_mesure_temp();

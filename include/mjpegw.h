@@ -54,11 +54,11 @@ extern "C" {
 // Opens a new AVI file
 //          [filename]          Name of the file, overwritten if it already exists
 //          [width, height]     Resolution of the video, all frame *must* have this resolution
-//          [fps]               Frame per second
+//          [microsec_per_frame] Microseconds per frame (preferred - allows intervals > 1s)
 //          [mem]               Custom allocator, if NULL stdlib will be used (alloc/realloc/free)
 //
 //  Returns a context to be used in the following function calls
-struct mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t fps, mjpegw_mem_interface* mem);
+struct mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t microsec_per_frame, mjpegw_mem_interface* mem);
 
                          
 //-----------------------------------------------------------------------------------------------------------------------------
