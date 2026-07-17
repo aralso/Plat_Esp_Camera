@@ -38,7 +38,7 @@
  uint8_t im_x_fin;
  uint8_t im_y_debut;
  uint8_t im_y_fin;
-
+ uint8_t type_cam;   // 0:non def, 1:OV3660  2:0V2640
 
 
 // Size mapping helpers (codes -> widths) with framesize mapping
@@ -50,24 +50,41 @@ static const size_entry_t size_table[] = {
     {240,  176,  FRAMESIZE_HQVGA,  1},
     {240,  240,  FRAMESIZE_240X240,1},
     {320,  240,  FRAMESIZE_QVGA,   1},
-    {400,  296,  FRAMESIZE_CIF,    2},
+    {400,  296,  FRAMESIZE_CIF,    1},
     {480,  320,  FRAMESIZE_HVGA,   2},
     {640,  480,  FRAMESIZE_VGA,    3},
-    {720,  480,  FRAMESIZE_P_HD,   4},
+    {720,  480,  FRAMESIZE_P_HD,   3},
     {800,  600,  FRAMESIZE_SVGA,   4},
-    {864,  648,  FRAMESIZE_P_3MP,  5},
+    {864,  648,  FRAMESIZE_P_3MP,  4},
     {1024, 768,  FRAMESIZE_XGA,    5},
-    {1080, 720,  FRAMESIZE_P_FHD,  6},
-    {1280, 720,  FRAMESIZE_HD,     6},
+    {1080, 720,  FRAMESIZE_P_FHD,  5},
+    {1280, 720,  FRAMESIZE_HD,     5},
     {1280, 1024, FRAMESIZE_SXGA,   6},
     {1600, 1200, FRAMESIZE_UXGA,   7},
-    {1920, 1080, FRAMESIZE_FHD,    8},
+    {1920, 1080, FRAMESIZE_FHD,    7},
     {2048, 1536, FRAMESIZE_QXGA,   8},
-    {2560, 1440, FRAMESIZE_QHD,    9},
-    {2560, 1600, FRAMESIZE_WQXGA,  9},
+    {2560, 1440, FRAMESIZE_QHD,    8},
+    {2560, 1600, FRAMESIZE_WQXGA,  8},
     {2560, 1920, FRAMESIZE_QSXGA,  9}
 };
 static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]);
+
+// Return width/height for a framesize_t by looking up size_table[]
+// Sets width and height via reference parameters. If not found, sets both to 0.
+static inline void framesize_to_wh(framesize_t fs, uint16_t &width, uint16_t &height)
+{
+    for (size_t i = 0; i < size_table_count; ++i) {
+        if (size_table[i].cam_code == fs) {
+            width = size_table[i].width;
+            height = size_table[i].height;
+            return;
+        }
+    }
+    // Not found: set defaults
+    width = 0;
+    height = 0;
+}
+
 
 uint8_t inline initCamera() {
   camera_config_t config;
@@ -127,6 +144,10 @@ uint8_t inline initCamera() {
   sensor_t *s = esp_camera_sensor_get();
   // restaurer les réglages stockés sur NVS
   camera_load_settings(s, nullptr);
+  if (s != NULL) {
+        if (s->id.PID == OV3660_PID) type_cam=1;
+        else type_cam=2; // OV2640
+  }
 
   //camera_set_parameter(s, "framesize", fs, false);
   s->set_framesize(s, (framesize_t)9);
@@ -134,6 +155,9 @@ uint8_t inline initCamera() {
   //s->set_vflip(s, 1);      // flip it back
   //s->set_brightness(s, 1); // up the brightness just a bit
   //s->set_saturation(s, 0); // lower the saturation
+
+  // handler / cam dans app_httpd.cpp : index_handler
+
   return 0;
 }
 
@@ -148,9 +172,10 @@ uint8_t configCamera()
   // Set the frame size and JPEG quality based on the global variables codes
   uint16_t width;
   uint16_t height;
-  framesize_t cam_size;
+  framesize_t cam_size; // camera
   code_to_size(cap_size, width, cam_size);
-  height = size_table[cam_size].height;
+  framesize_to_wh(cam_size, width, height);
+  //Serial.printf("Configuring camera: cap_size code=%d, cam=%d, width=%i height=%i\n", cap_size, cam_size, width, height);
   s->set_framesize(s, cam_size);
 
   uint8_t txjpg;
@@ -159,36 +184,48 @@ uint8_t configCamera()
   s->set_quality(s, txcam);
 
   // Additional camera settings can be configured here if needed
-  uint16_t x_S = (uint32_t) width * im_x_debut / 100;
-  uint16_t x_E = (uint32_t) width * im_x_fin / 100;
-  uint16_t y_S = (uint32_t) height * im_y_debut / 100;
-  uint16_t y_E = (uint32_t) height * im_y_fin / 100;
+  uint16_t x_S = ((uint32_t) width * im_x_debut / 100) & 0xFFF0;
+  uint16_t x_E = ((uint32_t) width * im_x_fin / 100) & 0xFFF0;
+  uint16_t y_S = ((uint32_t) height * im_y_debut / 100) & 0xFFF0;
+  uint16_t y_E = ((uint32_t) height * im_y_fin / 100) & 0xFFF0;
   if ((x_E > x_S) && (y_E > y_S) && (x_E <= width) && (y_E <= height))
   {  
     Serial.printf("Camera windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
     if ((im_x_debut) || (im_x_fin < 100) || (im_y_debut) || (im_y_fin < 100))
     {
         int res = 0;
+        if (type_cam==2)  // OV2640
+        {
        //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
-       //int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+          int res = s->set_res_raw(s, 0,0,0,0, im_x_debut, im_y_debut, 
+            im_x_fin-im_x_debut, im_y_fin-im_y_debut, im_x_fin-im_x_debut, im_y_fin-im_y_debut,0, 0);
+        // ov2640 :
+        // setWindow(start_x, 0, 0, 0, offset_x, offset_y, total_x, total_y, output_x, output_y, false, false, function(code, txt){
+       //Set Window: Start: 0 0, End: 0 0, Offset: 400 300, Total: 800 600, Output: 320 240, Scale: 0, Binning: 0
+        }
+        if (type_cam==1) // OV3660
+        {
+       // ov3660 : 
+       //     setWindow(start_x, start_y, end_x, end_y, offset_x, offset_y, total_x, total_y, output_x, output_y, scaling, binning, function(code, txt){
+          //int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+        }
         Serial.printf("Camera windowing applied %d\n", res);
     }
   }
-
   return 0;
 }
+
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
     Serial.println("Camera Ready! Use 'http://cam");
-    return 0;
   }
   else
   {
     Serial.println("Camera initialization failed");
     return 1;
   }
-  configCamera();
+  return configCamera();
 }
 
 void encodeP()
@@ -358,6 +395,7 @@ uint8_t code_to_size(uint8_t code, uint16_t &rep_width, framesize_t &cam_code)
         if (size_table[i].code == code) {
             cam_code = size_table[i].cam_code;
             rep_width = size_table[i].width;
+            Serial.printf("code:%i cam_code:%i i:%d width:%i\n", code, cam_code, i, rep_width);
             return 0;
         }
     }
@@ -428,17 +466,30 @@ uint8_t code_to_compjpg(uint8_t in_code, uint8_t &txJpg, uint8_t &txCam)
     return c;
 }
 
-uint8_t nbIm_to_code (uint8_t nb_images)
+uint8_t nbIm_to_code (uint8_t nb_imag)
 {
     uint8_t p = 1;
 
-    while (nb_images > 1 && p < 8)
+    while (nb_imag > 1 && p < 8)
     {
         p++;
-        nb_images >>= 1;
+        nb_imag >>= 1;
     }
 
     return p;
+}
+
+uint8_t code_to_nbIm (uint8_t code)
+{
+    uint8_t nb_imag = 1;
+
+    while (code > 1 && nb_imag < 64)
+    {
+        code--;
+        nb_imag <<= 1;
+    }
+
+    return nb_imag;
 }
 
 // ---------- Global code mapping ----------
@@ -454,7 +505,7 @@ static global_entry_t global_table[] = {
     { 'D', 1, 1, 3 },
     { 'E', 1, 2, 4 },
     { 'F', 2, 2, 4 },
-    { 'G', 2, 3, 5 },
+    { 'G', 2, 4, 3 },
     { 'H', 2, 4, 6 },
     { 'I', 3, 4, 6 },
     { 'J', 3, 5, 7 },

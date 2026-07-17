@@ -29,6 +29,7 @@ uint8_t txcam_to_compjpg(uint8_t txCam, uint8_t &txJpg, uint8_t &code);
 uint8_t code_to_compjpg(uint8_t code, uint8_t &txJpg, uint8_t &txCam);
 
 uint8_t nbIm_to_code (uint8_t nb_images);
+uint8_t code_to_nbIm (uint8_t code);
 
 // Global code mapping helpers
 // Convert a triplet (images_code, size_code, comp_code) into a single global char code

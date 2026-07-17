@@ -15,6 +15,8 @@
 
 #include "camera_pins.h"
 #include "LPC/lpc.h"
+#include "camera.h"
+
 //#include "header.h"
 //#include "esp_jpg_decode.h"
 
@@ -25,8 +27,7 @@ uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings);
 uint8_t decode_lpc(const char *path_in, uint8_t qual_decod);
 
 char path_c[128];
-uint8_t qual_encod = 30;
-uint8_t qual_decod = 30;
+uint8_t code_encod = 'H';
 
 
 // HTML page for SD explorer
@@ -199,10 +200,10 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
         }
 
         function encodItem(name) {
-            const quality = prompt('Quality:', 50);
-            if (quality >=1 && quality <= 100) {
+            const codeGlobal = prompt('Code:', 'C');
+            if (codeGlobal >= 'A' && codeGlobal <= 'Z') {
               const srcPath = joinPath(currentPath, name);
-              fetch(`/setSD?action=6&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(quality)}`)
+              fetch(`/setSD?action=6&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=${encodeURIComponent(codeGlobal)}`)
                   .then(response =>
                     response.text().then(text => {
                       if (response.ok) {
@@ -574,61 +575,6 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality
 }
 
 
-//uint8_t encodeFile(fs::FS &fs, const char *path1,uint8_t quality) {
-uint8_t encodeFile()
-{
-
-  Serial.printf("Encoding file %s with quality %i\n", path_c, qual_encod);
-
-      // --- 1. ouvrir fichier source ---
-    File inFile = SD_MMC.open(path_c, FILE_READ);
-    if (!inFile) {
-        Serial.println("Failed to open input file");
-        return 1;
-    }
-
-    size_t fileSize = inFile.size();
-    uint8_t* jpg_bu = (uint8_t*)malloc(fileSize);
-
-    if (!jpg_bu) {
-        Serial.println("Malloc failed");
-        inFile.close();
-        return 2;
-    }
-
-    inFile.read(jpg_bu, fileSize);
-    inFile.close();
-
-  // recuperation de l w et h de l'image source.
-  uint16_t w = 0, h = 0;
-
-  if ((!getJpegSize(jpg_bu, fileSize, w, h)) || (w<50) || (h<50) || (w>2500) || (h>2000)) {
-      Serial.println("Failed to read JPEG size");
-      free(jpg_bu);
-      return 3;
-  }
-  free(jpg_bu);
-
-  lpc_settings_t settings = {
-      w,    // width
-      h,    // height
-      qual_encod,     // quality
-      1,      // frame_count
-      1,       // frequency
-    };
-
-    //uint8_t res = encode_lpc2(settings, jpg_bu, fileSize, path_c);
-    uint8_t res = encode_lpc3(path_c, settings);
-
-  /*if (fs.rename(path1, path2)) {
-    Serial.println("File renamed");
-    return 0;
-  } else {
-    Serial.println("Rename failed");
-    return 1;
-  }*/
- return res;
-}
 
 
 uint8_t decodeFile()
@@ -921,7 +867,7 @@ void server_routes_SDCARD()
     { // encode lpc et enregistre new image
       strncpy(path_c, path.c_str(), sizeof(path_c));
       path_c[sizeof(path_c) - 1] = '\0';  // carac final
-      qual_encod = out.toInt();
+      code_encod = out[0];  // recupere le code de l'encodage
       systeme_eve_t evt = { EVENT_ENCODE_LPC, 0 }; 
       if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
       {
