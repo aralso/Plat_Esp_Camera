@@ -33,6 +33,7 @@
 #define LPC_ASSERT(x)
 #endif
 
+const char *get_filename_ext(const char *filename);
 
 /// Public API
 

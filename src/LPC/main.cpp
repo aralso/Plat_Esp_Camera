@@ -16,7 +16,35 @@
 #include "SDMMC.h"
 
 #include "variables.h"
-#include "camera.h"
+
+extern uint8_t code_encod;
+extern char path_c[128];
+
+// Size/codec helpers
+// New signatures: each function provides the other two values via output parameters.
+// - size_to_code: input width (pixels), outputs framesize (cam_size) and code (index), returns code
+// - camcode_to_code: input framesize (cam_code), outputs code and representative width, returns code
+// - code_to_size: input code, outputs representative width and framesize, returns code
+uint8_t size_to_code(uint16_t size, framesize_t &cam_size, uint8_t &code);
+uint8_t camcode_to_code(framesize_t cam_size, uint8_t &code, uint16_t &rep_width);
+uint8_t code_to_size(uint8_t code, uint16_t &rep_width, framesize_t &cam_size);
+
+// JPEG compression mapping helpers
+// tx_compjpg_to_code: input txJpg(percent), outputs txCam (camera jpeg_quality) and code
+uint8_t tx_compjpg_to_code(uint8_t txJpg, uint8_t &txCam, uint8_t &code);
+// inverse: from txCam to representative txJpg and code
+uint8_t txcam_to_compjpg(uint8_t txCam, uint8_t &txJpg, uint8_t &code);
+// inverse: from code to txJpg and txCam
+uint8_t code_to_compjpg(uint8_t code, uint8_t &txJpg, uint8_t &txCam);
+
+uint8_t nbIm_to_code (uint8_t nb_images);
+uint8_t code_to_nbIm (uint8_t code);
+
+// Global code mapping helpers
+// Convert a triplet (images_code, size_code, comp_code) into a single global char code
+char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code);
+// Parse a global char code into the triplet; returns true if found
+bool global_to_triplet(char global_code, uint8_t &images_code, uint8_t &size_code, uint8_t &comp_code);
 
 /// FILE STREAMS
 
@@ -30,8 +58,6 @@ void debug_ctx(mjpegw_context* avi);
 }
 #endif
 
-extern uint8_t code_encod;
-extern char path_c[128];
 
 struct jpeg_reader_t : public lpc_stream_in_t
 {
@@ -260,148 +286,6 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 	return 0;
 }
 
-uint8_t encodeFile()
-{
-	unsigned long start_enc = millis();
-
-	uint8_t nb_images_orig, nb_images, qualite_orig, qualite;
-	uint16_t width_orig, height_orig, width, height;
-
-	uint8_t code_images, code_width, code_compression;
-
-	global_to_triplet(code_encod, code_images, code_width, code_compression);  // G -> 2-4-3
-
-	nb_images = code_to_nbIm(code_images); // Code 2 -> nb_images=2
-
-	framesize_t cam_code;
-	code_to_size( code_width , width, cam_code);  // Code 4 -> width=800
-
-    uint8_t txCam;
-    code_to_compjpg( code_compression , qualite, txCam); // Code 3 -> qualite=15
-
-	uint8_t type_fichier = 0;  // 0:jpg  1:avi
-	//  Attention : les repertoires ne doivent pas contenir de '.'
-	if (strcmp(get_filename_ext(path_c), "jpg") != 0)
-	{
-		type_fichier = 1;
-		if (strcmp(get_filename_ext(path_c), "avi") != 0)
-		{
-			Serial.println("Input file n'est ni un fichier JPEG ni un fichier AVI");
-			return 1;
-		}
-	}		
-
-	String output_path = String(path_c);
-	int pos = output_path.lastIndexOf('.');
-	if (pos != -1) {
-		output_path = output_path.substring(0, pos);  // CA_260303_140202_R_543
-	}
-	else return 2;
-
-	if (output_path.length() >= 5) {
-		output_path.remove(output_path.length() - 5); // CA_260303_140202_
-	}
-	else return 3;
-
-	// --- 1. ouvrir fichier source ---
-	File inFile = SD_MMC.open(path_c, FILE_READ);
-	if (!inFile) {
-		Serial.println("Failed to open input file");
-		return 1;
-	}
-
-	size_t fileSize = inFile.size();
-
-	if (type_fichier) // AVI
-	{
-		nb_images_orig = 2;
-		width_orig = 800;
-		height_orig = 600;
-		qualite_orig = 30;
-
-	}
-	else  // JPEG
-	{
-        nb_images_orig = 1;
-
-		uint8_t* jpg_bu = (uint8_t*)malloc(fileSize);
-
-		if (!jpg_bu) {
-			Serial.println("Malloc failed");
-			inFile.close();
-			return 2;
-		}
-
-		inFile.read(jpg_bu, fileSize);
-		inFile.close();
-
-		// recuperation de l w et h de l'image source.
-		uint16_t w = 0, h = 0;
-
-		if ((!getJpegSize(jpg_bu, fileSize, w, h)) || (w<50) || (h<50) || (w>2500) || (h>2000)) {
-			Serial.println("Failed to read JPEG size");
-			free(jpg_bu);
-			return 3;
-		}
-		free(jpg_bu);
-		// Calcul de la qualité de compression à partir de la taille du fichier et des dimensions de l'image
-		qualite_orig = 20;
-		if (w && h) 
-		{
-			float qual = ((float)fileSize * 8.0f / (float)(w * h) - 0.15f) / 2.4f;
-			if (qual > 0)
-				qualite_orig = (uint8_t)(sqrt(qual) * 100);
-		}
-	}
-
-	// les nouvelles valeurs doivent être plus petites que les anciennes
-	if (nb_images > nb_images_orig) nb_images = nb_images_orig;
-	if (width > width_orig) width = width_orig;
-	if (qualite > qualite_orig) qualite = qualite_orig;
-    uint16_t height = (float)height_orig * ((float)width / (float)width_orig);  // calcul de la nouvelle hauteur pour garder le ratio
-
-	Serial.printf("Encoding %s Nb_images: %i -> %i\n", path_c, nb_images_orig, nb_images);
-	Serial.printf("Encoding  Format : %u x %u -> %u x %u\n", width_orig, height_orig, width, height);
-	Serial.printf("Encoding  Qualite : %i -> %i\n", qualite_orig, qualite);
-
-	lpc_settings_t settings = {
-		width,    // width
-		height,    // height
-		qualite,     // quality
-		nb_images,      // frame_count
-		1,       // frequency
-	};
-
-	uint8_t code_im = nbIm_to_code (nb_images);
-	uint8_t code_si;
-	framesize_t cam_size;
-	size_to_code(width, cam_size, code_si);
-	uint8_t code_qual, txCam;
-	tx_compjpg_to_code(qualite, txCam, code_qual);
-	uint8_t code_global = triplet_to_global(code_im, code_si, code_qual);
-
-	output_path  = output_path + String((char)code_global) + '-' + String(code_im) + String(code_si) + String(code_qual) + ".lpc";
-
-	if (SD_MMC.exists(output_path)) {
-			Serial.println("suppression du fichier de sortie existant");
-			SD_MMC.remove(output_path);
-	}
-
-	Serial.printf("Encodage vers %s width=%d height=%d quality=%d\n", output_path.c_str(), settings.width, settings.height, settings.quality);
-
-	filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
-	jpeg_reader_t jpeg(SD_MMC, path_c);   // lecture du fichier. Renvoie le nb d'octets lus
-	lpc_encoder_t encoder;
-	unsigned long enc2 = millis();
-	encoder.open(settings, &stream_out);
-
-	encoder.encode_jpeg(&jpeg);
-	unsigned long enc3 = millis();
-	encoder.close();
-	unsigned long end_enc = millis();
-	Serial.printf("Encoding time: prep:%lu ms, encode:%lu ms, close:%lu ms\n", enc2-start_enc, enc3-enc2, end_enc-enc3);
-	return 0;
-}
 
 uint8_t decode_lpc(const char *path_in, uint8_t qual_decod)
 {
@@ -815,3 +699,148 @@ bool get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
 	}
 	while (interactive);
 }*/
+
+
+uint8_t encodeFile()
+{
+	unsigned long start_enc = millis();
+
+	uint8_t nb_images_orig, nb_images, qualite_orig, qualite;
+	uint16_t width_orig, height_orig, width, height;
+
+	uint8_t code_images, code_width, code_compression;
+
+	global_to_triplet(code_encod, code_images, code_width, code_compression);  // G -> 2-4-3
+	Serial.printf("code_encod=%c code_images=%i code_width=%i code_compression=%i\n", code_encod, code_images, code_width, code_compression);
+
+	nb_images = code_to_nbIm(code_images); // Code 2 -> nb_images=2
+
+	framesize_t cam_code;
+	code_to_size( code_width , width, cam_code);  // Code 4 -> width=800
+
+    uint8_t txCam;
+    code_to_compjpg( code_compression , qualite, txCam); // Code 3 -> qualite=15
+
+	uint8_t type_fichier = 0;  // 0:jpg  1:avi
+	//  Attention : les repertoires ne doivent pas contenir de '.'
+	if (strcmp(get_filename_ext(path_c), "jpg") != 0)
+	{
+		type_fichier = 1;
+		if (strcmp(get_filename_ext(path_c), "avi") != 0)
+		{
+			Serial.println("Input file n'est ni un fichier JPEG ni un fichier AVI");
+			return 1;
+		}
+	}		
+
+	String output_path = String(path_c);
+	int pos = output_path.lastIndexOf('.');
+	if (pos != -1) {
+		output_path = output_path.substring(0, pos);  // CA_260303_140202_R_543
+	}
+	else return 2;
+
+	if (output_path.length() >= 5) {
+		output_path.remove(output_path.length() - 5); // CA_260303_140202_
+	}
+	else return 3;
+
+	// --- 1. ouvrir fichier source ---
+	File inFile = SD_MMC.open(path_c, FILE_READ);
+	if (!inFile) {
+		Serial.println("Failed to open input file");
+		return 1;
+	}
+
+	size_t fileSize = inFile.size();
+
+	if (type_fichier) // AVI
+	{
+		nb_images_orig = 2;
+		width_orig = 800;
+		height_orig = 600;
+		qualite_orig = 30;
+
+	}
+	else  // JPEG
+	{
+        nb_images_orig = 1;
+
+		uint8_t* jpg_bu = (uint8_t*)malloc(fileSize);
+
+		if (!jpg_bu) {
+			Serial.println("Malloc failed");
+			inFile.close();
+			return 2;
+		}
+
+		inFile.read(jpg_bu, fileSize);
+		inFile.close();
+
+		// recuperation de l w et h de l'image source.
+		uint16_t w = 0, h = 0;
+
+		if ((!getJpegSize(jpg_bu, fileSize, w, h)) || (w<50) || (h<50) || (w>2500) || (h>2000)) {
+			Serial.println("Failed to read JPEG size");
+			free(jpg_bu);
+			return 3;
+		}
+		free(jpg_bu);
+		// Calcul de la qualité de compression à partir de la taille du fichier et des dimensions de l'image
+		qualite_orig = 20;
+		if (w && h) 
+		{
+			float qual = ((float)fileSize * 8.0f / (float)(w * h) - 0.15f) / 2.4f;
+			if (qual > 0)
+				qualite_orig = (uint8_t)(sqrt(qual) * 100);
+		}
+	}
+
+	// les nouvelles valeurs doivent être plus petites que les anciennes
+	if (nb_images > nb_images_orig) nb_images = nb_images_orig;
+	if (width > width_orig) width = width_orig;
+	//if (qualite > qualite_orig) qualite = qualite_orig;
+    height = (float)height_orig * ((float)width / (float)width_orig);  // calcul de la nouvelle hauteur pour garder le ratio
+
+	Serial.printf("Encoding %s Nb_images: %i -> %i\n", path_c, nb_images_orig, nb_images);
+	Serial.printf("Encoding type:%i  Format : %u x %u -> %u x %u\n", type_fichier, width_orig, height_orig, width, height);
+	Serial.printf("Encoding  Qualite : %i -> %i\n", qualite_orig, qualite);
+
+	lpc_settings_t settings = {
+		width,    // width
+		height,    // height
+		qualite,     // quality
+		nb_images,      // frame_count
+		1,       // frequency
+	};
+
+	uint8_t code_im = nbIm_to_code (nb_images);
+	uint8_t code_si;
+	framesize_t cam_size;
+	size_to_code(width, cam_size, code_si);
+	uint8_t code_qual;
+	tx_compjpg_to_code(qualite, txCam, code_qual);
+	uint8_t code_global = triplet_to_global(code_im, code_si, code_qual);
+
+	output_path  = output_path + String((char)code_global) + '-' + String(code_im) + String(code_si) + String(code_qual) + ".lpc";
+
+	if (SD_MMC.exists(output_path)) {
+			Serial.println("suppression du fichier de sortie existant");
+			SD_MMC.remove(output_path);
+	}
+
+	Serial.printf("Encodage vers %s width=%d height=%d quality=%d\n", output_path.c_str(), settings.width, settings.height, settings.quality);
+
+	filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
+	jpeg_reader_t jpeg(SD_MMC, path_c);   // lecture du fichier. Renvoie le nb d'octets lus
+	lpc_encoder_t encoder;
+	unsigned long enc2 = millis();
+	encoder.open(settings, &stream_out);
+
+	encoder.encode_jpeg(&jpeg);
+	unsigned long enc3 = millis();
+	encoder.close();
+	unsigned long end_enc = millis();
+	Serial.printf("Encoding time: prep:%lu ms, encode:%lu ms, close:%lu ms\n", enc2-start_enc, enc3-enc2, end_enc-enc3);
+	return 0;
+}

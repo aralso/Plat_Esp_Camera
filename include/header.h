@@ -120,11 +120,11 @@ bool jpg2bmp(const uint8_t *src, size_t src_len, uint8_t ** out, size_t * out_le
 #define MALLOC_CAP_INVALID          (1<<31) ///< Memory can't be used / list end marker
 
 
-/*#define OV9650_PID     (0x96)
+#define OV9650_PID     (0x96)
 #define OV7725_PID     (0x77)
 #define OV2640_PID     (0x26)
 #define OV3660_PID     (0x36)
-#define OV5640_PID     (0x56)*/
+#define OV5640_PID     (0x56)
 
 typedef enum {
 	PIXFORMAT_RGB565,    // 2BPP/RGB565

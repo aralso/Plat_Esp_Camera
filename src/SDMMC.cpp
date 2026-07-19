@@ -580,10 +580,10 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality
 uint8_t decodeFile()
 {
 
-  Serial.printf("Decoding file %s with quality %i\n", path_c, qual_decod);
-  delay(200);
+  //Serial.printf("Decoding file %s with quality %i\n", path_c, qual_decod);
+  //delay(200);
 
-    uint8_t res = decode_lpc(path_c, qual_decod);
+    //uint8_t res = decode_lpc(path_c, qual_decod);
 
   /*if (fs.rename(path1, path2)) {
     Serial.println("File renamed");
@@ -592,7 +592,7 @@ uint8_t decodeFile()
     Serial.println("Rename failed");
     return 1;
   }*/
- return res;
+ return 0;
 }
 
 uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len)
