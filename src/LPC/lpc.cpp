@@ -7,6 +7,8 @@
 #define LPC_VERSION 0
 #define QP_MAX 51
 #define QP_CHROMA_OFFSET 8
+#define QP_MULT_P_FRAME 1
+#define QP_OFFSET_P_FRAME 10
 
 using std::min;
 using std::max;
@@ -97,13 +99,20 @@ void lpc_encoder_t::open(lpc_settings_t settings, lpc_stream_out_t *stream_out)
 	width = settings.width;
 	height = settings.height;
 	qp = compute_qp(settings.quality);
+	prev_frame = nullptr;
 
 	stream->write_byte(LPC_VERSION);
-	stream->write_bytes((uint8_t*)&settings, sizeof(lpc_settings_t));
+	stream->write_uint16(settings.width);
+	stream->write_uint16(settings.height);
+	stream->write_byte(settings.quality);
+	stream->write_byte(settings.frame_count);
+	stream->write_byte(settings.frequency);
 }
 
 void lpc_encoder_t::close()
 {
+	if (prev_frame)
+		lpc_free(prev_frame);
 	stream->flush();
 }
 
@@ -116,7 +125,7 @@ void do_encode(
 	mb_residuals_t residuals;
 
 	// Encoding
-	predicted.select_intra_modes(mb, neighbours);
+	predicted.select_mode(mb, neighbours);
 	predicted.build_residuals(mb, &residuals);
 	predicted.compute_cbp_flags(residuals);
 	predicted.encode_mb(neighbours, residuals, &cabac);
@@ -126,6 +135,9 @@ void do_encode(
 	neighbours.update_data(predicted);
 
 	LPC_DEBUG_ONLY(stats_add_mb(*STATS, predicted, mb));
+
+	// Restore original qp if it was overriden
+	predicted.restore_qp();
 }
 
 void lpc_encoder_t::encode_frame(const uint8_t *rgb_bytes)
@@ -141,21 +153,22 @@ void lpc_encoder_t::encode_frame(const uint8_t *rgb_bytes)
 	cabac_coder_t cabac(stream, qp);
 
 	predicted_macroblock_t predicted;
+	predicted.frame_type = FRAME_TYPE_I;
 	predicted.qp_chroma_offset = QP_CHROMA_OFFSET;
 	predicted.qp = qp;
 
+	cabac.encode_bypass(predicted.frame_type == FRAME_TYPE_I);
+
 	for (int x = 0; x < num_mb_x; x++)
 	{
-		neighbours.start_column();
 		for (int y = 0; y < num_mb_y; y++)
 		{
 			mb.from_rgb(rgb_bytes, width, height, x, y);
-			neighbours.set_row(y);
+			neighbours.set_coords(x, y);
 
 			predicted.set_qp_delta(0);
 			do_encode(predicted, mb, neighbours, cabac);
 		}
-		neighbours.end_column();
 	}
 
 	cabac.encode_terminate(1);
@@ -167,21 +180,20 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 	int num_mb_y = div_round_up(height, MB_SIZE);
 	macroblock_t *macroblocks = lpc_alloc<macroblock_t>(num_mb_x * num_mb_y, "Decoded JPEG");
 
-	if (!macroblocks)
-	{
-		Serial.println("ERREUR: allocation macroblocks échouée !");
-		return;
-	}
-	Serial.printf("Alloc : %d macroblocks\n", num_mb_x * num_mb_y);
+	// Handle out of memory
+	if (macroblocks == nullptr) { macroblocks = prev_frame; prev_frame = nullptr; }
+	if (macroblocks == nullptr) return;
+
 	decode_jpeg(stream_in, (uint8_t*)macroblocks, width, height);
 
 	LPC_DEBUG_ONLY(stats.reset(num_mb_x, num_mb_y));
 	LPC_DEBUG_ONLY(STATS = &stats);
 
-	neighbour_ctx_t neighbours(num_mb_y);
+	neighbour_ctx_t neighbours(num_mb_y, prev_frame);
 	cabac_coder_t cabac(stream, qp);
 
 	predicted_macroblock_t predicted;
+	predicted.frame_type = prev_frame ? FRAME_TYPE_P : FRAME_TYPE_I;
 	predicted.qp_chroma_offset = QP_CHROMA_OFFSET;
 	predicted.qp = qp;
 
@@ -196,15 +208,14 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 	LPC_DEBUG_ONLY(stats.log_var_avg = log_var_avg);
 	#endif
 
-	Serial.printf("Encoding %d columns \n", num_mb_x);
+	cabac.encode_bypass(predicted.frame_type == FRAME_TYPE_I);
+
 	for (int x = 0; x < num_mb_x; x++)
 	{
-		//Serial.printf("Encoding column %d/%d\n", x+1, num_mb_x);
-		neighbours.start_column();
 		for (int y = 0; y < num_mb_y; y++)
 		{
 			macroblock_t &mb = macroblocks[x * num_mb_y + y];
-			neighbours.set_row(y);
+			neighbours.set_coords(x, y);
 
 			#if LPC_ADAPTIVE_QP
 			int target_qp = qp + compute_qp_delta(mb, log_var_avg, log_var_avg_inv);
@@ -213,11 +224,16 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 
 			do_encode(predicted, mb, neighbours, cabac);
 		}
-		neighbours.end_column();
 	}
 
 	cabac.encode_terminate(1);
-	lpc_free(macroblocks);
+
+	if (prev_frame)
+		lpc_free(prev_frame);
+	if (LPC_SUPPORT_P_FRAMES)
+		prev_frame = macroblocks;
+	else
+		lpc_free(macroblocks);
 }
 
 /// LPC_DECODER
@@ -225,41 +241,47 @@ void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 void lpc_decoder_t::open(lpc_stream_in_t *stream_in)
 {
 	stream = stream_in;
+	prev_frame = nullptr;
 
 	int version = stream->read_byte();
-	
-	stream->read_bytes((uint8_t*)&settings, sizeof(lpc_settings_t));
+
+	settings.width = stream->read_uint16();
+	settings.height = stream->read_uint16();
+	settings.quality = stream->read_byte();
+	settings.frame_count = stream->read_byte();
+	settings.frequency = stream->read_byte();
+
 	LPC_ASSERT(!stream->empty());
 }
 
 void lpc_decoder_t::close()
 {
+	if (prev_frame)
+		lpc_free(prev_frame);
 }
 
 void lpc_decoder_t::decode_frame(uint8_t *rgb_bytes)
 {
-	if (settings.frame_count == 0)
-		return;
-	settings.frame_count--;
-
 	int num_mb_x = div_round_up(settings.width, MB_SIZE);
 	int num_mb_y = div_round_up(settings.height, MB_SIZE);
 	int qp = compute_qp(settings.quality);
 
+	macroblock_t *macroblocks = lpc_alloc<macroblock_t>(num_mb_x * num_mb_y, "Previous frame");
+
 	mb_residuals_t residuals;
-	neighbour_ctx_t neighbours(num_mb_y);
+	neighbour_ctx_t neighbours(num_mb_y, prev_frame);
 	cabac_coder_t cabac(stream, qp);
 
 	predicted_macroblock_t predicted;
+	predicted.frame_type = cabac.decode_bypass() ? FRAME_TYPE_I : FRAME_TYPE_P;
 	predicted.qp_chroma_offset = QP_CHROMA_OFFSET;
 	predicted.qp = qp;
 
 	for (int x = 0; x < num_mb_x; x++)
 	{
-		neighbours.start_column();
 		for (int y = 0; y < num_mb_y; y++)
 		{
-			neighbours.set_row(y);
+			neighbours.set_coords(x, y);
 
 			// Decode
 			predicted.decode_mb(neighbours, &residuals, &cabac);
@@ -267,11 +289,19 @@ void lpc_decoder_t::decode_frame(uint8_t *rgb_bytes)
 			predicted.add_residuals(residuals);
 
 			neighbours.update_data(predicted);
+			predicted.restore_qp();
 
+			macroblocks[x * num_mb_y + y] = predicted.mb;
 			predicted.mb.to_rgb(rgb_bytes, settings.width, settings.height, x, y);
 		}
-		neighbours.end_column();
 	}
+
+	if (prev_frame)
+		lpc_free(prev_frame);
+	if (LPC_SUPPORT_P_FRAMES)
+		prev_frame = macroblocks;
+	else
+		lpc_free(macroblocks);
 
 	cabac.decode_terminate();
 }

@@ -1,6 +1,69 @@
 #include "lpc.h"
 
-/// MODE SELECTION
+///  MODE SELECTION
+
+void predicted_macroblock_t::select_mode(const macroblock_t &orig, const neighbour_ctx_t &neighbours)
+{
+	qp_backup = 255;
+	uint32_t intra_cost = select_intra_modes(orig, neighbours);
+
+	if (frame_type == FRAME_TYPE_P && neighbours.previous != nullptr)
+	{
+		// Evaluate luma cost
+		uint32_t total_cost = 0;
+		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+		{
+			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+			{
+				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
+				auto &block = orig.luma[block_idx];
+				auto &pred_block = neighbours.previous->luma[block_idx];
+
+				total_cost += eval_cost(block, pred_block);
+			}
+		}
+
+		if (total_cost > intra_cost)
+			return;
+
+		const uint8_t *prev_luma = (uint8_t*)neighbours.previous->luma;
+		const uint8_t *prev_chroma_u = (uint8_t*)neighbours.previous->chroma_u.C;
+		const uint8_t *prev_chroma_v = (uint8_t*)neighbours.previous->chroma_v.C;
+
+		memcpy(mb.luma, prev_luma, MB_SIZE * MB_SIZE);
+		memcpy(mb.chroma_u.C, prev_chroma_u, CHROMA_BLOCK_SIZE * CHROMA_BLOCK_SIZE);
+		memcpy(mb.chroma_v.C, prev_chroma_v, CHROMA_BLOCK_SIZE * CHROMA_BLOCK_SIZE);
+
+		type = MB_TYPE_P;
+		override_block_qp(qp * QP_MULT_P_FRAME + QP_OFFSET_P_FRAME);
+	}
+}
+
+void predicted_macroblock_t::predict(const neighbour_ctx_t &neighbours)
+{
+	qp_backup = 255;
+
+	if (type == MB_TYPE_P)
+	{
+		LPC_ASSERT(neighbours.previous != nullptr);
+
+		const uint8_t *prev_luma = (uint8_t*)neighbours.previous->luma;
+		const uint8_t *prev_chroma_u = (uint8_t*)neighbours.previous->chroma_u.C;
+		const uint8_t *prev_chroma_v = (uint8_t*)neighbours.previous->chroma_v.C;
+
+		memcpy(mb.luma, prev_luma, MB_SIZE * MB_SIZE);
+		memcpy(mb.chroma_u.C, prev_chroma_u, CHROMA_BLOCK_SIZE * CHROMA_BLOCK_SIZE);
+		memcpy(mb.chroma_v.C, prev_chroma_v, CHROMA_BLOCK_SIZE * CHROMA_BLOCK_SIZE);
+
+		override_block_qp(qp * QP_MULT_P_FRAME + QP_OFFSET_P_FRAME);
+	}
+	else
+	{
+		predict_intra(neighbours);
+	}
+}
+
+/// INTRA MODE SELECTION
 
 inline uint32_t find_mode_luma_blocks(const macroblock_t &orig,
 		const uint8_t *top, const uint8_t *left,
@@ -30,34 +93,45 @@ inline uint32_t find_mode_luma_blocks(const macroblock_t &orig,
 	return total_cost;
 }
 
-void predicted_macroblock_t::select_intra_modes(const macroblock_t &orig, const neighbour_ctx_t &neighbours)
+uint32_t predicted_macroblock_t::select_intra_modes(const macroblock_t &orig, const neighbour_ctx_t &neighbours)
 {
 	const neighbour_t &top = neighbours.top;
 	const neighbour_t &left = neighbours.left;
 
+	uint32_t total_cost;
+
 	// Luma 16x16
 	{
-		const uint8_t *orig_luma = (uint8_t*)orig.luma;
-		uint8_t *predicted_luma = (uint8_t*)mb.luma;
+		uint8_t orig_luma[16 * 16];
+		uint8_t predicted_luma[16 * 16];
+		reorder_luma_16x16_linear(orig.luma, orig_luma);
+
 		uint32_t cost_16x16 = find_mode_luma_16x16(orig_luma,
 				top.get_luma(), left.get_luma(),
 				predicted_luma, &mode_luma);
 
-		type = (cost_16x16 > 200 * uint32_t(qp)) ? MB_TYPE_4x4 : MB_TYPE_16x16;
+		type = (LPC_SUPPORT_4x4 && cost_16x16 > 200 * uint32_t(qp)) ? MB_TYPE_I_4x4 : MB_TYPE_I_16x16;
 		//type = MB_TYPE_4x4;
 		//type = MB_TYPE_16x16;
+
+		if (type == MB_TYPE_I_16x16 && cost_16x16 != MAX_COST(MB_SIZE))
+			reorder_luma_16x16_as_block(mb.luma, predicted_luma);
+
+		total_cost = cost_16x16;
 	}
 
 	// Luma 4x4
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4)
 	{
-		find_mode_luma_blocks(orig, top.get_luma(), left.get_luma(), this);
+		total_cost = find_mode_luma_blocks(orig, top.get_luma(), left.get_luma(), this);
 	}
 
 	// Chroma
 	{
 		uint32_t cost_chroma = find_mode_chroma(orig, top, left, &mb, &mode_chroma);
 	}
+
+	return total_cost;
 }
 
 /// INTRA PREDICTION
@@ -81,15 +155,16 @@ void predict_luma_blocks(const intra_mode_t *modes,
 	}
 }
 
-void predicted_macroblock_t::predict(const neighbour_ctx_t &neighbours)
+void predicted_macroblock_t::predict_intra(const neighbour_ctx_t &neighbours)
 {
 	const neighbour_t &top = neighbours.top;
 	const neighbour_t &left = neighbours.left;
 
-	if (type == MB_TYPE_16x16)
+	if (type == MB_TYPE_I_16x16)
 	{
-		uint8_t *block = (uint8_t*)mb.luma;
-		predict_luma_16x16(block, mode_luma, top.get_luma(), left.get_luma(), block);
+		uint8_t predicted_luma[16 * 16];
+		predict_luma_16x16(predicted_luma, mode_luma, top.get_luma(), left.get_luma(), predicted_luma);
+		reorder_luma_16x16_as_block(mb.luma, predicted_luma);
 	}
 	else
 	{
@@ -161,12 +236,24 @@ void predicted_macroblock_t::set_qp_delta(int8_t value)
 #endif
 }
 
+void predicted_macroblock_t::override_block_qp(uint8_t value)
+{
+	qp_backup = qp;
+	qp = min(value, (uint8_t)QP_MAX);
+}
+
+void predicted_macroblock_t::restore_qp()
+{
+	if (qp_backup != 255)
+		qp = qp_backup;
+}
+
 /// RESIDUALS
 
 void predicted_macroblock_t::build_residuals(const macroblock_t &orig, mb_residuals_t *residuals) const
 {
 	// Luma
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
 		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
 		{
@@ -260,7 +347,7 @@ void predicted_macroblock_t::build_residuals(const macroblock_t &orig, mb_residu
 void predicted_macroblock_t::add_residuals(mb_residuals_t &residuals)
 {
 	// Luma
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
 		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
 		{

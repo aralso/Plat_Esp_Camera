@@ -59,22 +59,93 @@ void debug_ctx(mjpegw_context* avi);
 #endif
 
 
+
 struct jpeg_reader_t : public lpc_stream_in_t
 {
-File file;
-jpeg_reader_t(fs::FS &fs, const char *path)
+    File file;
+    jpeg_reader_t(fs::FS &fs, const char *path)
+    {
+        file = fs.open(path, FILE_READ);
+        assert(file);
+    }
+    ~jpeg_reader_t()
+    {
+        file.close();
+    }
+    size_t read(uint8_t *data, size_t size) override
+    {
+        return file.read(data, size);
+    }
+};
+
+// Reader that extracts the nth MJPEG frame from an AVI (searches for JPEG SOI/EOI markers)
+struct avi_frame_reader_t : public lpc_stream_in_t
 {
-file = fs.open(path, FILE_READ);
-assert(file);
-}
-~jpeg_reader_t()
-{
-file.close();
-}
-size_t read(uint8_t *data, size_t size) override
-{
-return file.read(data, size);
-}
+    File file;
+    uint32_t start_pos;
+    uint32_t end_pos;
+    uint32_t remaining;
+
+    avi_frame_reader_t(fs::FS &fs, const char *path, uint32_t index)
+    {
+        file = fs.open(path, FILE_READ);
+        assert(file);
+        start_pos = 0;
+        end_pos = 0;
+        remaining = 0;
+
+        // Find the index-th JPEG SOI (0xFFD8)
+        uint8_t prev = 0;
+        uint32_t frame_count = 0;
+        file.seek(0);
+        while (file.available()) {
+            uint8_t b = file.read();
+            if (prev == 0xFF && b == 0xD8) {
+                if (frame_count == index) {
+                    start_pos = file.position() - 2;
+                    break;
+                }
+                frame_count++;
+            }
+            prev = b;
+        }
+
+        if (start_pos != 0 || (start_pos == 0 && index == 0)) {
+            // find EOI 0xFFD9
+            prev = 0;
+            file.seek(start_pos);
+            while (file.available()) {
+                uint8_t b = file.read();
+                if (prev == 0xFF && b == 0xD9) {
+                    end_pos = file.position();
+                    break;
+                }
+                prev = b;
+            }
+        }
+
+        if (end_pos > start_pos) {
+            remaining = end_pos - start_pos;
+            file.seek(start_pos);
+        } else {
+            // not found - set remaining to 0
+            remaining = 0;
+        }
+    }
+
+    ~avi_frame_reader_t()
+    {
+        file.close();
+    }
+
+    size_t read(uint8_t *data, size_t size) override
+    {
+        if (remaining == 0) return 0;
+        size_t toRead = (size_t)(remaining < size ? remaining : size);
+        size_t r = file.read(data, toRead);
+        if (r > 0) remaining -= r;
+        return r;
+    }
 };
 
 
@@ -169,6 +240,7 @@ const int g_display_stats	= 1 << 2;
 const int g_set_quality		= 1 << 3;
 const int g_run_unit_tests	= 1 << 4;
 const int g_procedural_img	= 1 << 5;
+const int g_run_profile		= 1 << 6;
 const int g_exit 			= 1 << 31;
 
 uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *input_path, const char *output_path);
@@ -790,9 +862,12 @@ uint8_t encodeFile()
 		qualite_orig = 20;
 		if (w && h) 
 		{
-			float qual = ((float)fileSize * 8.0f / (float)(w * h) - 0.15f) / 2.4f;
-			if (qual > 0)
-				qualite_orig = (uint8_t)(sqrt(qual) * 100);
+			float bpp = (float)fileSize * 8.0f / (w * h);
+			float qual = 1.0f - expf(-3.0f * bpp);
+			qualite_orig = (uint8_t)(qual * 100.0f);
+			//float qual = ((float)fileSize * 8.0f / (float)(w * h) - 0.15f) / 2.4f;
+			//if (qual > 0)
+			//	qualite_orig = (uint8_t)(sqrt(qual) * 100);
 		}
 	}
 
@@ -832,13 +907,25 @@ uint8_t encodeFile()
 	Serial.printf("Encodage vers %s width=%d height=%d quality=%d\n", output_path.c_str(), settings.width, settings.height, settings.quality);
 
 	filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
-	jpeg_reader_t jpeg(SD_MMC, path_c);   // lecture du fichier. Renvoie le nb d'octets lus
 	lpc_encoder_t encoder;
 	unsigned long enc2 = millis();
 	encoder.open(settings, &stream_out);
+	unsigned long encprec = millis();
+	unsigned long enc3;
 
-	encoder.encode_jpeg(&jpeg);
-	unsigned long enc3 = millis();
+	for (uint32_t i = 0; i < settings.frame_count; ++i)
+	{
+		if (type_fichier) {
+			avi_frame_reader_t avi(SD_MMC, path_c, i);
+			encoder.encode_jpeg(&avi);
+		} else {
+			jpeg_reader_t jpeg(SD_MMC, path_c);   // lecture du fichier JPEG
+			encoder.encode_jpeg(&jpeg);
+		}
+		enc3 = millis();
+		Serial.printf("Encoding image:%i time:%lu ms\n", i, enc3-encprec);
+		encprec = enc3;
+	}
 	encoder.close();
 	unsigned long end_enc = millis();
 	Serial.printf("Encoding time: prep:%lu ms, encode:%lu ms, close:%lu ms\n", enc2-start_enc, enc3-enc2, end_enc-enc3);

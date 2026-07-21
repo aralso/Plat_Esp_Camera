@@ -14,6 +14,8 @@
 
 #define LPC_USE_YCBCR 1
 #define LPC_USE_CABAC 1
+#define LPC_SUPPORT_P_FRAMES 1
+#define LPC_SUPPORT_4x4 0
 #define LPC_ADAPTIVE_QP 0
 
 
@@ -164,6 +166,12 @@ struct lpc_stream_out_t
 		cache[len++] = byte;
 	}
 
+	void write_uint16(uint16_t val)
+	{
+		write_byte(val >> 8);
+		write_byte(val & 0xFF);
+	}
+
 	inline void write_bytes(const uint8_t *data, size_t size)
 	{
 		LPC_ASSERT(bit_idx == 0);
@@ -228,6 +236,7 @@ struct lpc_encoder_t
 
 private:
 	lpc_stream_out_t *stream;
+	struct macroblock_t *prev_frame;
 	uint16_t width;
 	uint16_t height;
 	uint8_t qp;
@@ -244,6 +253,7 @@ struct lpc_decoder_t
 
 private:
 	lpc_stream_in_t *stream;
+	struct macroblock_t *prev_frame;
 	lpc_settings_t settings;
 };
 

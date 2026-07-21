@@ -223,8 +223,8 @@ uint8_t configCamera()
         if (type_cam==2)  // OV2640
         {
        //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
-          int res = s->set_res_raw(s, 0,0,0,0, im_x_debut, im_y_debut, 
-            im_x_fin-im_x_debut, im_y_fin-im_y_debut, im_x_fin-im_x_debut, im_y_fin-im_y_debut,0, 0);
+        //  int res = s->set_res_raw(s, 0,0,0,0, im_x_debut, im_y_debut, 
+        //    im_x_fin-im_x_debut, im_y_fin-im_y_debut, im_x_fin-im_x_debut, im_y_fin-im_y_debut,0, 0);
         // ov2640 :
         // setWindow(start_x, 0, 0, 0, offset_x, offset_y, total_x, total_y, output_x, output_y, false, false, function(code, txt){
        //Set Window: Start: 0 0, End: 0 0, Offset: 400 300, Total: 800 600, Output: 320 240, Scale: 0, Binning: 0
@@ -286,6 +286,7 @@ bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h) {
 
 uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize, uint16_t quality)
 {
+    printMemoryStatus();
     // recuperation de l w et h de l'image source.
     uint16_t w = 0, h = 0;
 
@@ -310,6 +311,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
       free(jpg_buf);
       return 9;
     }
+    printMemoryStatus();
 
     if (!fmt2rgb888(jpg_buf, fileSize, PIXFORMAT_JPEG, rgb_buf)) {
         Serial.println("JPEG decode failed");
@@ -339,6 +341,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         free(rgb_buf);
         return 6;
     }
+    printMemoryStatus();
 
       // --- 5. resize simple (nearest neighbor) ---
     for (int y = 0; y < new_h; y++) {
@@ -436,15 +439,15 @@ uint8_t code_to_size(uint8_t code, uint16_t &rep_width, framesize_t &cam_code)
 struct comp_entry_t { uint8_t code; uint8_t tx_comp_jpg; uint8_t tx_comp_cam; };
 
 static const comp_entry_t comp_table[] = {
-    {0, 0,   63},
-    {1, 5,   55},
-    {2, 10,  50},
-    {3, 15,  40},
-    {4, 20,  30},
-    {5, 30,  20},
-    {6, 50,  12},
-    {7, 60,   8},
-    {8, 80,   6},
+    {0, 5,   63},
+    {1, 12,  55},
+    {2, 20,  50},
+    {3, 28,  45},
+    {4, 40,  40},
+    {5, 50,  30},
+    {6, 60,  20},
+    {7, 70,  12},
+    {8, 82,   7},
     {9, 100,  4}
 };
 static const size_t comp_table_count = sizeof(comp_table) / sizeof(comp_table[0]);
@@ -529,14 +532,14 @@ static global_entry_t global_table[] = {
     { 'B', 1, 0, 1 },
     { 'C', 1, 0, 2 },
     { 'D', 1, 1, 3 },
-    { 'E', 1, 2, 4 },
-    { 'F', 2, 2, 4 },
-    { 'G', 2, 4, 3 },
-    { 'H', 2, 4, 6 },
-    { 'I', 3, 4, 6 },
-    { 'J', 3, 5, 7 },
-    { 'K', 4, 5, 7 },
-    { 'L', 4, 6, 8 },
+    { 'E', 1, 2, 3 },
+    { 'F', 1, 3, 3 },
+    { 'G', 1, 4, 3 },
+    { 'H', 1, 4, 5 },
+    { 'I', 1, 4, 6 },
+    { 'J', 1, 4, 7 },
+    { 'K', 1, 5, 7 },
+    { 'L', 1, 6, 7 },
     { 'M', 5, 6, 8 },
     { 'N', 5, 7, 8 },
     { 'O', 6, 7, 8 },
@@ -575,11 +578,15 @@ bool global_to_triplet(char global_code, uint8_t &images_code, uint8_t &size_cod
 
 char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code)
 {
+    Serial.printf("triplet_to_global: searching for images_code=%d, size_code=%d, comp_code=%d\n", images_code, size_code, comp_code);
     // Exact match first
     for (size_t i = 0; i < global_table_count; ++i)
     {
         if (global_table[i].images == images_code && global_table[i].size == size_code && global_table[i].comp == comp_code)
+        {
+            Serial.printf("triplet_to_global: exact match found at index %d, global_code=%c\n", (int)i, global_table[i].gc);
             return global_table[i].gc;
+        }
     }
 
     // No exact match: choose the entry with the smallest signed sum difference
@@ -610,8 +617,8 @@ char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code
                 best_idx = (int)i;
             }
         }
-        //Serial.printf("triplet_to_global: checking %c: diff_images=%d, diff_size=%d, diff_comp=%d, signed_sum=%d, abs_signed=%d, abs_sum=%d\n",
-        //    g.gc, diff_images, diff_size, diff_comp, signed_sum, abs_signed, abs_sum);
+        Serial.printf("triplet_to_global: checking %c: diff_images=%d, diff_size=%d, diff_comp=%d, signed_sum=%d, abs_signed=%d, abs_sum=%d\n",
+            g.gc, diff_images, diff_size, diff_comp, signed_sum, abs_signed, abs_sum);
     }
 
     if (best_idx >= 0) return global_table[best_idx].gc;

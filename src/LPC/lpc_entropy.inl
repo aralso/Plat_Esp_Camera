@@ -39,7 +39,7 @@ void reorder_linear(int16_t *dst, const int16_t *src, int coeff_count)
 	}
 }
 
-// Table 9-32 – Specification of ctxBlockCat for the different blocks 
+// Table 9-32 ï¿½ Specification of ctxBlockCat for the different blocks 
 enum
 {
 	LUMA_DC_BLOCK = 0,
@@ -60,57 +60,90 @@ namespace cst
 	const int coeff_abs_level_minus1_offset[] = { 0, 10, 20, 30, 39 };
 }
 
-void encode_mb_type(const predicted_macroblock_t &pred, const neighbour_ctx_t &neighbours, cabac_coder_t *cabac)
+void _encode_mb_type_i(const predicted_macroblock_t &pred, cabac_coder_t *cabac, int ctx, int ctx_inc)
 {
-	const int ctx = CTX_MB_TYPE_I_START;
-
-	int cond_a = !neighbours.top.valid || (*neighbours.top.type == MB_TYPE_4x4) ? 0 : 1;
-	int cond_b = !neighbours.left.valid || (*neighbours.left.type == MB_TYPE_4x4) ? 0 : 1;
-	int ctx_inc = cond_a + cond_b;
-
-	cabac->encode_bit(pred.type == MB_TYPE_16x16, ctx + ctx_inc);
-	if (pred.type == MB_TYPE_16x16)
+	if (LPC_SUPPORT_4x4)
+		cabac->encode_bit(pred.type == MB_TYPE_I_16x16, ctx + ctx_inc);
+	if (pred.type == MB_TYPE_I_16x16)
 	{
 		LPC_ASSERT(pred.cbp_luma == 0 || pred.cbp_luma == 15);
 		LPC_ASSERT(pred.cbp_chroma <= 2);
 
-		cabac->encode_bit(pred.cbp_luma == 15, ctx + 3);
+		ctx_inc = (ctx == CTX_MB_TYPE_I_START) ? 2 : 0;
+
+		cabac->encode_bit(pred.cbp_luma == 15, ctx + ctx_inc + 1);
 
 		{
-			cabac->encode_bit(pred.cbp_chroma != 0, ctx + 4);
+			cabac->encode_bit(pred.cbp_chroma != 0, ctx + ctx_inc + 2);
 			if (pred.cbp_chroma != 0)
-				cabac->encode_bit(pred.cbp_chroma == 2, ctx + 5);
+				cabac->encode_bit(pred.cbp_chroma == 2, ctx + ctx_inc + 3);
 		}
 
-		cabac->encode_bit(uint32_t(pred.mode_luma) & 1, ctx + 6);
-		cabac->encode_bit(uint32_t(pred.mode_luma) & 2, ctx + 7);
+		cabac->encode_bit(uint32_t(pred.mode_luma) & 1, ctx + ctx_inc + 4);
+		cabac->encode_bit(uint32_t(pred.mode_luma) & 2, ctx + ctx_inc + 5);
 	}
 }
 
-void decode_mb_type(predicted_macroblock_t *pred, const neighbour_ctx_t &neighbours, cabac_coder_t *cabac)
+void _decode_mb_type_i(predicted_macroblock_t *pred, cabac_coder_t *cabac, int ctx, int ctx_inc)
+{
+	pred->type = !LPC_SUPPORT_4x4 || cabac->decode_bit(ctx + ctx_inc) ? MB_TYPE_I_16x16 : MB_TYPE_I_4x4;
+	if (pred->type == MB_TYPE_I_16x16)
+	{
+		ctx_inc = (ctx == CTX_MB_TYPE_I_START) ? 2 : 0;
+
+		pred->cbp_luma = cabac->decode_bit(ctx + ctx_inc + 1) ? 15 : 0;
+
+		{
+			if (cabac->decode_bit(ctx + ctx_inc + 2) == 0)
+				pred->cbp_chroma = 0;
+			else
+				pred->cbp_chroma = cabac->decode_bit(ctx + ctx_inc + 3) ? 2 : 1;
+		}
+
+		int bit1 = cabac->decode_bit(ctx + ctx_inc + 4);
+		int bit2 = cabac->decode_bit(ctx + ctx_inc + 5);
+		pred->mode_luma = intra_mode_t(bit2 * 2 + bit1);
+	}
+}
+
+void encode_mb_type_i(const predicted_macroblock_t &pred, const neighbour_ctx_t &neighbours, cabac_coder_t *cabac)
 {
 	const int ctx = CTX_MB_TYPE_I_START;
 
-	int cond_a = neighbours.top.valid && (*neighbours.top.type != MB_TYPE_4x4) ? 1 : 0;
-	int cond_b = neighbours.left.valid && (*neighbours.left.type != MB_TYPE_4x4) ? 1 : 0;
+	int cond_a = !neighbours.top.valid || (*neighbours.top.type == MB_TYPE_I_4x4) ? 0 : 1;
+	int cond_b = !neighbours.left.valid || (*neighbours.left.type == MB_TYPE_I_4x4) ? 0 : 1;
 	int ctx_inc = cond_a + cond_b;
 
-	pred->type = cabac->decode_bit(ctx + ctx_inc) ? MB_TYPE_16x16 : MB_TYPE_4x4;
-	if (pred->type == MB_TYPE_16x16)
-	{
-		pred->cbp_luma = cabac->decode_bit(ctx + 3) ? 15 : 0;
+	_encode_mb_type_i(pred, cabac, ctx, ctx_inc);
+}
 
-		{
-			if (cabac->decode_bit(ctx + 4) == 0)
-				pred->cbp_chroma = 0;
-			else
-				pred->cbp_chroma = cabac->decode_bit(ctx + 5) ? 2 : 1;
-		}
+void decode_mb_type_i(predicted_macroblock_t *pred, const neighbour_ctx_t &neighbours, cabac_coder_t *cabac)
+{
+	const int ctx = CTX_MB_TYPE_I_START;
 
-		int bit1 = cabac->decode_bit(ctx + 6);
-		int bit2 = cabac->decode_bit(ctx + 7);
-		pred->mode_luma = intra_mode_t(bit2 * 2 + bit1);
-	}
+	int cond_a = neighbours.top.valid && (*neighbours.top.type != MB_TYPE_I_4x4) ? 1 : 0;
+	int cond_b = neighbours.left.valid && (*neighbours.left.type != MB_TYPE_I_4x4) ? 1 : 0;
+	int ctx_inc = cond_a + cond_b;
+
+	_decode_mb_type_i(pred, cabac, ctx, ctx_inc);
+}
+
+void encode_mb_type_p(const predicted_macroblock_t &pred, const neighbour_ctx_t &neighbours, cabac_coder_t *cabac)
+{
+	const int ctx = CTX_MB_TYPE_P_START;
+
+	cabac->encode_bit(pred.type == MB_TYPE_P, ctx);
+	if (pred.type != MB_TYPE_P)
+		_encode_mb_type_i(pred, cabac, CTX_MB_TYPE_P_SUFFIX, 0);
+}
+
+void decode_mb_type_p(predicted_macroblock_t *pred, const neighbour_ctx_t &neighbours, cabac_coder_t *cabac)
+{
+	const int ctx = CTX_MB_TYPE_P_START;
+
+	pred->type = cabac->decode_bit(ctx) ? MB_TYPE_P : MB_TYPE_I_16x16;
+	if (pred->type != MB_TYPE_P)
+		_decode_mb_type_i(pred, cabac, CTX_MB_TYPE_P_SUFFIX, 0);
 }
 
 void encode_luma_mode(intra_mode_t mode, intra_mode_t predicted_mode, cabac_coder_t *cabac)
@@ -153,8 +186,8 @@ void encode_chroma_mode(intra_mode_t mode, const neighbour_ctx_t &neighbours, ca
 {
 	const int ctx = CTX_INTRA_CHROMA_PRED_START;
 
-	int cond_a = neighbours.top.valid && (*neighbours.top.mode_chroma != INTRA_DC) ? 1 : 0;
-	int cond_b = neighbours.left.valid && (*neighbours.left.mode_chroma != INTRA_DC) ? 1 : 0;
+	int cond_a = neighbours.top.get_mode_chroma(INTRA_DC) != INTRA_DC ? 1 : 0;
+	int cond_b = neighbours.left.get_mode_chroma(INTRA_DC) != INTRA_DC ? 1 : 0;
 	int ctx_inc = cond_a + cond_b;
 
 	// Truncated unary
@@ -172,8 +205,8 @@ void decode_chroma_mode(intra_mode_t *mode, const neighbour_ctx_t &neighbours, c
 {
 	const int ctx = CTX_INTRA_CHROMA_PRED_START;
 
-	int cond_a = neighbours.top.valid && (*neighbours.top.mode_chroma != INTRA_DC) ? 1 : 0;
-	int cond_b = neighbours.left.valid && (*neighbours.left.mode_chroma != INTRA_DC) ? 1 : 0;
+	int cond_a = neighbours.top.get_mode_chroma(INTRA_DC) != INTRA_DC ? 1 : 0;
+	int cond_b = neighbours.left.get_mode_chroma(INTRA_DC) != INTRA_DC ? 1 : 0;
 	int ctx_inc = cond_a + cond_b;
 
 	// Truncated unary
@@ -438,7 +471,7 @@ void decode_residual_block(int block_category, int16_t *residuals, int num_resid
 
 void predicted_macroblock_t::compute_cbp_flags(const mb_residuals_t &residuals)
 {
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
 		cbp_chroma = 2;
 	}
@@ -492,18 +525,21 @@ void predicted_macroblock_t::compute_cbp_flags(const mb_residuals_t &residuals)
 void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const mb_residuals_t &residuals,
 		cabac_coder_t *cabac) const
 {
-	encode_mb_type(*this, neighbours, cabac);
+	if (frame_type == FRAME_TYPE_I)
+		encode_mb_type_i(*this, neighbours, cabac);
+	else
+		encode_mb_type_p(*this, neighbours, cabac);
 
 	/// Modes
 
 	// Luma
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4)
 	{
 		for (int i = 0; i < LUMA_BLOCK_COUNT; i++)
 		for (int j = 0; j < LUMA_BLOCK_COUNT; j++)
 		{
-			int mode_top = neighbours.top.valid ? neighbours.top.modes_luma[i] : INTRA_MODE_COUNT;
-			int mode_left = neighbours.left.valid ? neighbours.left.modes_luma[j] : INTRA_MODE_COUNT;
+			int mode_top = neighbours.top.get_mode_luma(i);
+			int mode_left = neighbours.left.get_mode_luma(j);
 			intra_mode_t predicted_mode = (intra_mode_t)min(mode_top, mode_left);
 
 			int idx = i * LUMA_BLOCK_COUNT + j;
@@ -515,7 +551,8 @@ void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const 
 
 	// Chroma
 
-	encode_chroma_mode(mode_chroma, neighbours, cabac);
+	if (type != MB_TYPE_P)
+		encode_chroma_mode(mode_chroma, neighbours, cabac);
 
 	/// QP delta
 
@@ -526,7 +563,7 @@ void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const 
 	/// Residuals
 
 	// Luma
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
 		for (int i = 0; i < LUMA_BLOCK_COUNT * LUMA_BLOCK_COUNT; i++)
 			encode_residual_block(LUMA_BLOCK, residuals.luma[i].val, 16, cabac);
@@ -563,20 +600,21 @@ void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const 
 void predicted_macroblock_t::decode_mb(const neighbour_ctx_t &neighbours, mb_residuals_t *residuals,
 		cabac_coder_t *cabac)
 {
-	decode_mb_type(this, neighbours, cabac);
+	if (frame_type == FRAME_TYPE_I)
+		decode_mb_type_i(this, neighbours, cabac);
+	else
+		decode_mb_type_p(this, neighbours, cabac);
 
 	/// Modes
 
 	// Luma
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4)
 	{
-		cbp_chroma = 2;
-
 		for (int i = 0; i < LUMA_BLOCK_COUNT; i++)
 		for (int j = 0; j < LUMA_BLOCK_COUNT; j++)
 		{
-			int mode_top = neighbours.top.valid ? neighbours.top.modes_luma[i] : INTRA_MODE_COUNT;
-			int mode_left = neighbours.left.valid ? neighbours.left.modes_luma[j] : INTRA_MODE_COUNT;
+			int mode_top = neighbours.top.get_mode_luma(i);
+			int mode_left = neighbours.left.get_mode_luma(j);
 			intra_mode_t predicted_mode = (intra_mode_t)min(mode_top, mode_left);
 
 			int idx = i * LUMA_BLOCK_COUNT + j;
@@ -586,7 +624,8 @@ void predicted_macroblock_t::decode_mb(const neighbour_ctx_t &neighbours, mb_res
 
 	// Chroma
 
-	decode_chroma_mode(&mode_chroma, neighbours, cabac);
+	if (type != MB_TYPE_P)
+		decode_chroma_mode(&mode_chroma, neighbours, cabac);
 
 	/// QP delta
 
@@ -598,7 +637,7 @@ void predicted_macroblock_t::decode_mb(const neighbour_ctx_t &neighbours, mb_res
 	/// Residuals
 
 	// Luma
-	if (type == MB_TYPE_4x4)
+	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
 		for (int i = 0; i < LUMA_BLOCK_COUNT * LUMA_BLOCK_COUNT; i++)
 			decode_residual_block(LUMA_BLOCK, residuals->luma[i].val, 16, cabac);
@@ -620,6 +659,9 @@ void predicted_macroblock_t::decode_mb(const neighbour_ctx_t &neighbours, mb_res
 
 	// Chroma
 	{
+		if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
+			cbp_chroma = 2;
+
 		for (int plane = 0; plane < 2; plane++)
 		{
 			if (cbp_chroma & 3)

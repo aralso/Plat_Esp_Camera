@@ -274,6 +274,9 @@ bool fmt2bmp(uint8_t *src, uint16_t width, uint16_t height, uint8_t ** out, size
 
 void lpc_stats_t::print()
 {
+	if (num_macroblocks == 0)
+		return;
+
 	int num_luma_4x4_block = num_mb_luma_4x4 * LUMA_BLOCK_COUNT*LUMA_BLOCK_SIZE;
 	int num_luma_16x16_block = num_macroblocks - num_mb_luma_4x4;
 	int num_chroma_block = num_macroblocks;
@@ -348,10 +351,13 @@ void lpc_stats_t::print()
 
 void stats_add_mb(lpc_stats_t &stats, const predicted_macroblock_t &predicted, const macroblock_t &original)
 {
-	stats.num_macroblocks++;
-	stats.num_mb_luma_4x4 += (predicted.type == MB_TYPE_4x4) ? 1 : 0;
+	if (predicted.frame_type == FRAME_TYPE_P)
+		return;
 
-	if (predicted.type == MB_TYPE_16x16)
+	stats.num_macroblocks++;
+	stats.num_mb_luma_4x4 += (predicted.type == MB_TYPE_I_4x4) ? 1 : 0;
+
+	if (predicted.type == MB_TYPE_I_16x16)
 	{
 		if (predicted.cbp_luma == 0)
 			stats.num_block_non_coded[0]++;
@@ -362,7 +368,7 @@ void stats_add_mb(lpc_stats_t &stats, const predicted_macroblock_t &predicted, c
 		stats.num_block_non_coded[3]++;
 	}
 
-	if (predicted.type == MB_TYPE_4x4)
+	if (predicted.type == MB_TYPE_I_4x4)
 	{
 		for (int i = 0; i < LUMA_BLOCK_COUNT*LUMA_BLOCK_COUNT; i++)
 			stats.num_block_per_intra_mode[STAT_LUMA_4x4][predicted.modes_luma[i]]++;
@@ -529,7 +535,9 @@ static void do_test_intra_prediction(const neighbour_ctx_t &neighbours,
 	// Luma 16x16
 	if (test_top)
 	{
-		const uint8_t *orig_luma = (uint8_t*)top_mb.mb.luma;
+		uint8_t orig_luma[16 * 16];
+		reorder_luma_16x16_linear(top_mb.mb.luma, orig_luma);
+
 		uint8_t *predicted_luma = (uint8_t*)predicted.mb.luma;
 		cost = find_mode_luma_16x16(orig_luma,
 				neighbours.top.get_luma(), neighbours.left.get_luma(),
@@ -541,7 +549,9 @@ static void do_test_intra_prediction(const neighbour_ctx_t &neighbours,
 	}
 	if (test_left)
 	{
-		const uint8_t *orig_luma = (uint8_t*)left_mb.mb.luma;
+		uint8_t orig_luma[16 * 16];
+		reorder_luma_16x16_linear(left_mb.mb.luma, orig_luma);
+
 		uint8_t *predicted_luma = (uint8_t*)predicted.mb.luma;
 		cost = find_mode_luma_16x16(orig_luma,
 				neighbours.top.get_luma(), neighbours.left.get_luma(),
@@ -623,12 +633,11 @@ static void test_intra_prediction()
 		m3.mb.chroma_v.C[i] = corner ? 30 : 40;
 	}
 
-	neighbours.start_column();
 	{
-		neighbours.set_row(0);
+		neighbours.set_coords(0, 0);
 		neighbours.update_data(m1);
 
-		neighbours.set_row(1);
+		neighbours.set_coords(0, 1);
 		// The image has the following macroblocks
 		// | 1 | ? |
 		// | X | ? |
@@ -636,24 +645,21 @@ static void test_intra_prediction()
 		neighbours.update_data(m3);
 
 	}
-	neighbours.end_column();
 
-	neighbours.start_column();
 	{
-		neighbours.set_row(0);
+		neighbours.set_coords(1, 0);
 		// The image has the following macroblocks
 		// | 1 | X |
 		// | 3 | ? |
 		do_test_intra_prediction(neighbours, false, m1, true, m1, 15, 18);
 		neighbours.update_data(m1);
 
-		neighbours.set_row(1);
+		neighbours.set_coords(1, 1);
 		// The image has the following macroblocks
 		// | 1 | 1 |
 		// | 3 | X |
 		do_test_intra_prediction(neighbours, true, m1, true, m3, 25, 28);
 	}
-	neighbours.end_column();
 }
 
 }
@@ -807,7 +813,7 @@ namespace lpc_unit_tests
 			assert(decoder.decode_bypass() == bit1);
 			assert(decoder.decode_bypass() == bit2);
 			assert(decoder.decode_bypass() == bit2);
-			
+
 			assert(decoder.decode_terminate() == bit1);
 		}
 	}
@@ -827,16 +833,16 @@ namespace lpc_unit_tests
 		{
 			cabac_coder_t encoder((lpc_stream_out_t *)&stream, qp);
 
-			pred.type = MB_TYPE_4x4;
-			encode_mb_type(pred, neighbours, &encoder);
+			pred.type = MB_TYPE_I_4x4;
+			encode_mb_type_i(pred, neighbours, &encoder);
 
 			for (int i = 0; i < 3; i++)
 			{
-				pred.type = MB_TYPE_16x16;
+				pred.type = MB_TYPE_I_16x16;
 				pred.mode_luma = INTRA_PLANE;
 				pred.cbp_luma = 15;
 				pred.cbp_chroma = i;
-				encode_mb_type(pred, neighbours, &encoder);
+				encode_mb_type_i(pred, neighbours, &encoder);
 			}
 
 			encode_luma_mode(INTRA_DIAGONAL_DOWN_RIGHT, pred_mode, &encoder);
@@ -850,13 +856,13 @@ namespace lpc_unit_tests
 		{
 			cabac_coder_t decoder((lpc_stream_in_t *)&stream, qp);
 
-			decode_mb_type(&pred, neighbours, &decoder);
-			assert(pred.type == MB_TYPE_4x4);
+			decode_mb_type_i(&pred, neighbours, &decoder);
+			assert(pred.type == MB_TYPE_I_4x4);
 
 			for (int i = 0; i < 3; i++)
 			{
-				decode_mb_type(&pred, neighbours, &decoder);
-				assert(pred.type == MB_TYPE_16x16);
+				decode_mb_type_i(&pred, neighbours, &decoder);
+				assert(pred.type == MB_TYPE_I_16x16);
 				assert(pred.mode_luma == INTRA_PLANE);
 				assert(pred.cbp_luma == 15);
 				assert(pred.cbp_chroma == i);
@@ -930,34 +936,40 @@ namespace lpc_unit_tests
 		}
 	}
 
+	uint8_t *create_img(int channel)
+	{
+		uint8_t *img_rgb = (uint8_t*)malloc(MB_SIZE * MB_SIZE * 3);
+
+		for (int i = 0; i < MB_SIZE; i++)
+		for (int j = 0; j < MB_SIZE; j++)
+		{
+			int idx = (i+j*MB_SIZE)*3;
+			img_rgb[idx+0] = 1;
+			img_rgb[idx+1] = 1;
+			img_rgb[idx+2] = 1;
+
+			// Gradient in the given channel
+			img_rgb[idx+channel] = (i * 255) / MB_SIZE;
+		}
+
+		return img_rgb;
+	}
+
 	void test_mb_encoding()
 	{
 		int qp = 0;
 		inout_stream_t stream;
 
 		predicted_macroblock_t pred, pred_decoded;
+		pred.frame_type = FRAME_TYPE_I;
 		pred.qp = qp;
 		pred.qp_chroma_offset = 0;
-		pred.set_qp_delta(0);
-		pred.cbp_luma = 15;
-		pred.cbp_chroma = 2;
 		memcpy(&pred_decoded, &pred, sizeof(pred));
 
-		neighbour_ctx_t neighbours(2);
-		neighbours.top.invalidate();
-		neighbours.left.invalidate();
+		neighbour_ctx_t neighbours(1);
+		neighbours.set_coords(0, 0);
 
-		uint8_t *img_rgb = (uint8_t*)malloc(MB_SIZE * MB_SIZE * 3);
-
-		for (int i = 0; i < MB_SIZE; i++)
-		for (int j = 0; j < MB_SIZE; j++)
-		{
-			// Green gradient
-			int idx = (i+j*MB_SIZE)*3;
-			img_rgb[idx+0] = 1;
-			img_rgb[idx+1] = (i * 255) / MB_SIZE;
-			img_rgb[idx+2] = 1;
-		}
+		uint8_t *img_rgb = create_img(1);
 
 		macroblock_t mb;
 		mb_residuals_t residuals, resid_decoded;
@@ -966,9 +978,10 @@ namespace lpc_unit_tests
 		{
 			cabac_coder_t encoder((lpc_stream_out_t*)&stream, qp);
 
-			pred.qp_delta = 0;
+			pred.set_qp_delta(0);
 			pred.select_intra_modes(mb, neighbours);
 			pred.build_residuals(mb, &residuals);
+			pred.compute_cbp_flags(residuals);
 			pred.encode_mb(neighbours, residuals, &encoder);
 
 			encoder.encode_terminate(1);
@@ -982,13 +995,15 @@ namespace lpc_unit_tests
 
 			assert(pred_decoded.type == pred.type);
 			assert(pred_decoded.mode_chroma == pred.mode_chroma);
+			assert(pred_decoded.cbp_chroma == pred.cbp_chroma);
 
 			#if LPC_ADAPTIVE_QP
 			assert(pred_decoded.qp_delta == pred.qp_delta);
 			#endif
 
-			if (pred.type == MB_TYPE_16x16)
+			if (pred.type == MB_TYPE_I_16x16)
 			{
+				assert(pred_decoded.cbp_luma == pred.cbp_luma);
 				assert(pred_decoded.mode_luma == pred.mode_luma);
 				for (int i = 0; i < 4*4; i++)
 				{
@@ -1032,6 +1047,95 @@ namespace lpc_unit_tests
 
 		free(img_rgb);
 	}
+
+	void test_p_frame()
+	{
+		int qp = 0;
+		inout_stream_t stream;
+
+		// Create macroblocks
+		uint8_t *img_0 = create_img(0);
+		uint8_t *img_1 = create_img(1);
+
+		macroblock_t prev_mb;
+		prev_mb.from_rgb(img_0, MB_SIZE, MB_SIZE, 0, 0);
+		macroblock_t curr_mb;
+		curr_mb.from_rgb(img_1, MB_SIZE, MB_SIZE, 0, 0);
+
+		// Create context with history
+		predicted_macroblock_t pred, pred_decoded;
+		pred.frame_type = FRAME_TYPE_P;
+		pred.qp = qp;
+		pred.qp_chroma_offset = 0;
+		memcpy(&pred_decoded, &pred, sizeof(pred));
+
+		neighbour_ctx_t neighbours(1, &prev_mb);
+		neighbours.set_coords(0, 0);
+
+		// Encode frame
+		mb_residuals_t residuals, resid_decoded;
+		{
+			cabac_coder_t encoder((lpc_stream_out_t*)&stream, qp);
+
+			pred.set_qp_delta(0);
+			pred.select_mode(curr_mb, neighbours);
+			pred.build_residuals(curr_mb, &residuals);
+			pred.compute_cbp_flags(residuals);
+			pred.encode_mb(neighbours, residuals, &encoder);
+
+			encoder.encode_terminate(1);
+			stream.flush();
+
+			assert(pred.type == MB_TYPE_P); // test is invalid otherwise
+		}
+
+		// Decode frame
+		{
+			cabac_coder_t decoder((lpc_stream_in_t *)&stream, qp);
+
+			pred_decoded.decode_mb(neighbours, &resid_decoded, &decoder);
+
+			assert(pred_decoded.type == pred.type);
+			assert(pred_decoded.cbp_chroma == pred.cbp_chroma);
+
+			#if LPC_ADAPTIVE_QP
+			assert(pred_decoded.qp_delta == pred.qp_delta);
+			#endif
+
+			{
+				for (int i = 0; i < 4*4; i++)
+				{
+					for (int j = 0; j < 4 * 4; j++)
+						assert(resid_decoded.luma[i].val[j] == residuals.luma[i].val[j]);
+				}
+			}
+
+			for (int plane = 0; plane < 2; plane++)
+			{
+				for (int i = 0; i < 2 * 2; i++)
+				{
+					assert(resid_decoded.chroma_dc[plane].val[i] == residuals.chroma_dc[plane].val[i]);
+					for (int j = 1; j < 4 * 4; j++)
+						assert(resid_decoded.chroma_ac[plane][i].val[j] == residuals.chroma_ac[plane][i].val[j]);
+				}
+			}
+
+			pred_decoded.predict(neighbours);
+			pred_decoded.add_residuals(residuals);
+
+			for (int i = 0; i < 4*4; i++)
+			for (int j = 0; j < 4*4; j++)
+				assert(pred_decoded.mb.luma[i].Y[j] == curr_mb.luma[i].Y[j]);
+
+			for (int i = 0; i < 8*8; i++)
+				assert(pred_decoded.mb.chroma_u.C[i] == curr_mb.chroma_u.C[i]);
+			for (int i = 0; i < 8*8; i++)
+				assert(pred_decoded.mb.chroma_v.C[i] == curr_mb.chroma_v.C[i]);
+		}
+
+		free(img_0);
+		free(img_1);
+	}
 }
 
 namespace lpc_unit_tests
@@ -1045,6 +1149,7 @@ namespace lpc_unit_tests
 		test_modes_encoding();
 		test_residual_encoding();
 		test_mb_encoding();
+		test_p_frame();
 
 		remove(filename);
 	}

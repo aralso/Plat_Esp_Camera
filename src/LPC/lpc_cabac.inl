@@ -6,6 +6,8 @@
 enum
 {
 	CTX_MB_TYPE_I_START = 3,				// I slice mb_type (ctxIdx 3-13)
+	CTX_MB_TYPE_P_START = 14,				// P slice mb_type prefix (ctxIdx 14-16)
+	CTX_MB_TYPE_P_SUFFIX = 17,				// P slice mb_type I-suffix (ctxIdx 17-22)
 	CTX_MB_QP_DELTA_START = 60,				// mb_qp_delta (ctxIdx 60-63)
 	CTX_INTRA_CHROMA_PRED_START = 64,		// intra_chroma_pred_mode (ctxIdx 64-67)
 	CTX_PREV_INTRA_PRED_FLAG_START = 68,	// prev_intra*_pred_mode_flag (ctxIdx 68-72)
@@ -15,8 +17,6 @@ enum
 	CTX_COEFF_ABS_LEVEL_START = 227,		// coeff_abs_level_minus1 (ctxIdx 227-275)
 
 	CTX_MB_TYPE_SI_START = 0,				// SI slice mb_type (ctxIdx 0-2)
-	CTX_MB_TYPE_P_START = 14,				// P slice mb_type prefix (ctxIdx 14-16)
-	CTX_MB_TYPE_P_SUFFIX = 17,				// P slice mb_type I-suffix (ctxIdx 17-22)
 	CTX_MB_TYPE_B_START = 27,				// B slice mb_type prefix (ctxIdx 27-31)
 	CTX_MB_TYPE_B_SUFFIX = 32,				// B slice mb_type I-suffix (ctxIdx 32-37)
 	CTX_SUB_MB_TYPE_P_START = 21,			// P slice sub_mb_type (ctxIdx 21-23)

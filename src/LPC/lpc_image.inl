@@ -92,7 +92,7 @@ void macroblock_t::from_rgb(const uint8_t *rgb, int width, int height, int x, in
 	}
 }
 
-void macroblock_t::to_rgb(uint8_t *rgb, int width, int height, int x, int y)
+void macroblock_t::to_rgb(uint8_t *rgb, int width, int height, int x, int y) const
 {
 	rgb_t *pixels = (rgb_t*)rgb;
 	int base_x = x * MB_SIZE;
@@ -194,58 +194,74 @@ static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
 	return (uint32_t)decoder->device.input->read_bytes(buf, len);
 }
 
-static uint32_t _jpg_write(JDEC *decoder, rgb_t *input, JRECT *rect)
+static bool _jpg_write(JDEC *decoder, rgb_t *input, const JRECT &rect)
 {
-	uint16_t x = rect->left;
-	uint16_t y = rect->top;
-	uint16_t w = rect->right + 1 - x;
-	uint16_t h = rect->bottom + 1 - y;
+	uint16_t w = rect.right + 1 - rect.left;
+	macroblock_t *macroblocks = (macroblock_t*)decoder->device.output;
 
-	uint32_t plane_size = decoder->num_mb_x * decoder->num_mb_y;
-	uint8_t *out = decoder->device.output;
+	unsigned first_x = (rect.left * decoder->out_width / decoder->in_width);
+	unsigned last_x = (rect.right * decoder->out_width / decoder->in_width);
+	unsigned first_y = (rect.top * decoder->out_height / decoder->in_height);
+	unsigned last_y = (rect.bottom * decoder->out_height / decoder->in_height);
 
-	uint8_t *out_Y = out;
-	uint8_t *out_Cb = out + plane_size * 16;
-	uint8_t *out_Cr = out + plane_size * (16 + 8);
-	rgb_t *pixels = (rgb_t *)out;
-	macroblock_t *macroblocks = (macroblock_t*)out;
-
-	for (int iy = 0; iy < h; iy++)
+	for (unsigned mb_x = first_x / MB_SIZE; mb_x <= last_x / MB_SIZE; mb_x++)
 	{
-		for(int ix = 0; ix < w; ix++)
+		for (unsigned mb_y = first_y / MB_SIZE; mb_y <= last_y / MB_SIZE; mb_y++)
 		{
-			unsigned pos_x = (x + ix);
-			unsigned pos_y = (y + iy);
-			rgb_t &src = input[iy * w + ix];
+			auto &mb = macroblocks[mb_x * decoder->num_mb_y + mb_y];
 
-			// Handle resolution change
-			pos_x = min(pos_x * decoder->out_width / decoder->in_width, decoder->out_width - 1);
-			pos_y = min(pos_y * decoder->out_height / decoder->in_height, decoder->out_height - 1);
-
-			int mb_x = pos_x / MB_SIZE;
-			int mb_y = pos_y / MB_SIZE;
-			auto& mb = macroblocks[mb_x * decoder->num_mb_y + mb_y];
-
-			// Luma
+			for (int i = 0; i < CHROMA_BLOCK_SIZE; i++)
 			{
-				int block_x = (pos_x - mb_x * MB_SIZE) / LUMA_BLOCK_COUNT;
-				int block_y = (pos_y - mb_y * MB_SIZE) / LUMA_BLOCK_COUNT;
-				luma_block_t &block = mb.luma[block_x * LUMA_BLOCK_COUNT + block_y];
+				for (int j = 0; j < CHROMA_BLOCK_SIZE; j++)
+				{
+					unsigned pos_x = mb_x * MB_SIZE + i * 2;
+					unsigned pos_y = mb_y * MB_SIZE + j * 2;
 
-				int pos_block_x = (pos_x - block_x * LUMA_BLOCK_COUNT - mb_x * MB_SIZE);
-				int pos_block_y = (pos_y - block_y * LUMA_BLOCK_COUNT - mb_y * MB_SIZE);
-				block.Y[pos_block_x * LUMA_BLOCK_SIZE + pos_block_y] = src.r;
-			}
-			// Chroma
-			if ((pos_x & 1) == 0 && (pos_y & 1) == 0)
-			{
-				int pos_block_x = (pos_x - mb_x * MB_SIZE) >> 1;
-				int pos_block_y = (pos_y - mb_y * MB_SIZE) >> 1;
-				mb.chroma_u.C[pos_block_x * CHROMA_BLOCK_SIZE + pos_block_y] = src.g;
-				mb.chroma_v.C[pos_block_x * CHROMA_BLOCK_SIZE + pos_block_y] = src.b;
+					// If we are inside the image, don't write outside of mb bounds
+					if (pos_x < decoder->out_width && pos_y < decoder->out_height)
+					{
+						if (pos_x < first_x || pos_x > last_x) continue;
+						if (pos_y < first_y || pos_y > last_y) continue;
+					}
+
+					pos_x = pos_x * decoder->in_width / decoder->out_width;
+					pos_y = pos_y * decoder->in_height / decoder->out_height;
+
+					int x0 = min(pos_x + 0, decoder->in_width - 1) - rect.left;
+					int y0 = min(pos_y + 0, decoder->in_height - 1) - rect.top;
+
+					int x1 = min(pos_x + 1, decoder->in_width - 1) - rect.left;
+					int y1 = min(pos_y + 1, decoder->in_height - 1) - rect.top;
+
+					rgb_t &p00 = input[x0 + y0 * w];
+					rgb_t &p10 = input[x1 + y0 * w];
+					rgb_t &p01 = input[x0 + y1 * w];
+					rgb_t &p11 = input[x1 + y1 * w];
+
+					// Luma
+					int block_i = (i * 2) / LUMA_BLOCK_SIZE;
+					int block_j = (j * 2) / LUMA_BLOCK_SIZE;
+					auto &luma_block = mb.luma[block_i * LUMA_BLOCK_COUNT + block_j];
+					int luma_i = (i * 2) - (block_i * LUMA_BLOCK_SIZE);
+					int luma_j = (j * 2) - (block_j * LUMA_BLOCK_SIZE);
+					luma_block.Y[(luma_i + 0) * LUMA_BLOCK_SIZE + (luma_j + 0)] = p00.r;
+					luma_block.Y[(luma_i + 1) * LUMA_BLOCK_SIZE + (luma_j + 0)] = p10.r;
+					luma_block.Y[(luma_i + 0) * LUMA_BLOCK_SIZE + (luma_j + 1)] = p01.r;
+					luma_block.Y[(luma_i + 1) * LUMA_BLOCK_SIZE + (luma_j + 1)] = p11.r;
+
+					// Cb Cr
+					rgb_t avg;
+					avg.r = ((int)p00.r + (int)p10.r + (int)p01.r + (int)p11.r) >> 2;
+					avg.g = ((int)p00.g + (int)p10.g + (int)p01.g + (int)p11.g) >> 2;
+					avg.b = ((int)p00.b + (int)p10.b + (int)p01.b + (int)p11.b) >> 2;
+
+					mb.chroma_u.C[i * CHROMA_BLOCK_SIZE + j] = avg.g;
+					mb.chroma_v.C[i * CHROMA_BLOCK_SIZE + j] = avg.b;
+				}
 			}
 		}
 	}
+
 	return true;
 }
 
@@ -806,7 +822,7 @@ static JRESULT mcu_output (
 	}
 
 	/* Output the RGB rectangular */
-	return _jpg_write(jd, (rgb_t*)jd->workbuf, &rect) ? JDR_OK : JDR_INTR;
+	return _jpg_write(jd, (rgb_t*)jd->workbuf, rect) ? JDR_OK : JDR_INTR;
 }
 
 /*-----------------------------------------------------------------------*/

@@ -11,10 +11,17 @@ static const int CHROMA_BLOCK_SIZE = 8;
 struct neighbour_ctx_t;
 struct mb_residuals_t;
 
+enum frame_type_t : uint8_t
+{
+	FRAME_TYPE_I,
+	FRAME_TYPE_P,
+};
+
 enum mb_type_t : uint8_t
 {
-	MB_TYPE_4x4,
-	MB_TYPE_16x16,
+	MB_TYPE_I_4x4,
+	MB_TYPE_I_16x16,
+	MB_TYPE_P,
 };
 
 enum intra_mode_t : uint8_t
@@ -78,7 +85,7 @@ struct macroblock_t
 	chroma_block_t chroma_v;
 
 	void from_rgb(const uint8_t *rgb, int width, int height, int x, int y);
-	void to_rgb(uint8_t *rgb, int width, int height, int x, int y);
+	void to_rgb(uint8_t *rgb, int width, int height, int x, int y) const;
 
 	LPC_DEBUG_ONLY(void print(const char *msg = NULL, bool do_luma = true, bool do_chroma = true) const);
 	LPC_DEBUG_ONLY(void print_luma() const);
@@ -101,17 +108,25 @@ struct predicted_macroblock_t
 	};
 	intra_mode_t mode_chroma;
 	uint8_t cbp_chroma;
-
+	
+	frame_type_t frame_type;
 	mb_type_t type;
 	uint8_t qp;
+	uint8_t qp_backup;
 	int8_t qp_delta;
 	uint8_t qp_chroma_offset;
 
-	void select_intra_modes(const macroblock_t &orig, const neighbour_ctx_t &neighbours);
+	void select_mode(const macroblock_t &orig, const neighbour_ctx_t &neighbours);
 	void predict(const neighbour_ctx_t &neighbours);
+
+	uint32_t select_intra_modes(const macroblock_t &orig, const neighbour_ctx_t &neighbours);
+	void predict_intra(const neighbour_ctx_t &neighbours);
 
 	void set_qp_delta(int8_t value);
 	void compute_cbp_flags(const mb_residuals_t &residuals);
+
+	void override_block_qp(uint8_t value);
+	void restore_qp();
 
 	void build_residuals(const macroblock_t &orig, mb_residuals_t *residuals) const;
 	void add_residuals(mb_residuals_t &residuals);

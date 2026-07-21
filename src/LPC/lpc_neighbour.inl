@@ -36,6 +36,12 @@ struct neighbour_t
 	const uint8_t *get_luma()     const { return valid ? luma : NULL; }
 	const uint8_t *get_chroma_u() const { return valid ? chroma_u : NULL; }
 	const uint8_t *get_chroma_v() const { return valid ? chroma_v : NULL; }
+
+	const intra_mode_t get_mode_luma(int i, intra_mode_t invalid_val = INTRA_MODE_COUNT) const
+	{ return valid && *type != MB_TYPE_P ? modes_luma[i] : invalid_val; }
+
+	const intra_mode_t get_mode_chroma(intra_mode_t invalid_val = INTRA_MODE_COUNT) const
+	{ return valid && *type != MB_TYPE_P ? *mode_chroma : invalid_val; }
 };
 
 struct neighbour_ctx_t
@@ -54,13 +60,21 @@ struct neighbour_ctx_t
 	intra_mode_t *left_chroma_modes;
 	mb_type_t *left_types;
 
+	int num_mb_y;
 	uint8_t prev_qp_delta;
+	macroblock_t *prev_frame;
 
 	neighbour_t top, left;
+	macroblock_t *previous;
 
 	neighbour_ctx_t(neighbour_ctx_t &&) = delete;
-	neighbour_ctx_t(int num_mb_height)
+	neighbour_ctx_t(int num_mb_height, macroblock_t *previous_frame = nullptr)
 	{
+		prev_qp_delta = 0;
+		prev_frame = previous_frame;
+		num_mb_y = num_mb_height;
+		previous = nullptr;
+
 		left_luma     = lpc_alloc<uint8_t>(num_mb_height * MB_SIZE + 1, "LUMA neighbours");
 		left_chroma_u = lpc_alloc<uint8_t>(num_mb_height * MB_SIZE / 2 + 1, "CHROMA U neighbours");
 		left_chroma_v = lpc_alloc<uint8_t>(num_mb_height * MB_SIZE / 2 + 1, "CHROMA V neighbours");
@@ -70,10 +84,7 @@ struct neighbour_ctx_t
 
 		left_types = lpc_alloc<mb_type_t>(num_mb_height, "MB TYPE neighbours");
 
-		prev_qp_delta = 0;
-
 		top.init(top_luma, top_chroma_u, top_chroma_v, top_luma_modes, &top_chroma_mode, &top_type);
-		left.invalidate();
 	}
 	~neighbour_ctx_t()
 	{
@@ -87,19 +98,13 @@ struct neighbour_ctx_t
 		lpc_free(left_types);
 	}
 
-	void start_column()
-	{
-		top.invalidate();
-	}
-
-	void end_column()
-	{
-		left.validate();
-	}
-
-	void set_row(int y)
+	void set_coords(int x, int y)
 	{
 		left.init(left_luma, left_chroma_u, left_chroma_v, left_luma_modes, left_chroma_modes, left_types, y);
+		if (prev_frame) previous = prev_frame + x * num_mb_y + y;
+
+		left.valid = (x != 0);
+		top.valid = (y != 0);
 	}
 
 	void update_data(const struct predicted_macroblock_t &predicted);
@@ -145,7 +150,7 @@ void neighbour_ctx_t::update_data(const predicted_macroblock_t &predicted)
 		top.luma[i] = mb.luma[block_i*4+3].Y[pos_i*4+3];
 
 		// Modes
-		if (predicted.type == MB_TYPE_4x4)
+		if (predicted.type == MB_TYPE_I_4x4)
 		{
 			for (int b = 0; b < LUMA_BLOCK_COUNT; b++)
 			{
@@ -194,6 +199,4 @@ void neighbour_ctx_t::update_data(const predicted_macroblock_t &predicted)
 	*top.type = predicted.type;
 
 	prev_qp_delta = predicted.qp_delta;
-
-	top.validate();
 }

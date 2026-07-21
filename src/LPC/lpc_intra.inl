@@ -1,29 +1,94 @@
 #include "lpc.h"
 
+// Utility for 16x16 blocks
+void reorder_luma_16x16_as_block(luma_block_t *output, const uint8_t *prediction)
+{
+	const int BLOCK_SIZE = MB_SIZE;
+
+	// regorganize the predicted data into blocks to match layout of original
+	for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+	{
+		for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+		{
+			luma_block_t &block = output[block_i * LUMA_BLOCK_COUNT + block_j];
+
+			for (int i = 0; i < LUMA_BLOCK_SIZE; i++)
+			{
+				for (int j = 0; j < LUMA_BLOCK_SIZE; j++)
+				{
+					int src_i = (block_i * LUMA_BLOCK_SIZE + i);
+					int src_j = (block_j * LUMA_BLOCK_SIZE + j);
+					int src_idx = src_i * BLOCK_SIZE + src_j;
+
+					block.Y[i * LUMA_BLOCK_SIZE + j] = prediction[src_idx];
+				}
+			}
+		}
+	}
+}
+
+void reorder_luma_16x16_linear(const luma_block_t *input, uint8_t *output)
+{
+	const int BLOCK_SIZE = MB_SIZE;
+
+	// regorganize the predicted data into blocks to match layout of original
+	for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+	{
+		for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+		{
+			const luma_block_t &block = input[block_i * LUMA_BLOCK_COUNT + block_j];
+
+			for (int i = 0; i < LUMA_BLOCK_SIZE; i++)
+			{
+				for (int j = 0; j < LUMA_BLOCK_SIZE; j++)
+				{
+					int src_i = (block_i * LUMA_BLOCK_SIZE + i);
+					int src_j = (block_j * LUMA_BLOCK_SIZE + j);
+					int src_idx = src_i * BLOCK_SIZE + src_j;
+
+					output[src_idx] = block.Y[i * LUMA_BLOCK_SIZE + j];
+				}
+			}
+		}
+	}
+}
+
 /// INTRA PREDICTION
 
 template <int BLOCK_SIZE>
-uint32_t vertical_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t vertical_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result, const uint8_t *original)
 {
 	if (!top) return MAX_COST(BLOCK_SIZE);
 
+	uint32_t cost = 0;
 	for (int x = 0; x < BLOCK_SIZE; x++)
+	{
 		for (int y = 0; y < BLOCK_SIZE; y++)
+		{
 			result[x * BLOCK_SIZE + y] = top[x];
+			cost += cost_sad(top[x], original[x * BLOCK_SIZE + y]);
+		}
+	}
 
-	return 0;
+	return cost;
 }
 
 template <int BLOCK_SIZE>
-uint32_t horizontal_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t horizontal_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result, const uint8_t *original)
 {
 	if (!left) return MAX_COST(BLOCK_SIZE);
 
+	uint32_t cost = 0;
 	for (int x = 0; x < BLOCK_SIZE; x++)
+	{
 		for (int y = 0; y < BLOCK_SIZE; y++)
+		{
 			result[x * BLOCK_SIZE + y] = left[y];
+			cost += cost_sad(left[y], original[x * BLOCK_SIZE + y]);
+		}
+	}
 
-	return 0;
+	return cost;
 }
 
 template <int BLOCK_SIZE>
@@ -39,7 +104,7 @@ void dc_filter(const uint8_t *top, const uint8_t *left, uint8_t *result)
 }
 
 template <int BLOCK_SIZE, int LOG2_BLOCK_SIZE>
-uint32_t dc_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t dc_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result, const uint8_t *original)
 {
 	uint8_t dc = 1 << 7;
 	if (top || left)
@@ -60,13 +125,19 @@ uint32_t dc_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 
 		dc = sum >> (LOG2_BLOCK_SIZE + (top && left ? 1 : 0));
 	}
+
+	uint32_t cost = 0;
+
 	for (int i = 0; i < BLOCK_SIZE*BLOCK_SIZE; i++)
+	{
 		result[i] = dc;
+		cost += cost_sad(dc, original[i]);
+	}
 
 	//if (top && left)
 	//	dc_filter<BLOCK_SIZE>(top, left, result);
 
-	return 0; // TODO: cost
+	return cost;
 }
 
 inline uint8_t combine2(uint8_t a, uint8_t b)
@@ -266,7 +337,7 @@ uint32_t plane_prediction_8x8(const uint8_t *top, const uint8_t *left, uint8_t *
 {
 	const int BLOCK_SIZE = 8;
 
-	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
+	if (!top || !left) return MAX_COST(BLOCK_SIZE);
 
 	int H = 0;
 	int V = 0;
@@ -297,7 +368,7 @@ uint32_t plane_prediction_16x16(const uint8_t *top, const uint8_t *left, uint8_t
 {
 	const int BLOCK_SIZE = 16;
 
-	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
+	if (!top || !left) return MAX_COST(BLOCK_SIZE);
 
 	int H = 0;
 	int V = 0;
@@ -336,15 +407,15 @@ uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
 	switch (mode)
 	{
 		case INTRA_DC:
-			cost = dc_prediction<LUMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->Y);
+			cost = dc_prediction<LUMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->Y, original.Y);
 			break;
 
 		case INTRA_HORIZONTAL:
-			cost = horizontal_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y);
+			cost = horizontal_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y, original.Y);
 			break;
 
 		case INTRA_VERTICAL:
-			cost = vertical_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y);
+			cost = vertical_prediction<LUMA_BLOCK_SIZE>(top, left, result->Y, original.Y);
 			break;
 
 		case INTRA_DIAGONAL_DOWN_LEFT:
@@ -382,47 +453,24 @@ uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
 	const int BLOCK_SIZE = MB_SIZE;
 
 	uint32_t cost = 0;
-	uint8_t tmp_result[BLOCK_SIZE*BLOCK_SIZE];
 
 	switch (mode)
 	{
 		case INTRA_DC:
-			cost = dc_prediction<BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, tmp_result);
+			cost = dc_prediction<BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result, original);
 			break;
 
 		case INTRA_HORIZONTAL:
-			cost = horizontal_prediction<BLOCK_SIZE>(top, left, tmp_result);
+			cost = horizontal_prediction<BLOCK_SIZE>(top, left, result, original);
 			break;
 
 		case INTRA_VERTICAL:
-			cost = vertical_prediction<BLOCK_SIZE>(top, left, tmp_result);
+			cost = vertical_prediction<BLOCK_SIZE>(top, left, result, original);
 			break;
 
 		case INTRA_PLANE:
-			cost = plane_prediction_16x16(top, left, tmp_result);
+			cost = plane_prediction_16x16(top, left, result);
 			break;
-	}
-
-	// regorganize the predicted data into blocks to match layout of original
-	luma_block_t *blocks = (luma_block_t*)result;
-	for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
-	{
-		for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
-		{
-			luma_block_t &block = blocks[block_i * LUMA_BLOCK_COUNT + block_j];
-
-			for (int i = 0; i < LUMA_BLOCK_SIZE; i++)
-			{
-				for (int j = 0; j < LUMA_BLOCK_SIZE; j++)
-				{
-					int src_i = (block_i * LUMA_BLOCK_SIZE + i);
-					int src_j = (block_j * LUMA_BLOCK_SIZE + j);
-					int src_idx = src_i * BLOCK_SIZE + src_j;
-
-					block.Y[i * LUMA_BLOCK_SIZE + j] = tmp_result[src_idx];
-				}
-			}
-		}
 	}
 
 	return cost == 0 ? eval_cost<BLOCK_SIZE>(original, result) : cost;
@@ -438,15 +486,15 @@ uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
 	switch (mode)
 	{
 		case INTRA_DC:
-			cost = dc_prediction<CHROMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->C);
+			cost = dc_prediction<CHROMA_BLOCK_SIZE, LOG2_BLOCK_SIZE>(top, left, result->C, original.C);
 			break;
 
 		case INTRA_HORIZONTAL:
-			cost = horizontal_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C);
+			cost = horizontal_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C, original.C);
 			break;
 
 		case INTRA_VERTICAL:
-			cost = vertical_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C);
+			cost = vertical_prediction<CHROMA_BLOCK_SIZE>(top, left, result->C, original.C);
 			break;
 
 		case INTRA_PLANE:
