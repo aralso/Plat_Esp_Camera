@@ -157,11 +157,12 @@ bool jpg2bmp(const uint8_t *src, size_t src_len, uint8_t ** out, size_t * out_le
     return true;
 }
 
-bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, int *width, int *height)
+// Extended decoder: same behavior as fmt2rgb888 but accepts an explicit JPEG scale to reduce memory usage.
+bool fmt2rgb888_scaled(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, jpg_scale_t scale, int *width, int *height)
 {
     int pix_count = 0;
     if(format == PIXFORMAT_JPEG) {
-        return jpg2rgb888(src_buf, src_len, rgb_buf, JPG_SCALE_NONE, width, height);
+        return jpg2rgb888(src_buf, src_len, rgb_buf, scale, width, height);
     } else if(format == PIXFORMAT_RGB888) {
         memcpy(rgb_buf, src_buf, src_len);
     } else if(format == PIXFORMAT_RGB565) {
@@ -209,6 +210,13 @@ bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint
     }
     return true;
 }
+
+// Keep the existing fmt2rgb888 overloads untouched for compatibility
+bool fmt2rgb888(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, int *width, int *height)
+{
+    return fmt2rgb888_scaled(src_buf, src_len, format, rgb_buf, JPG_SCALE_NONE, width, height);
+}
+
 
 // Provide SDK-compatible 4-argument wrapper that preserves the existing 6-arg
 // implementation which returns width/height when needed. This wrapper calls

@@ -40,6 +40,8 @@
  uint8_t im_y_fin;
  uint8_t type_cam;   // 0:non def, 1:OV3660  2:0V2640
 
+ bool fmt2rgb888_scaled(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, jpg_scale_t scale, int *width, int *height);
+
  // Size/codec helpers
 // New signatures: each function provides the other two values via output parameters.
 // - size_to_code: input width (pixels), outputs framesize (cam_size) and code (index), returns code
@@ -300,42 +302,73 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
 
     // --- 2. décoder JPEG → RGB ---
     uint8_t* rgb_buf = NULL;
-    size_t rgb_len;
+    size_t rgb_len = 0;
 
- 		// alloc RGB888
-		rgb_len = (size_t)w * (size_t)h * 3 * sizeof(uint8_t);
-		rgb_buf = (uint8_t*)malloc(rgb_len);
-		if (rgb_buf) 
-			memset(rgb_buf, 0, rgb_len);
-    else {
-      free(jpg_buf);
-      return 9;
+    // Decide on a decode scale to reduce memory usage when possible.
+    // Use the JPEG decoder built-in scaling: JPG_SCALE_NONE, JPG_SCALE_2X, JPG_SCALE_4X, JPG_SCALE_8X
+    jpg_scale_t chosen_scale = JPG_SCALE_NONE;
+
+    // Determine target width after scaling. Choose the largest scale that still produces
+    // an image larger or equal to the desired reduced width to preserve quality.
+    if (newsize <= w / 8) {
+        chosen_scale = JPG_SCALE_8X;
+    } else if (newsize <= w / 4) {
+        chosen_scale = JPG_SCALE_4X;
+    } else if (newsize <= w / 2) {
+        chosen_scale = JPG_SCALE_2X;
+    } else {
+        chosen_scale = JPG_SCALE_NONE;
     }
+
+    int dec_w = 0, dec_h = 0;
+
+    // Calculate approximate decoded dimensions to size the RGB buffer
+    switch (chosen_scale) {
+        case JPG_SCALE_8X: dec_w = w / 8; dec_h = h / 8; break;
+        case JPG_SCALE_4X: dec_w = w / 4; dec_h = h / 4; break;
+        case JPG_SCALE_2X: dec_w = w / 2; dec_h = h / 2; break;
+        default: dec_w = w; dec_h = h; break;
+    }
+
+    // allocate RGB888 for the scaled image
+    rgb_len = (size_t)dec_w * (size_t)dec_h * 3;
+    rgb_buf = (uint8_t*)malloc(rgb_len);
+    if (!rgb_buf) {
+        free(jpg_buf);
+        return 9;
+    }
+    memset(rgb_buf, 0, rgb_len);
     printMemoryStatus();
 
-    if (!fmt2rgb888(jpg_buf, fileSize, PIXFORMAT_JPEG, rgb_buf)) {
-        Serial.println("JPEG decode failed");
+    // Decode using the scaled decoder (new function). This avoids allocating full-size RGB on large JPEGs.
+    if (!fmt2rgb888_scaled(jpg_buf, fileSize, PIXFORMAT_JPEG, rgb_buf, chosen_scale, &dec_w, &dec_h)) {
+        Serial.println("JPEG scaled decode failed");
         free(jpg_buf);
         free(rgb_buf);
         return 4;
     }
     free(jpg_buf);
 
+    // dec_w/dec_h contain the actual decoded dimensions; recompute new_h relative to decoded height
+    // Scale-up or -down as needed when resizing to the requested newsize
+    int src_w = dec_w;
+    int src_h = dec_h;
+
     
 
     // --- 3. calcul nouvelle taille ---
     int new_w = newsize;
-    int new_h = newsize * h/w;
+    int new_h = (int)((long)newsize * src_h / src_w);
 
-    if (new_w > w)
+    if (new_w > src_w)
     {
-        Serial.printf("ce n'est pas une reduction: actuel:%d new: %d\n", w, new_w);
+        Serial.printf("ce n'est pas une reduction: actuel:%d new: %d\n", src_w, new_w);
         free(rgb_buf);
         return 5;
     }
 
     // --- 4. allocation buffer réduit ---
-    uint8_t* rgb_small = (uint8_t*)malloc(new_w * new_h * 3);
+    uint8_t* rgb_small = (uint8_t*)malloc((size_t)new_w * (size_t)new_h * 3);
     if (!rgb_small) {
         Serial.println("Malloc small failed");
         free(rgb_buf);
@@ -343,17 +376,17 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     }
     printMemoryStatus();
 
-      // --- 5. resize simple (nearest neighbor) ---
+    // --- 5. resize simple (nearest neighbor) ---
     for (int y = 0; y < new_h; y++) {
         vTaskDelay(1);
         for (int x = 0; x < new_w; x++) {
 
-            int src_x = x * w / new_w;
-            int src_y = (h - 1) - (y * h / new_h);  // 🔥 inversion ici
+            int src_x = x * src_w / new_w;
+            int src_y = (src_h - 1) - (y * src_h / new_h);  // preserve original vertical orientation logic
 
             memcpy(
                 &rgb_small[(y * new_w + x) * 3],
-                &rgb_buf[(src_y * w + src_x) * 3],
+                &rgb_buf[(src_y * src_w + src_x) * 3],
                 3
             );
         }
