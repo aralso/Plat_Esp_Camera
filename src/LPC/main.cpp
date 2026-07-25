@@ -148,6 +148,239 @@ struct avi_frame_reader_t : public lpc_stream_in_t
     }
 };
 
+// Lightweight AVI MJPEG metadata probe used to extract frame count, dimensions
+// and, when present, the stream quality from the container headers.
+#pragma pack(push, 1)
+struct avi_chunk_header_t
+{
+    char id[4];
+    uint32_t size;
+};
+
+struct avi_avih_chunk_t
+{
+    uint32_t microsec_per_frame;
+    uint32_t max_bytes_per_sec;
+    uint32_t padding_granularity;
+    uint32_t flags;
+    uint32_t total_frames;
+    uint32_t initial_frames;
+    uint32_t streams;
+    uint32_t suggested_buffer_size;
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved[4];
+};
+
+struct avi_strh_chunk_t
+{
+    char type[4];
+    char handler[4];
+    uint32_t flags;
+    uint32_t priority;
+    uint16_t language;
+    uint16_t initial_frames;
+    uint32_t scale;
+    uint32_t rate;
+    uint32_t start;
+    uint32_t length;
+    uint32_t suggested_buffer_size;
+    uint32_t quality;
+    uint32_t sample_size;
+    struct
+    {
+        int16_t left;
+        int16_t top;
+        int16_t right;
+        int16_t bottom;
+    } frame;
+};
+
+struct avi_strf_chunk_t
+{
+    uint32_t bi_size;
+    int32_t bi_width;
+    int32_t bi_height;
+    uint16_t bi_planes;
+    uint16_t bi_bit_count;
+    uint32_t bi_compression;
+    uint32_t bi_image_size;
+    int32_t bi_x_ppm;
+    int32_t bi_y_ppm;
+    uint32_t bi_clr_used;
+    uint32_t bi_clr_important;
+};
+
+struct avi_idx1_entry_t
+{
+    char id[4];
+    uint32_t flags;
+    uint32_t offset;
+    uint32_t size;
+};
+#pragma pack(pop)
+
+struct avi_probe_info_t
+{
+    uint32_t avih_total_frames = 0;
+    uint32_t strh_total_frames = 0;
+    uint32_t idx1_total_frames = 0;
+    uint32_t movi_total_frames = 0;
+    uint32_t width_avih = 0;
+    uint32_t height_avih = 0;
+    int32_t width_strf = 0;
+    int32_t height_strf = 0;
+    uint32_t quality_raw = 0xFFFFFFFFu;
+    bool is_mjpeg = false;
+};
+
+static bool read_file_exact(File &file, void *buffer, size_t length)
+{
+    return file.read((uint8_t *)buffer, length) == length;
+}
+
+static bool is_avi_video_chunk(const char id[4])
+{
+    return (id[2] == 'd') && ((id[3] == 'b') || (id[3] == 'c'));
+}
+
+static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &info)
+{
+    while ((uint32_t)file.position() + sizeof(avi_chunk_header_t) <= range_end)
+    {
+        uint32_t chunk_start = (uint32_t)file.position();
+        avi_chunk_header_t chunk;
+        if (!read_file_exact(file, &chunk, sizeof(chunk))) return false;
+
+        uint32_t data_start = (uint32_t)file.position();
+        uint64_t data_end64 = (uint64_t)data_start + (uint64_t)chunk.size;
+        if (data_end64 > range_end) return false;
+
+        uint32_t data_end = (uint32_t)data_end64;
+        uint32_t padded_end = data_end + (chunk.size & 1u);
+
+        if ((memcmp(chunk.id, "RIFF", 4) == 0) || (memcmp(chunk.id, "LIST", 4) == 0))
+        {
+            char list_type[4];
+            if ((chunk.size < 4) || (!read_file_exact(file, list_type, sizeof(list_type)))) return false;
+            if (!parse_avi_chunks(file, data_end, info)) return false;
+        }
+        else if ((memcmp(chunk.id, "avih", 4) == 0) && (chunk.size >= sizeof(avi_avih_chunk_t)))
+        {
+            avi_avih_chunk_t avih;
+            if (!read_file_exact(file, &avih, sizeof(avih))) return false;
+            info.avih_total_frames = avih.total_frames;
+            info.width_avih = avih.width;
+            info.height_avih = avih.height;
+        }
+        else if ((memcmp(chunk.id, "strh", 4) == 0) && (chunk.size >= sizeof(avi_strh_chunk_t)))
+        {
+            avi_strh_chunk_t strh;
+            if (!read_file_exact(file, &strh, sizeof(strh))) return false;
+            if (memcmp(strh.type, "vids", 4) == 0)
+            {
+                info.strh_total_frames = strh.length;
+                info.quality_raw = strh.quality;
+                if (memcmp(strh.handler, "MJPG", 4) == 0) info.is_mjpeg = true;
+            }
+        }
+        else if ((memcmp(chunk.id, "strf", 4) == 0) && (chunk.size >= sizeof(avi_strf_chunk_t)))
+        {
+            avi_strf_chunk_t strf;
+            if (!read_file_exact(file, &strf, sizeof(strf))) return false;
+            info.width_strf = strf.bi_width;
+            info.height_strf = strf.bi_height;
+            if (strf.bi_compression == 0x47504A4Du) info.is_mjpeg = true;
+        }
+        else if ((memcmp(chunk.id, "idx1", 4) == 0) && (chunk.size >= sizeof(avi_idx1_entry_t)))
+        {
+            uint32_t entry_count = chunk.size / sizeof(avi_idx1_entry_t);
+            for (uint32_t i = 0; i < entry_count; ++i)
+            {
+                avi_idx1_entry_t entry;
+                if (!read_file_exact(file, &entry, sizeof(entry))) return false;
+                if (is_avi_video_chunk(entry.id)) info.idx1_total_frames++;
+            }
+        }
+        else if (is_avi_video_chunk(chunk.id))
+        {
+            info.movi_total_frames++;
+        }
+
+        if (!file.seek(padded_end)) return false;
+        if ((uint32_t)file.position() <= chunk_start) return false;
+    }
+
+    return ((uint32_t)file.position() == range_end);
+}
+
+static bool probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_count, uint16_t &width, uint16_t &height, uint8_t &quality)
+{
+	uint8_t res=0;  // 0:reussi  1:echec  2à10:autres erreurs  11à14:dégradé
+    frame_count = 0;
+    width = 0;
+    height = 0;
+    quality = 20;
+
+    if (!file.seek(0)) return false;
+
+    avi_chunk_header_t riff;
+    if (!read_file_exact(file, &riff, sizeof(riff))) return false;
+    if ((memcmp(riff.id, "RIFF", 4) != 0) || (riff.size < 4)) return false;
+
+    char riff_type[4];
+    if (!read_file_exact(file, riff_type, sizeof(riff_type))) return false;
+    if (memcmp(riff_type, "AVI ", 4) != 0) return false;
+
+    avi_probe_info_t info;
+    if (!parse_avi_chunks(file, (uint32_t)file_size, info)) return false;
+
+    uint32_t parsed_frames = info.idx1_total_frames;
+    if (parsed_frames == 0) parsed_frames = info.avih_total_frames;
+    if (parsed_frames == 0) parsed_frames = info.strh_total_frames;
+    if (parsed_frames == 0) parsed_frames = info.movi_total_frames;
+
+    uint32_t parsed_width = 0;
+    uint32_t parsed_height = 0;
+    if ((info.width_strf > 0) && (info.height_strf != 0))
+    {
+        parsed_width = (uint32_t)info.width_strf;
+        parsed_height = (uint32_t)((info.height_strf < 0) ? -info.height_strf : info.height_strf);
+    }
+    else
+    {
+        parsed_width = info.width_avih;
+        parsed_height = info.height_avih;
+    }
+
+    if ((parsed_frames == 0) || (parsed_width < 50) || (parsed_height < 50) || (parsed_width > 2500) || (parsed_height > 2000))
+        return false;
+
+    frame_count = parsed_frames;
+    width = (uint16_t)parsed_width;
+    height = (uint16_t)parsed_height;
+
+    if ((info.quality_raw != 0) && (info.quality_raw != 0xFFFFFFFFu))
+    {
+        uint32_t quality_value = info.quality_raw;
+        if (quality_value > 100u) quality_value = (quality_value + 50u) / 100u;
+        if (quality_value > 100u) quality_value = 100u;
+        quality = (uint8_t)quality_value;
+    }
+    else
+    {
+        float bpp = (float)file_size * 8.0f / ((float)parsed_frames * (float)parsed_width * (float)parsed_height);
+        float qual = 1.0f - expf(-3.0f * bpp);
+        if (qual < 0.0f) qual = 0.0f;
+        if (qual > 1.0f) qual = 1.0f;
+        quality = (uint8_t)(qual * 100.0f);
+		res = 11;
+    }
+
+	Serial.printf("AVI probe: frames=%u, width=%u, height=%u, quality=%u\n", frame_count, width, height, quality);
+    return res;
+}
+
 
 #if ESP32
 struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
@@ -828,11 +1061,131 @@ uint8_t encodeFile()
 
 	if (type_fichier) // AVI
 	{
-		nb_images_orig = 2;
-		width_orig = 800;
-		height_orig = 600;
-		qualite_orig = 30;
+		// Probe AVI headers to obtain frame count, width, height and stream quality when available
+		uint32_t parsed_frames = 0;
+		uint16_t parsed_width = 0, parsed_height = 0;
+		uint8_t parsed_quality = 20;
+		// inFile is already opened above
+		if (probe_avi_mjpeg(inFile, fileSize, parsed_frames, parsed_width, parsed_height, parsed_quality))
+		{
+			nb_images_orig = (int)parsed_frames;
+			width_orig = parsed_width;
+			height_orig = parsed_height;
+			qualite_orig = parsed_quality;
+			Serial.printf("probe: nb_image:%i\n", nb_images_orig);
+		}
+		else
+		{
+			// Fallback: extract first MJPEG frame from the AVI and inspect its JPEG header for size/quality
+			avi_frame_reader_t afr(SD_MMC, path_c, 0);
+			if (afr.remaining > 0)
+			{
+				uint32_t frlen = afr.remaining;
+				uint8_t *frame_buf = (uint8_t*)malloc(frlen);
+				if (frame_buf)
+				{
+					// read full frame
+					size_t total = 0;
+					while (total < frlen) {
+						size_t r = afr.read(frame_buf + total, frlen - total);
+						if (r == 0) break;
+						total += r;
+					}
+					uint16_t w=0,h=0;
+					if (getJpegSize(frame_buf, total, w, h))
+					{
+						nb_images_orig = 1; // at least one frame
+						width_orig = w;
+						height_orig = h;
+						Serial.printf("AAA :frame_buf:%i total:%i wi:%i he:%i\n", frame_buf, total, w, h);
+						// Try to extract quality from COM/APP markers inside the JPEG frame
+						auto extract_quality = [](const uint8_t *buf, size_t len)->int {
+							if (!buf || len < 4) return -1;
+							if (buf[0] != 0xFF || buf[1] != 0xD8) return -1;
+							size_t pos = 2;
+							while (pos + 3 < len)
+							{
+								if (buf[pos] != 0xFF) { pos++; continue; }
+								uint8_t marker = buf[pos+1];
+								if (marker == 0xDA) break; // SOS
+								if (marker == 0xD8 || marker == 0xD9) { pos += 2; continue; }
+								if (pos + 4 > len) break;
+								uint16_t mlen = (uint16_t)((buf[pos+2] << 8) | buf[pos+3]);
+								if (mlen < 2) return -1;
+								if (pos + 2 + mlen > len) break;
+								const uint8_t *payload = &buf[pos+4];
+								int payload_len = (int)mlen - 2;
+								// COM marker (0xFE) - look for ASCII form "Q=NN"
+								if (marker == 0xFE && payload_len >= 3) {
+									if ((payload[0] == 'Q' || payload[0] == 'q') && payload[1] == '=') {
+										int plen = payload_len - 2;
+										char tmp[16];
+										int copy_len = (plen < (int)sizeof(tmp)-1) ? plen : (int)sizeof(tmp)-1;
+										memcpy(tmp, payload+2, copy_len);
+										tmp[copy_len] = '\0';
+										int q = atoi(tmp);
+										if (q >= 0 && q <= 100) return q;
+									}
+								}
+								// APPn marker: look for signature "QVAL" followed by one byte quality
+								if (marker >= 0xE0 && marker <= 0xEF && payload_len >= 5) {
+									if (memcmp(payload, "QVAL", 4) == 0) {
+										int q = payload[4];
+										if (q >= 0 && q <= 100) return q;
+									}
+								}
+								pos += 2 + mlen;
+							}
+							return -1;
+						};
+						int q = extract_quality(frame_buf, total);
+						if (q >= 0)
+						{
+							qualite_orig = (uint8_t)q;
+							Serial.println("BBB");
+						}
+						else
+						{
+							// Fallback to probe heuristic similar to probe_avi_mjpeg: estimate using file total size (global)
+							if (parsed_frames > 0 && width_orig > 0 && height_orig > 0) {
+								float bpp = (float)fileSize * 8.0f / ((float)parsed_frames * (float)width_orig * (float)height_orig);
+								float qualf = 1.0f - expf(-3.0f * bpp);
+								if (qualf < 0.0f) qualf = 0.0f;
+								if (qualf > 1.0f) qualf = 1.0f;
+								qualite_orig = (uint8_t)(qualf * 100.0f);
+								Serial.println("CCC");
+							} else {
+								// last resort
+								qualite_orig = 30;
+								Serial.println("DDD");
+							}
+						}
+					}
+					else 
+						Serial.println("getjpegsize failed");
 
+					free(frame_buf);
+				}
+				else
+				{
+					// malloc failed: set reasonable defaults
+					nb_images_orig = 1;
+					width_orig = 800;
+					height_orig = 600;
+					qualite_orig = 30;
+					Serial.printf("Fallback malloc failed : long:%i code:134\n", frlen);
+				}
+			}
+			else
+			{
+				// no frames found: fallback defaults
+				nb_images_orig = 0;
+				width_orig = 800;
+				height_orig = 600;
+				qualite_orig = 20;
+				Serial.println("no frame found : nb_images=0");
+			}
+		}
 	}
 	else  // JPEG
 	{
@@ -858,19 +1211,70 @@ uint8_t encodeFile()
 			return 3;
 		}
 		free(jpg_bu);
-		// Calcul de la qualité de compression à partir de la taille du fichier et des dimensions de l'image
+		width_orig = w;
+		height_orig = h;
+
+		// Calcul de la qualité de compression à partir d'un marqueur JPEG si présent, sinon par estimation bpp
 		qualite_orig = 20;
 		if (w && h) 
 		{
-			float bpp = (float)fileSize * 8.0f / (w * h);
-			float qual = 1.0f - expf(-3.0f * bpp);
-			qualite_orig = (uint8_t)(qual * 100.0f);
-			//float qual = ((float)fileSize * 8.0f / (float)(w * h) - 0.15f) / 2.4f;
-			//if (qual > 0)
-			//	qualite_orig = (uint8_t)(sqrt(qual) * 100);
+			// Try to extract embedded quality from JPEG COM/APP marker
+			auto extract_quality = [](const uint8_t *buf, size_t len)->int {
+				if (!buf || len < 4) return -1;
+				// Ensure starts with SOI
+				if (buf[0] != 0xFF || buf[1] != 0xD8) return -1;
+				size_t pos = 2; // after SOI
+				while (pos + 3 < len) {
+					if (buf[pos] != 0xFF) { pos++; continue; }
+					uint8_t marker = buf[pos+1];
+					// SOS (start of scan) -> stop parsing headers
+					if (marker == 0xDA) break;
+					// Standalone markers without length
+					if (marker == 0xD8 || marker == 0xD9) { pos += 2; continue; }
+					// Markers with length
+					if (pos + 4 > len) break;
+					uint16_t mlen = (uint16_t)((buf[pos+2] << 8) | buf[pos+3]);
+					if (mlen < 2) return -1;
+					if (pos + 2 + mlen > len) break;
+					const uint8_t *payload = &buf[pos+4];
+					int payload_len = (int)mlen - 2;
+					// COM marker (0xFE) - look for ASCII form "Q=NN"
+					if (marker == 0xFE && payload_len >= 3) {
+						if ((payload[0] == 'Q' || payload[0] == 'q') && payload[1] == '=') {
+							int plen = payload_len - 2;
+							char tmp[16];
+							int copy_len = (plen < (int)sizeof(tmp)-1) ? plen : (int)sizeof(tmp)-1;
+							memcpy(tmp, payload+2, copy_len);
+							tmp[copy_len] = '\0';
+							int q = atoi(tmp);
+							Serial.printf("Found COM marker quality: %d\n", q);
+							if (q >= 0 && q <= 100) return q;
+						}
+					}
+					// APPn marker: look for signature "QVAL" followed by one byte quality
+					if (marker >= 0xE0 && marker <= 0xEF && payload_len >= 5) {
+						if (memcmp(payload, "QVAL", 4) == 0) {
+							int q = payload[4];
+							if (q >= 0 && q <= 100) return q;
+						}
+					}
+					pos += 2 + mlen;
+				}
+				return -1;
+			};
+
+			int q = extract_quality(jpg_bu, fileSize);
+			if (q >= 0) {
+				qualite_orig = (uint8_t)q;
+				Serial.printf("Extracted quality from JPEG marker: %d\n", qualite_orig);
+			} else {
+				float bpp = (float)fileSize * 8.0f / (w * h);
+				float qual = 1.0f - expf(-3.0f * bpp);
+				qualite_orig = (uint8_t)(qual * 100.0f);
+				Serial.printf("Estimated quality from bpp: %d\n", qualite_orig);
+			}
 		}
 	}
-
 	// les nouvelles valeurs doivent être plus petites que les anciennes
 	if (nb_images > nb_images_orig) nb_images = nb_images_orig;
 	if (width > width_orig) width = width_orig;
@@ -928,6 +1332,38 @@ uint8_t encodeFile()
 	}
 	encoder.close();
 	unsigned long end_enc = millis();
-	Serial.printf("Encoding time: prep:%lu ms, encode:%lu ms, close:%lu ms\n", enc2-start_enc, enc3-enc2, end_enc-enc3);
+
+	// determination de la taille du fichier écrit
+	// TODO mieux : lire le nb d'octets écrits par le stream_out (stream_out.get_bytes_written() ?)
+	uint32_t f_size = 0;
+	{
+		// Diagnostic prints to verify file path and size reporting
+		Serial.printf("Checking output_path='%s'\n", output_path.c_str());
+		Serial.printf("SD_MMC.exists=%d\n", SD_MMC.exists(output_path.c_str()) ? 1 : 0);
+
+		// small delay to allow filesystem metadata to settle after writer close
+		delay(100);
+		File outFile = SD_MMC.open(output_path.c_str(), FILE_READ);
+		if (!outFile) {
+			Serial.println("outFile open failed");
+		} else {
+			// Some FS implementations update size() only after flush/close. Seek to end and read position for a reliable value.
+			size_t s1 = outFile.size();
+			outFile.seek(0, SeekEnd);
+			size_t s2 = outFile.position();
+			Serial.printf("outFile.size()=%lu, position(end)=%lu\n", (unsigned long)s1, (unsigned long)s2);
+			f_size = s2;
+			outFile.close();
+			Serial.println("ZZ");
+		}
+
+		Serial.printf("Encoding size:%lu time prep:%lu ms, encode:%lu ms, close:%lu ms\n",
+					(unsigned long)f_size,
+					(unsigned long)(enc2 - start_enc),
+					(unsigned long)(enc3 - enc2),
+					(unsigned long)(end_enc - enc3));
+	}	
+
+	Serial.printf("Encoding size:%i time prep:%lu ms, encode:%lu ms, close:%lu ms\n", f_size, enc2-start_enc, enc3-enc2, end_enc-enc3);
 	return 0;
 }

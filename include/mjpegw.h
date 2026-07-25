@@ -77,6 +77,11 @@ void mjpegw_add_frame(struct mjpegw_context *ctx, const void* pixels, const int 
 //          [jpeg_len]          Length of jpeg data in bytes
 void mjpegw_add_frame_jpg(struct mjpegw_context *ctx, const void* jpeg_buf, uint32_t jpeg_len);
 
+// Set the stream quality field in the AVI header (strh.quality)
+//          [ctx]               Previously created context
+//          [quality]           Quality value to store (0..100 or codec-specific)
+void mjpegw_set_quality(struct mjpegw_context *ctx, uint32_t quality);
+
 
 //-----------------------------------------------------------------------------------------------------------------------------
 // Finalizes and closes the AVI file

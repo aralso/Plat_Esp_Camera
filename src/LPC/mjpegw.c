@@ -411,6 +411,10 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
 {
     ctx->jpeg_size = 0;
 
+    /* record requested quality into header struct (in-memory). If callers use mjpegw_set_quality
+       the on-disk header will already be patched; this assignment keeps the context consistent */
+    ctx->strh.quality = (uint32_t)quality;
+
     tje_encode_with_func(jpeg_write_func, ctx, quality, ctx->width, ctx->height, 3, (const unsigned char*)pixels);
     
     if(ctx->idx_count >= ctx->idx_capacity)
@@ -519,6 +523,27 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
 
     ctx->idx_count++;
     ctx->frame_count++;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------------
+// Store a quality value into the strh.quality field and patch the file on disk so players/readers can see it
+void mjpegw_set_quality(mjpegw_context *ctx, uint32_t quality)
+{
+    if (!ctx) return;
+
+    ctx->strh.quality = quality;
+
+    // length_pos was computed in mjpegw_open to point near the strh.length field. The quality field is
+    // located after length (4 bytes) and suggested_buffer_size (4 bytes), so offset by +8 from length_pos.
+    long quality_pos = ctx->length_pos + 8;
+
+    // Patch quality into file
+    if (ctx->f) {
+        fseek(ctx->f, quality_pos, SEEK_SET);
+        fwrite(&ctx->strh.quality, sizeof(uint32_t), 1, ctx->f);
+        // restore file position to end so subsequent writes append as expected
+        fseek(ctx->f, 0, SEEK_END);
+    }
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------

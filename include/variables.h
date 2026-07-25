@@ -134,6 +134,9 @@ extern uint8_t im_x_fin;
 extern uint8_t im_y_debut;
 extern uint8_t im_y_fin;
 
+// Current camera JPEG quality (camera sensor 'quality' value, e.g. 63..4)
+extern uint8_t current_sensor_quality;
+
 extern const size_t PARAMS_COUNT;
 extern Param PARAMS[];
 

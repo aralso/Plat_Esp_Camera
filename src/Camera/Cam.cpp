@@ -210,6 +210,8 @@ uint8_t configCamera()
   uint8_t txcam;
   code_to_compjpg(cap_jpg_comp, txjpg, txcam);
   s->set_quality(s, txcam);
+  // remember the last set camera quality for later probes
+  current_sensor_quality = txcam;
 
   // Additional camera settings can be configured here if needed
   uint16_t x_S = ((uint32_t) width * im_x_debut / 100) & 0xFFF0;
@@ -518,6 +520,40 @@ uint8_t txcam_to_compjpg(uint8_t txCam, uint8_t &txJpg, uint8_t &code)
     return code;
 }
 
+// Interpolated inverse mapping: given a camera quality (txCam), compute an interpolated
+// JPEG quality percentage between table entries (linear interpolation).
+uint8_t txcam_to_compjpg_interp(uint8_t txCam)
+{
+    // If outside bounds, clamp to endpoints
+    if ((size_t)txCam >= 255) return comp_table[0].tx_comp_jpg; // unlikely
+
+    // If txCam >= highest table entry, return that
+    if (txCam >= comp_table[0].tx_comp_cam) return comp_table[0].tx_comp_jpg;
+    // If txCam <= lowest table entry, return that
+    if (txCam <= comp_table[comp_table_count - 1].tx_comp_cam) return comp_table[comp_table_count - 1].tx_comp_jpg;
+
+    // Find interval i..i+1 where txCam lies between comp_table[i].tx_comp_cam (hi) and comp_table[i+1].tx_comp_cam (lo)
+    for (size_t i = 0; i + 1 < comp_table_count; ++i) {
+        int x_hi = (int)comp_table[i].tx_comp_cam;
+        int x_lo = (int)comp_table[i+1].tx_comp_cam;
+        if ((txCam <= x_hi) && (txCam >= x_lo)) {
+            int y_hi = (int)comp_table[i].tx_comp_jpg;
+            int y_lo = (int)comp_table[i+1].tx_comp_jpg;
+            if (x_hi == x_lo) return (uint8_t)y_hi;
+            double t = (double)(txCam - x_lo) / (double)(x_hi - x_lo); // 0..1
+            double y = (double)y_lo + t * (double)(y_hi - y_lo);
+            if (y < 0.0) y = 0.0;
+            if (y > 100.0) y = 100.0;
+            return (uint8_t)(y + 0.5);
+        }
+    }
+
+    // Fallback: nearest
+    uint8_t txJpg; uint8_t code;
+    txcam_to_compjpg(txCam, txJpg, code);
+    return txJpg;
+}
+
 // Inverse: given code, return txJpg and txCam (clamped)
 uint8_t code_to_compjpg(uint8_t in_code, uint8_t &txJpg, uint8_t &txCam)
 {
@@ -573,18 +609,18 @@ static global_entry_t global_table[] = {
     { 'J', 1, 4, 7 },
     { 'K', 1, 5, 7 },
     { 'L', 1, 6, 7 },
-    { 'M', 5, 6, 8 },
-    { 'N', 5, 7, 8 },
-    { 'O', 6, 7, 8 },
-    { 'P', 6, 7, 9 },
-    { 'Q', 6, 8, 9 },
-    { 'R', 7, 0, 1 },
-    { 'S', 7, 1, 2 },
-    { 'T', 7, 2, 3 },
-    { 'U', 7, 3, 4 },
-    { 'V', 7, 4, 5 },
-    { 'W', 7, 5, 6 },
-    { 'X', 7, 6, 7 },
+    { 'M', 2, 6, 8 },
+    { 'N', 2, 7, 8 },
+    { 'O', 3, 4, 2 },
+    { 'P', 3, 7, 9 },
+    { 'Q', 4, 8, 9 },
+    { 'R', 4, 0, 1 },
+    { 'S', 4, 1, 2 },
+    { 'T', 4, 2, 3 },
+    { 'U', 4, 3, 4 },
+    { 'V', 5, 4, 5 },
+    { 'W', 6, 5, 6 },
+    { 'X', 6, 6, 7 },
     { 'Y', 7, 7, 8 },
     { 'Z', 7, 8, 9 }  // 789 (fixed)
 };
@@ -633,7 +669,7 @@ char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code
 
     for (size_t i = 0; i < global_table_count; ++i) {
         const global_entry_t &g = global_table[i];
-        int diff_images = (int)g.images - (int)images_code;
+        int diff_images = ((int)g.images - (int)images_code)*3;
         int diff_size = (int)g.size - (int)size_code;
         int diff_comp = (int)g.comp - (int)comp_code;
         int signed_sum = diff_images + diff_size + diff_comp;
@@ -650,8 +686,8 @@ char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code
                 best_idx = (int)i;
             }
         }
-        Serial.printf("triplet_to_global: checking %c: diff_images=%d, diff_size=%d, diff_comp=%d, signed_sum=%d, abs_signed=%d, abs_sum=%d\n",
-            g.gc, diff_images, diff_size, diff_comp, signed_sum, abs_signed, abs_sum);
+        //Serial.printf("triplet_to_global: checking %c: best_idx:%i, diff_images=%d, diff_size=%d, diff_comp=%d, signed_sum=%d, abs_signed=%d, abs_sum=%d\n",
+        //    g.gc, best_idx, diff_images, diff_size, diff_comp, signed_sum, abs_signed, abs_sum);
     }
 
     if (best_idx >= 0) return global_table[best_idx].gc;

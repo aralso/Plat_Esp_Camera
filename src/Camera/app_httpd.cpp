@@ -692,29 +692,29 @@ void capture_photo_sd()
         int64_t fr_start = esp_timer_get_time();
     #endif
 
-        // Guard: ensure camera sensor initialized before calling fb_get
-        sensor_t *s = esp_camera_sensor_get();
-        if (!s) {
-            if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (capture_handler_SD)");
-            return;
-        }
+    // Guard: ensure camera sensor initialized before calling fb_get
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s) {
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (capture_handler_SD)");
+        return;
+    }
 
     #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
-            if (log_detail >= 3) ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
-            enable_led(true);
-            vTaskDelay(150 / portTICK_PERIOD_MS);
-            fb = esp_camera_fb_get();
-            enable_led(false);
-        #else
-            if (log_detail >= 4) ESP_LOGD(TAG, "capture_SD(): capturing (no LED)");
-            fb = esp_camera_fb_get();
-        #endif
+        if (log_detail >= 3) ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
+        enable_led(true);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
+        fb = esp_camera_fb_get();
+        enable_led(false);
+    #else
+        if (log_detail >= 4) ESP_LOGD(TAG, "capture_SD(): capturing (no LED)");
+        fb = esp_camera_fb_get();
+    #endif
 
-        if (!fb)
-        {
-            if (log_detail >= 1) ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
-            return;
-        }
+    if (!fb)
+    {
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
+        return;
+    }
 
     buf_format = fb->format;  // Save format before returning fb
 
@@ -749,6 +749,7 @@ void capture_photo_sd()
     }
     else
     {
+        // transformation en jpeg, si format different : ne doit pas arriver
         frame2jpg(fb, 80, &buf, &buf_len);
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
                     fb_len = buf_len;
@@ -765,7 +766,7 @@ void capture_photo_sd()
 
     esp_camera_fb_return(fb);
     
-    // Sauvegarde sur SD
+    // Sauvegarde sur carte SD
     #ifdef SDCARD
         lectureHeure(); // Met à jour timeinfo
         char dir_path[32];
@@ -807,15 +808,16 @@ void capture_photo_sd()
             //Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n", img_width, (int)cam_size, (int)size_code);
 
             // 3) Compression code: normalize using code_to_compjpg
-            uint8_t comp_txJpg = 0, comp_txCam = 0;
-            code_to_compjpg((uint8_t)cap_jpg_comp, comp_txJpg, comp_txCam);
+            // modif : utilisation de current_sensor_quality (qualite camera)
+            uint8_t comp_txJpg, code_comp;
+            txcam_to_compjpg(current_sensor_quality, comp_txJpg, code_comp);
             //Serial.printf("Compression: cap_jpg_comp=%d -> txJpg=%d, txCam=%d)\n", (int)cap_jpg_comp, (int)comp_txJpg, (int)comp_txCam);
 
-            char global_code = triplet_to_global(1, size_code, cap_jpg_comp);
+            char global_code = triplet_to_global(1, size_code, code_comp);
 
             snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-1%d%d.jpg",
                      dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec,
-                     global_code, size_code, cap_jpg_comp);
+                     global_code, size_code, code_comp);
             
             if (!fs.exists(file_path)) {
                 break; // Fichier n'existe pas, on peut l'utiliser
@@ -837,13 +839,49 @@ void capture_photo_sd()
             attempts++;
         } while (attempts < 100); // Limite à 100 pour éviter boucle infinie
 
+        // Before saving, insert a small JPEG COM marker containing quality info (format "Q=NN")
+        uint8_t *save_buf = buf;
+        size_t save_len = buf_len;
+        uint8_t *tmp_buf = NULL;
+        // cam_q already available as current_sensor_quality elsewhere; map to jpeg % via interpolation
+        uint8_t cam_q_for_file = current_sensor_quality;
+        uint8_t jpeg_quality_percent = txcam_to_compjpg_interp(cam_q_for_file);
+        if (buf && buf_len > 2 && buf[0] == 0xFF && buf[1] == 0xD8) {
+            // Build COM payload "Q=NN" (or Q=100)
+            char payload[8];
+            int plen = snprintf(payload, sizeof(payload), "Q=%u", (unsigned)jpeg_quality_percent);
+            if (plen > 0 && plen < (int)sizeof(payload)) {
+                uint16_t marker_len = (uint16_t)(2 + plen); // length field counts itself
+                // total new buffer size = original + 4 (marker header) + plen
+                size_t new_len = save_len + 4 + plen;
+                tmp_buf = (uint8_t*)malloc(new_len);
+                if (tmp_buf) {
+                    // copy SOI
+                    tmp_buf[0] = 0xFF; tmp_buf[1] = 0xD8;
+                    // COM marker 0xFF 0xFE
+                    tmp_buf[2] = 0xFF; tmp_buf[3] = 0xFE;
+                    // length big-endian
+                    tmp_buf[4] = (uint8_t)((marker_len >> 8) & 0xFF);
+                    tmp_buf[5] = (uint8_t)(marker_len & 0xFF);
+                    // payload
+                    memcpy(&tmp_buf[6], payload, plen);
+                    // copy rest of original JPEG after SOI
+                    memcpy(&tmp_buf[6 + plen], &buf[2], save_len - 2);
+                    save_buf = tmp_buf;
+                    save_len = new_len;
+                    Serial.printf("COM marker : qual jpeg:%i, txcam:%i, payload:%s, new_len=%u\n", jpeg_quality_percent, cam_q_for_file, payload, (unsigned)new_len);
+                }
+            }
+        }
+
         // Sauvegarder le fichier
-        uint8_t result = writeFile(fs, file_path, buf, buf_len);
+        uint8_t result = writeFile(fs, file_path, save_buf, save_len);
         if (result == 0) {
             if (log_detail >= 4) ESP_LOGD(TAG, "Image saved to %s  %ims", file_path, (uint32_t)((esp_timer_get_time() - fr_start) / 1000)-temps_ready);
         } else {
             if (log_detail >= 1) ESP_LOGE(TAG, "Failed to save image to %s", file_path);
         }
+        if (tmp_buf) free(tmp_buf);
     #else
         {
             AsyncWebServerResponse *resp = request->beginResponse(500, "text/plain", "SD card not available");
@@ -967,15 +1005,18 @@ void capture_avi_b()
         // img_width captured earlier
         size_to_code((uint16_t)width, cam_size, size_code);
 
-        // 3) Compression code: normalize using code_to_compjpg
-        uint8_t comp_txJpg = 0, comp_txCam = 0;
-        code_to_compjpg((uint8_t)cap_jpg_comp, comp_txJpg, comp_txCam);
+        // 3) Qualite - Compression code: normalize using code_to_compjpg
+        // modif : utilisation de current_sensor_quality (qualite camera)
+        uint8_t comp_txJpg, code_comp;
+        txcam_to_compjpg(current_sensor_quality, comp_txJpg, code_comp);
+        //Serial.printf("Compression: cap_jpg_comp=%d -> txJpg=%d, txCam=%d)\n", (int)cap_jpg_comp, (int)comp_txJpg, (int)comp_txCam);
 
-        char global_code = triplet_to_global((uint8_t)images_code, size_code, cap_jpg_comp);
+
+        char global_code = triplet_to_global((uint8_t)images_code, size_code, code_comp);
 
         snprintf(avi_session.file_path, sizeof(avi_session.file_path), "/sdcard%s/C%s-%02d%02d%02d-%02d%02d%02d-%c-%d%d%d.avi",
                  dir_path_small, ADDRESS, yy, month, day, hour, min, sec,
-                 global_code, images_code, size_code, cap_jpg_comp);
+                 global_code, images_code, size_code, code_comp);
 
         if (log_detail >= 3) ESP_LOGI(TAG, "Starting AVI to %s", avi_session.file_path);
 
@@ -992,7 +1033,12 @@ void capture_avi_b()
         uint16_t temps_open = (t_open_end - t_capture_end);
         if (log_detail >= 3) ESP_LOGI(TAG, "capture_avi: avi_open  %u ms", (unsigned)temps_open);
 
-        uint8_t quality = 15;
+        // Determine camera sensor quality and map to JPEG compression percent via interpolation
+        uint8_t cam_q = current_sensor_quality; // value in camera sensor units (e.g. 63..4)
+        uint8_t quality = txcam_to_compjpg_interp(cam_q);
+
+        // Save quality into AVI header so it can be probed later
+        mjpegw_set_quality(avi_session.avi, quality);
 
         // Add first frame - prefer direct JPEG if camera already provided JPEG
         unsigned long temps_add = 0;
@@ -1415,7 +1461,10 @@ int camera_set_parameter(sensor_t *s, const char *variable, int val, bool save)
         }
     }
     else if (!strcmp(variable, "quality"))
+    {
         res = s->set_quality(s, val);
+        if (res >= 0) current_sensor_quality = (uint8_t)val; // remember the last explicitly set camera quality
+    }
     else if (!strcmp(variable, "contrast"))
         res = s->set_contrast(s, val);
     else if (!strcmp(variable, "brightness"))
