@@ -250,7 +250,10 @@ static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &i
     {
         uint32_t chunk_start = (uint32_t)file.position();
         avi_chunk_header_t chunk;
-        if (!read_file_exact(file, &chunk, sizeof(chunk))) return false;
+        if (!read_file_exact(file, &chunk, sizeof(chunk))) {
+            Serial.printf("PARSE_FAIL: short read chunk header at pos=%u, expected=%u\n", (unsigned)file.position(), (unsigned)sizeof(chunk));
+            return false;
+        }
 
         uint32_t data_start = (uint32_t)file.position();
         uint64_t data_end64 = (uint64_t)data_start + (uint64_t)chunk.size;
@@ -262,13 +265,26 @@ static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &i
         if ((memcmp(chunk.id, "RIFF", 4) == 0) || (memcmp(chunk.id, "LIST", 4) == 0))
         {
             char list_type[4];
-            if ((chunk.size < 4) || (!read_file_exact(file, list_type, sizeof(list_type)))) return false;
-            if (!parse_avi_chunks(file, data_end, info)) return false;
+            if (chunk.size < 4) {
+                Serial.printf("PARSE_FAIL: LIST chunk too small at pos=%u size=%u\n", (unsigned)data_start, (unsigned)chunk.size);
+                return false;
+            }
+            if (!read_file_exact(file, list_type, sizeof(list_type))) {
+                Serial.printf("PARSE_FAIL: short read LIST type at pos=%u expected %u\n", (unsigned)file.position(), (unsigned)sizeof(list_type));
+                return false;
+            }
+            if (!parse_avi_chunks(file, data_end, info)) {
+                Serial.printf("PARSE_FAIL: nested parse failed for LIST at data_end=%u\n", (unsigned)data_end);
+                return false;
+            }
         }
         else if ((memcmp(chunk.id, "avih", 4) == 0) && (chunk.size >= sizeof(avi_avih_chunk_t)))
         {
             avi_avih_chunk_t avih;
-            if (!read_file_exact(file, &avih, sizeof(avih))) return false;
+            if (!read_file_exact(file, &avih, sizeof(avih))) {
+                Serial.printf("PARSE_FAIL: short read avih at pos=%u expected=%u\n", (unsigned)file.position(), (unsigned)sizeof(avih));
+                return false;
+            }
             info.avih_total_frames = avih.total_frames;
             info.width_avih = avih.width;
             info.height_avih = avih.height;
@@ -276,7 +292,10 @@ static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &i
         else if ((memcmp(chunk.id, "strh", 4) == 0) && (chunk.size >= sizeof(avi_strh_chunk_t)))
         {
             avi_strh_chunk_t strh;
-            if (!read_file_exact(file, &strh, sizeof(strh))) return false;
+            if (!read_file_exact(file, &strh, sizeof(strh))) {
+                Serial.printf("PARSE_FAIL: short read strh at pos=%u expected=%u\n", (unsigned)file.position(), (unsigned)sizeof(strh));
+                return false;
+            }
             if (memcmp(strh.type, "vids", 4) == 0)
             {
                 info.strh_total_frames = strh.length;
@@ -287,7 +306,10 @@ static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &i
         else if ((memcmp(chunk.id, "strf", 4) == 0) && (chunk.size >= sizeof(avi_strf_chunk_t)))
         {
             avi_strf_chunk_t strf;
-            if (!read_file_exact(file, &strf, sizeof(strf))) return false;
+            if (!read_file_exact(file, &strf, sizeof(strf))) {
+                Serial.printf("PARSE_FAIL: short read strf at pos=%u expected=%u\n", (unsigned)file.position(), (unsigned)sizeof(strf));
+                return false;
+            }
             info.width_strf = strf.bi_width;
             info.height_strf = strf.bi_height;
             if (strf.bi_compression == 0x47504A4Du) info.is_mjpeg = true;
@@ -298,7 +320,10 @@ static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &i
             for (uint32_t i = 0; i < entry_count; ++i)
             {
                 avi_idx1_entry_t entry;
-                if (!read_file_exact(file, &entry, sizeof(entry))) return false;
+                if (!read_file_exact(file, &entry, sizeof(entry))) {
+                    Serial.printf("PARSE_FAIL: short read idx1 entry at pos=%u expected=%u (i=%u of %u)\n", (unsigned)file.position(), (unsigned)sizeof(entry), (unsigned)i, (unsigned)entry_count);
+                    return false;
+                }
                 if (is_avi_video_chunk(entry.id)) info.idx1_total_frames++;
             }
         }
@@ -307,16 +332,26 @@ static bool parse_avi_chunks(File &file, uint32_t range_end, avi_probe_info_t &i
             info.movi_total_frames++;
         }
 
-        if (!file.seek(padded_end)) return false;
-        if ((uint32_t)file.position() <= chunk_start) return false;
+        if (!file.seek(padded_end)) {
+            Serial.printf("PARSE_FAIL: seek to padded_end failed. padded_end=%u file.pos=%u\n", (unsigned)padded_end, (unsigned)file.position());
+            return false;
+        }
+        if ((uint32_t)file.position() <= chunk_start) {
+            Serial.printf("PARSE_FAIL: file position did not advance. chunk_start=%u file.pos=%u\n", (unsigned)chunk_start, (unsigned)file.position());
+            return false;
+        }
     }
 
-    return ((uint32_t)file.position() == range_end);
+    uint32_t final_pos = (uint32_t)file.position();
+    if (final_pos != range_end) {
+        Serial.printf("PARSE_END: final_pos=%u range_end=%u\n", final_pos, (unsigned)range_end);
+    }
+    return (final_pos == range_end);
 }
 
-static bool probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_count, uint16_t &width, uint16_t &height, uint8_t &quality)
+static uint8_t probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_count, uint16_t &width, uint16_t &height, uint8_t &quality)
 {
-	uint8_t res=0;  // 0:reussi  1:echec  2à10:autres erreurs  11à14:dégradé
+	uint8_t res=0;  // 0:echec  2à9:autres erreurs   10:reussi 11à14:dégradé
     frame_count = 0;
     width = 0;
     height = 0;
@@ -333,12 +368,18 @@ static bool probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_count,
     if (memcmp(riff_type, "AVI ", 4) != 0) return false;
 
     avi_probe_info_t info;
-    if (!parse_avi_chunks(file, (uint32_t)file_size, info)) return false;
+    // Serial.printf("PROBE: calling parse_avi_chunks file.pos=%u range_end=%u\n", (unsigned)file.position(), (unsigned)file_size);
+    if (!parse_avi_chunks(file, (uint32_t)file_size, info)) {
+        //Serial.printf("PROBE_FAIL: parse_avi_chunks returned false at pos=%u range_end=%u\n", (unsigned)file.position(), (unsigned)file_size);
+        return false;
+    }
 
     uint32_t parsed_frames = info.idx1_total_frames;
     if (parsed_frames == 0) parsed_frames = info.avih_total_frames;
     if (parsed_frames == 0) parsed_frames = info.strh_total_frames;
     if (parsed_frames == 0) parsed_frames = info.movi_total_frames;
+	//Serial.printf("AVI probe: frames=%u, idx1=%u, avih=%u, strh=%d, movi=%d\n",
+	//	parsed_frames, info.idx1_total_frames, info.avih_total_frames, info.strh_total_frames, info.movi_total_frames);
 
     uint32_t parsed_width = 0;
     uint32_t parsed_height = 0;
@@ -360,12 +401,15 @@ static bool probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_count,
     width = (uint16_t)parsed_width;
     height = (uint16_t)parsed_height;
 
+	Serial.printf("quality:%i\n", info.quality_raw);
     if ((info.quality_raw != 0) && (info.quality_raw != 0xFFFFFFFFu))
     {
         uint32_t quality_value = info.quality_raw;
         if (quality_value > 100u) quality_value = (quality_value + 50u) / 100u;
         if (quality_value > 100u) quality_value = 100u;
         quality = (uint8_t)quality_value;
+		res=10;
+		//Serial.println("0HH");
     }
     else
     {
@@ -375,6 +419,7 @@ static bool probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_count,
         if (qual > 1.0f) qual = 1.0f;
         quality = (uint8_t)(qual * 100.0f);
 		res = 11;
+		Serial.println("0II");
     }
 
 	Serial.printf("AVI probe: frames=%u, width=%u, height=%u, quality=%u\n", frame_count, width, height, quality);
@@ -1066,16 +1111,18 @@ uint8_t encodeFile()
 		uint16_t parsed_width = 0, parsed_height = 0;
 		uint8_t parsed_quality = 20;
 		// inFile is already opened above
-		if (probe_avi_mjpeg(inFile, fileSize, parsed_frames, parsed_width, parsed_height, parsed_quality))
+		uint8_t probe_result = probe_avi_mjpeg(inFile, fileSize, parsed_frames, parsed_width, parsed_height, parsed_quality);	
+		if ((probe_result >= 10))
 		{
 			nb_images_orig = (int)parsed_frames;
 			width_orig = parsed_width;
 			height_orig = parsed_height;
 			qualite_orig = parsed_quality;
-			Serial.printf("probe: nb_image:%i\n", nb_images_orig);
+			Serial.printf("probe: res:%i nb_image:%i\n %i*%i qual:%i\n", probe_result, nb_images_orig, width_orig, height_orig, qualite_orig);
 		}
 		else
 		{
+			Serial.printf("probe echec: res:%i nb_image:%i\n", probe_result, nb_images_orig);
 			// Fallback: extract first MJPEG frame from the AVI and inspect its JPEG header for size/quality
 			avi_frame_reader_t afr(SD_MMC, path_c, 0);
 			if (afr.remaining > 0)

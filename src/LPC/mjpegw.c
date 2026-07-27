@@ -268,17 +268,28 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     //ctx->f->write((uint8_t*)&ctx->riff, sizeof(ctx->riff));
     fwrite(&ctx->riff, sizeof(ctx->riff), 1, ctx->f);
 
+    // Precompute chunk payload sizes (payload = bytes after chunk header)
+    const uint32_t avih_payload = 56; // fixed
+    const uint32_t strh_payload = 56; // fixed
+    const uint32_t strf_payload = 40; // bi_size (BITMAPINFOHEADER payload)
+
+    // Compute strl payload: 4 bytes list-type + (8 + strh_payload) + (8 + strf_payload)
+    const uint32_t strl_payload = 4 + (8 + strh_payload) + (8 + strf_payload);
+
+    // Compute hdrl payload: 4 bytes list-type + (8 + avih_payload) + (8 + strl_payload)
+    const uint32_t hdrl_payload = 4 + (8 + avih_payload) + (8 + strl_payload);
+
+    // Write hdrl LIST header with correct payload size
     memcpy(ctx->hdrl.list, "LIST", 4);
-    ctx->hdrl.size = 188;
+    ctx->hdrl.size = hdrl_payload;
     memcpy(ctx->hdrl.type, "hdrl", 4);
     fwrite(&ctx->hdrl, sizeof(ctx->hdrl), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->hdrl, sizeof(ctx->hdrl));
 
     ctx->frame_count_pos = ftell(ctx->f) + 32;
-    //ctx->frame_count_pos = ctx->f->position() + 32;
+
+    // avih chunk
     memcpy(ctx->avih.id, "avih", 4);
-    ctx->avih.size = 56;
-    // microseconds per frame (set from caller)
+    ctx->avih.size = avih_payload;
     ctx->avih.microsec_per_frame = microsec_per_frame;
     ctx->avih.max_bytes_per_sec = 0;
     ctx->avih.padding_granularity = 0;
@@ -290,19 +301,24 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->avih.width = width;
     ctx->avih.height = height;
     fwrite(&ctx->avih, sizeof(ctx->avih), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->avih, sizeof(ctx->avih));
 
+    // strl LIST header
     memcpy(ctx->strl.list, "LIST", 4);
-    ctx->strl.size = sizeof(strh_chunk) + sizeof(strf_chunk);
-    assert(ctx->strl.size == 112);
+    ctx->strl.size = strl_payload;
     memcpy(ctx->strl.type, "strl", 4);
     fwrite(&ctx->strl, sizeof(ctx->strl), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->strl, sizeof(ctx->strl));
 
-    ctx->length_pos = ftell(ctx->f) + 44;
-    //ctx->length_pos = ctx->f->position() + 44;
+    // remember position near where we'll later patch the stream length field
+    // Compute offset of the 'length' field inside the upcoming 'strh' chunk.
+    // File layout: at current ftell() we will write 'strh' id (4) and size (4),
+    // then payload. Inside payload the 'length' field is at payload offset 32.
+    // Therefore the absolute file offset for the 'length' field is ftell + 8 (header) + 32.
+    ctx->length_pos = ftell(ctx->f) + 8 + 32; // = ftell + 40
+
+
+    // strh chunk
     memcpy(ctx->strh.id, "strh", 4);
-    ctx->strh.size = 56;
+    ctx->strh.size = strh_payload;
     memcpy(ctx->strh.type, "vids", 4);
     memcpy(ctx->strh.handler, "MJPG", 4);
     ctx->strh.flags = 0x10; // HAS_INDEX
@@ -310,10 +326,8 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strh.language = 0;
     ctx->strh.initial_frames = 0;
     // Use microsecond-based scale/rate so players can compute exact durations >1s
-    // Simplify rate/scale = 1000000 / microsec_per_frame by gcd to avoid very large numbers
     uint32_t nom = 1000000u;
     uint32_t den = microsec_per_frame;
-    // gcd
     uint32_t a = nom, b = den;
     while (b != 0) {
         uint32_t t = a % b;
@@ -326,17 +340,17 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strh.start = 0;
     ctx->strh.length = 0; // patch later
     ctx->strh.suggested_buffer_size = ctx->width*ctx->height*3;
-    ctx->strh.quality = -1;
+    ctx->strh.quality = (uint32_t)-1;
     ctx->strh.sample_size = 0;
     ctx->strh.frame.left = 0;
     ctx->strh.frame.top = 0;
     ctx->strh.frame.right = width;
     ctx->strh.frame.bottom = height;
     fwrite(&ctx->strh, sizeof(ctx->strh), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->strh, sizeof(ctx->strh));
 
+    // strf chunk (BITMAPINFOHEADER)
     memcpy(ctx->strf.id, "strf", 4);
-    ctx->strf.size = sizeof(ctx->strf);
+    ctx->strf.size = strf_payload;
     ctx->strf.bi_size = 40;
     ctx->strf.bi_width = width;
     ctx->strf.bi_height = height;
@@ -349,15 +363,13 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strf.bi_clr_used = 0;
     ctx->strf.bi_clr_important = 0;
     fwrite(&ctx->strf, sizeof(ctx->strf), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->strf, sizeof(ctx->strf));
 
+    // movi header
     memcpy(ctx->movi.list, "LIST", 4);
     ctx->movi.size = 0; // patch later
     memcpy(ctx->movi.type, "movi", 4);
     ctx->movi_pos = ftell(ctx->f);
-    //ctx->movi_pos = ctx->f->position();
     fwrite(&ctx->movi, sizeof(ctx->movi), 1, ctx->f);
-    //ctx->f->write((uint8_t*)&ctx->movi, sizeof(ctx->movi));
 
     ctx->idx_capacity = 256;
     ctx->idx_count = 0;
@@ -533,8 +545,8 @@ void mjpegw_set_quality(mjpegw_context *ctx, uint32_t quality)
 
     ctx->strh.quality = quality;
 
-    // length_pos was computed in mjpegw_open to point near the strh.length field. The quality field is
-    // located after length (4 bytes) and suggested_buffer_size (4 bytes), so offset by +8 from length_pos.
+    // length_pos points to the strh.length field; the quality field follows after
+    // suggested_buffer_size (4 bytes) so it's at length_pos + 4 + 4 = length_pos + 8
     long quality_pos = ctx->length_pos + 8;
 
     // Patch quality into file
