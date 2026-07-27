@@ -875,6 +875,7 @@ void capture_photo_sd()
         }
 
         // Sauvegarder le fichier
+        //uint8_t result = writeFile(fs, file_path, buf, buf_len);
         uint8_t result = writeFile(fs, file_path, save_buf, save_len);
         if (result == 0) {
             if (log_detail >= 4) ESP_LOGD(TAG, "Image saved to %s  %ims", file_path, (uint32_t)((esp_timer_get_time() - fr_start) / 1000)-temps_ready);

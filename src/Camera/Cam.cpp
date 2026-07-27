@@ -321,7 +321,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     } else {
         chosen_scale = JPG_SCALE_NONE;
     }
-
+    
     int dec_w = 0, dec_h = 0;
 
     // Calculate approximate decoded dimensions to size the RGB buffer
@@ -332,10 +332,14 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         default: dec_w = w; dec_h = h; break;
     }
 
+    Serial.printf("Chosen JPEG decode scale: %d dec_w=%d dec_h=%d\n", chosen_scale, dec_w, dec_h);
+
     // allocate RGB888 for the scaled image
     rgb_len = (size_t)dec_w * (size_t)dec_h * 3;
-    rgb_buf = (uint8_t*)malloc(rgb_len);
+    // Use heap_caps_malloc to prefer PSRAM / DMA-capable memory on ESP32
+    rgb_buf = (uint8_t*)heap_caps_malloc(rgb_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!rgb_buf) {
+        Serial.println("Malloc rgb_buf failed (heap_caps_malloc)");
         free(jpg_buf);
         return 9;
     }
@@ -356,6 +360,14 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     int src_w = dec_w;
     int src_h = dec_h;
 
+    // Debug: sample a few pixels to detect all-zero output
+    if (rgb_len >= 6) {
+        Serial.printf("Decoded image: dec_w=%d dec_h=%d rgb_len=%u first_pixels=%u,%u,%u,%u,%u,%u\n",
+                      dec_w, dec_h, (unsigned int)rgb_len,
+                      rgb_buf[0], rgb_buf[1], rgb_buf[2], rgb_buf[3], rgb_buf[4], rgb_buf[5]);
+    } else {
+        Serial.printf("Decoded image: dec_w=%d dec_h=%d rgb_len=%u\n", dec_w, dec_h, (unsigned int)rgb_len);
+    }
     
 
     // --- 3. calcul nouvelle taille ---
@@ -370,12 +382,14 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     }
 
     // --- 4. allocation buffer réduit ---
-    uint8_t* rgb_small = (uint8_t*)malloc((size_t)new_w * (size_t)new_h * 3);
+    size_t small_len = (size_t)new_w * (size_t)new_h * 3;
+    uint8_t* rgb_small = (uint8_t*)heap_caps_malloc(small_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!rgb_small) {
-        Serial.println("Malloc small failed");
+        Serial.println("Malloc small failed (heap_caps_malloc)");
         free(rgb_buf);
         return 6;
     }
+    memset(rgb_small, 0, small_len);
     printMemoryStatus();
 
     // --- 5. resize simple (nearest neighbor) ---
@@ -384,7 +398,8 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         for (int x = 0; x < new_w; x++) {
 
             int src_x = x * src_w / new_w;
-            int src_y = (src_h - 1) - (y * src_h / new_h);  // preserve original vertical orientation logic
+            // Use straightforward nearest-neighbor mapping without vertical inversion
+            int src_y = y * src_h / new_h;
 
             memcpy(
                 &rgb_small[(y * new_w + x) * 3],
@@ -392,6 +407,15 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
                 3
             );
         }
+    }
+
+    // Debug: first pixels of the reduced image
+    if (small_len >= 6) {
+        Serial.printf("rgb_small first: %u,%u,%u, %u,%u,%u new_w=%d new_h=%d small_len=%u\n",
+                      rgb_small[0], rgb_small[1], rgb_small[2], rgb_small[3], rgb_small[4], rgb_small[5],
+                      new_w, new_h, (unsigned)small_len);
+    } else {
+        Serial.printf("rgb_small small_len=%u new_w=%d new_h=%d\n", (unsigned)small_len, new_w, new_h);
     }
 
     free(rgb_buf);
@@ -406,6 +430,13 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         Serial.println("JPEG encode failed");
         free(rgb_small);
         return 7;
+    }
+
+    // Debug: check produced JPEG length and first bytes
+    if (jpg_len >= 3 && jpg_out) {
+        Serial.printf("jpg_len=%u first_jpg: %u,%u,%u\n", (unsigned)jpg_len, jpg_out[0], jpg_out[1], jpg_out[2]);
+    } else {
+        Serial.printf("jpg_len=%u (no data)\n", (unsigned)jpg_len);
     }
 
     free(rgb_small);
