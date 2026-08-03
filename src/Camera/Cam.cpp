@@ -715,11 +715,12 @@ uint8_t nbIm_to_code (uint8_t nb_imag)
     return p;
 }
 
+// 1:1 2:2 3:4 4:8 5:16 6:32 7:64 8:128
 uint8_t code_to_nbIm (uint8_t code)
 {
     uint8_t nb_imag = 1;
 
-    while (code > 1 && nb_imag < 64)
+    while (code > 1 && nb_imag <= 128)
     {
         code--;
         nb_imag <<= 1;

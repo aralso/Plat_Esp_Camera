@@ -61,6 +61,10 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
 </head>
 <body>
     <div class="header">
+        <button title="Accueil" onclick="location.href='/'">&#8962;</button>
+        <button title="Actualiser" onclick="location.reload()">&#8635;</button>
+        <button title="Vider le répertoire" onclick="clearDir()">&#128465;</button>
+        <button title="Caméra" onclick="location.href='/cam'">&#128247;</button>
         <button id="createDir">Créer Répertoire</button>
         <button id="goUp">Niveau Supérieur</button>
     </div>
@@ -146,6 +150,16 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                         } else {
                             alert('Erreur lors de la suppression');
                         }
+                    });
+            }
+        }
+
+        function clearDir() {
+            if (confirm('Supprimer tout le contenu de ce répertoire ?')) {
+                fetch(`/setSD?action=8&path=${encodeURIComponent(currentPath)}&fs=SD_MMC&out=`)
+                    .then(response => {
+                        if (response.ok) loadDirectory(currentPath);
+                        else alert('Erreur lors du vidage du répertoire');
                     });
             }
         }
@@ -321,6 +335,8 @@ String getContentType(const String& filename) {
 
   if (filename.endsWith(".mp4")) return "video/mp4";
   if (filename.endsWith(".mpeg") || filename.endsWith(".mpg")) return "video/mpeg";
+  if (filename.endsWith(".avi")) return "video/x-msvideo";
+  if (filename.endsWith(".lpc")) return "application/x-lpc";
 
   if (filename.endsWith(".mp3")) return "audio/mpeg";
   if (filename.endsWith(".wav")) return "audio/wav";
@@ -535,6 +551,20 @@ uint8_t deleteFile(fs::FS &fs, const char *path) {
     Serial.println("Delete failed");
     return 1;
   }
+}
+
+uint8_t clearDir(fs::FS &fs, const char *path) {
+  File dir = fs.open(path);
+  if (!dir || !dir.isDirectory()) return 1;
+  File entry = dir.openNextFile();
+  while (entry) {
+    String child = entry.path();
+    bool ok = entry.isDirectory() ? (clearDir(fs, child.c_str()) == 0 && fs.rmdir(child.c_str()))
+                                  : fs.remove(child.c_str());
+    entry = dir.openNextFile();
+    if (!ok) return 1;
+  }
+  return 0;
 }
 
 
@@ -843,6 +873,8 @@ void server_routes_SDCARD()
       } else {
         result = deleteFile(fs, path.c_str());
       }
+    } else if (action == 8) { // Delete directory contents
+      result = clearDir(fs, path.c_str());
     }
     else if (action == 3) { // Rename
       result = renameFile(fs, path.c_str(), out.c_str());

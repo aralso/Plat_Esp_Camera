@@ -13,6 +13,11 @@
 *.bin
 *.hex
 *.o
+*.exe
+
+*.avi
+*.lpc
+*.jpg
 
 # Logs
 *.log

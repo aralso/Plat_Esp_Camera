@@ -25,7 +25,7 @@ Param PARAMS[] = {
 
 
   // Camera capture parameters (moved to high numbers to avoid collision with SetReg)
-  {"cap_nb_images", 30, U8, 1, 30, 5, 0, nullptr, &cap_nb_images, 0},
+  {"cap_nb_images", 30, U8, 1, 128, 5, 0, nullptr, &cap_nb_images, 0},
   {"cap_interv", 31, U8, 1, 50, 10, 0, nullptr, &cap_interval_dsec, 0},  // intervalle entre images en 0.1sec
   {"cap_size", 32, U8, 1, 8, 4, 0, nullptr, &cap_size, 0},
   {"cap_jpg_comp", 33, U8, 1, 9, 3, 0, nullptr, &cap_jpg_comp, 0},
