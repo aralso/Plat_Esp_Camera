@@ -1,6 +1,10 @@
 #include <cmath>
 #include <algorithm>
+
+
+#ifndef DECODER
 #include <Arduino.h>
+#endif
 
 #include "lpc.h"
 

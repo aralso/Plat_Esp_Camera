@@ -12,6 +12,7 @@
 *.elf
 *.bin
 *.hex
+*.o
 
 # Logs
 *.log

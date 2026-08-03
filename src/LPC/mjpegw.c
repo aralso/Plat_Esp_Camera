@@ -1,14 +1,19 @@
-#include <Arduino.h>
-
-
 #include "mjpegw.h"
-#include "variables.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <math.h>
+
+#ifdef DECODER
+#define ESP_LOGD(...)
+#define ESP_LOGI(...)
+#define log_detail 0
+#else
+#include <Arduino.h>
+#include "variables.h"
+#endif
 
 
 //-----------------------------------------------------------------------------------------------------------------------------
@@ -56,7 +61,7 @@ typedef struct
     char     type[4];     // "strl"
 } avi_stream_list;
 
-#pragma pack(push, 1)
+//#pragma pack(push, 1)
 
 typedef struct
 {
@@ -101,7 +106,7 @@ typedef struct
     uint32_t bi_clr_important;
 } strf_chunk;
 
-#pragma pack(pop)
+//#pragma pack(pop)
 
 
 typedef struct
@@ -161,6 +166,9 @@ typedef struct mjpegw_context
     uint32_t width;
     uint32_t height;
     uint32_t fps;
+    uint32_t micro_sec_per_frame;
+    uint32_t quality;
+    uint32_t total_frames;
     uint32_t frame_count;
 
     mjpegw_mem_interface mem;
@@ -232,7 +240,7 @@ void debug_ctx(mjpegw_context* avi)
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
-mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t microsec_per_frame, mjpegw_mem_interface* mem)
+mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t microsec_per_frame, uint8_t quality, uint8_t total_frames, mjpegw_mem_interface* mem)
 {
     mjpegw_context* ctx = NULL;
 
@@ -249,6 +257,9 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->height = height;
     // store an estimated fps (may be 0 if microsec_per_frame > 1e6)
     ctx->fps = (microsec_per_frame > 0) ? (1000000 / microsec_per_frame) : 0;
+    ctx->micro_sec_per_frame = microsec_per_frame;
+    ctx->quality = quality;
+    ctx->total_frames = total_frames;
     ctx->frame_count = 0;
     ctx->mem = allocator;
 
@@ -285,16 +296,16 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     memcpy(ctx->hdrl.type, "hdrl", 4);
     fwrite(&ctx->hdrl, sizeof(ctx->hdrl), 1, ctx->f);
 
-    ctx->frame_count_pos = ftell(ctx->f) + 32;
+    ctx->frame_count_pos = ftell(ctx->f) +  offsetof(avih_chunk, total_frames);
 
     // avih chunk
     memcpy(ctx->avih.id, "avih", 4);
     ctx->avih.size = avih_payload;
     ctx->avih.microsec_per_frame = microsec_per_frame;
-    ctx->avih.max_bytes_per_sec = 0;
+    ctx->avih.max_bytes_per_sec = ctx->width * ctx->height /15 * ctx->fps;
     ctx->avih.padding_granularity = 0;
     ctx->avih.flags = 0x10; // HAS_INDEX
-    ctx->avih.total_frames = 0; // patch later
+    ctx->avih.total_frames = total_frames; // patch later
     ctx->avih.initial_frames = 0;
     ctx->avih.streams = 1;
     ctx->avih.suggested_buffer_size = ctx->width*ctx->height*3;
@@ -321,7 +332,7 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strh.size = strh_payload;
     memcpy(ctx->strh.type, "vids", 4);
     memcpy(ctx->strh.handler, "MJPG", 4);
-    ctx->strh.flags = 0x10; // HAS_INDEX
+    ctx->strh.flags = 0; // modif 0x10; // HAS_INDEX
     ctx->strh.priority = 0;
     ctx->strh.language = 0;
     ctx->strh.initial_frames = 0;
@@ -419,6 +430,7 @@ void jpeg_write_func(void* context, void* data, int size)
 
 
 //-----------------------------------------------------------------------------------------------------------------------------
+// Add a function that writes a RGB frame directly to the AVI
 void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality)
 {
     ctx->jpeg_size = 0;
@@ -445,8 +457,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
     assert(frame_pos != -1L);
 
     uint32_t chunk_size = ctx->jpeg_size;
-    if (ctx->jpeg_size & 1)
-        chunk_size++;
+    uint32_t chunk_padding = ctx->jpeg_size & 1;
 
     frame_chunk hdr = { .size = chunk_size };
     memcpy(hdr.id, "00dc", 4);
@@ -463,7 +474,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
         //ctx->f->write(&pad, 1);
     }
 
-    ctx->movi.size += sizeof(frame_chunk) + chunk_size;
+    ctx->movi.size += sizeof(frame_chunk) + chunk_size + chunk_padding;
 
     // Debug: record index entry and log details
     idx1_entry* entry = &ctx->idx[ctx->idx_count];
@@ -471,7 +482,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
     entry->flags = 0x10;
     //entry->offset = (uint32_t)(frame_pos - (ctx->movi_pos + 8));
     entry->offset = (uint32_t)(frame_pos - ctx->movi_pos - 8); // relative to 'movi' data start
-    entry->size = chunk_size;
+    entry->size = ctx->jpeg_size;
 
     if (log_detail >= 4) {
         ESP_LOGD("mjpegw", "add_frame: idx=%u pos=%ld offset=%u size=%u jpeg_size=%u movi_pos=%ld",
@@ -504,8 +515,7 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
     assert(frame_pos != -1L);
 
     uint32_t chunk_size = jpeg_len;
-    if (jpeg_len & 1)
-        chunk_size++;
+    uint32_t chunk_padding = jpeg_len & 1;
 
     frame_chunk hdr = { .size = chunk_size };
     memcpy(hdr.id, "00dc", 4);
@@ -519,14 +529,14 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
         fwrite(&pad, 1, 1, ctx->f);
     }
 
-    ctx->movi.size += sizeof(frame_chunk) + chunk_size;
+    ctx->movi.size += sizeof(frame_chunk) + chunk_size + chunk_padding;
 
     // Debug: record index entry and log details
     idx1_entry* entry = &ctx->idx[ctx->idx_count];
     memcpy(entry->id, "00dc", 4);
     entry->flags = 0x10;
     entry->offset = (uint32_t)(frame_pos - ctx->movi_pos - 8);
-    entry->size = chunk_size;
+    entry->size = jpeg_len;
 
     if (log_detail >= 3) {
         ESP_LOGI("mjpegw", "add_frame_jpg: idx=%u pos=%ld offset=%u size=%u jpeg_len=%u movi_pos=%ld",
@@ -535,6 +545,8 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
 
     ctx->idx_count++;
     ctx->frame_count++;
+    ctx->strh.quality = (uint32_t)ctx->quality;
+
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
@@ -1597,4 +1609,3 @@ int tje_encode_with_func(tje_write_func* func,
 
     return result;
 }
-

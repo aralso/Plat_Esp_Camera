@@ -58,7 +58,7 @@ extern "C" {
 //          [mem]               Custom allocator, if NULL stdlib will be used (alloc/realloc/free)
 //
 //  Returns a context to be used in the following function calls
-struct mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t microsec_per_frame, mjpegw_mem_interface* mem);
+struct mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t height, uint32_t microsec_per_frame, uint8_t quality, uint8_t total_frames, mjpegw_mem_interface* mem);
 
                          
 //-----------------------------------------------------------------------------------------------------------------------------

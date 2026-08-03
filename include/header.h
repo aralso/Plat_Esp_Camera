@@ -21,6 +21,7 @@
 #define heap_caps_malloc(a, b) malloc(a)
 #define IRAM_ATTR
 
+#ifndef DECODER
 #include "variables.h" // provide extern uint8_t log_detail
 
 // Map log_detail levels to ESP_LOGx behavior in host build.
@@ -67,6 +68,13 @@ static inline void ESP_LOGD(const char *tag, Types... types)
         printf(types...);
     }
 }
+#endif
+#else
+#define ESP_LOGE(...)
+#define ESP_LOGW(...)
+#define ESP_LOGI(...)
+#define ESP_LOGD(...)
+#define log_detail 0
 #endif
 
 typedef enum {

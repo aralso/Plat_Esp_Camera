@@ -716,7 +716,7 @@ uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *input_path, const char *outpu
 	Serial.printf("Encodage A: %s width=%d height=%d quality=%d\n", output_path, settings.width, settings.height, settings.quality);
 
 	uint32_t microsec_per_frame = (settings.frequency > 0) ? (1000000u / settings.frequency) : 1000000u;
-	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, microsec_per_frame, NULL);
+	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, microsec_per_frame, settings.quality, settings.frame_count, NULL);
 	if(!avi)
 	{
 		Serial.println("mjpegw_open FAILED");
@@ -754,7 +754,7 @@ uint8_t lpc_to_jpg(lpc_decoder_t &lpc, const char *input_path, const char *outpu
 	frame_path.replace(frame_path.find_last_of('.'), std::string::npos, "_frame_");
 
 	uint32_t microsec_per_frame2 = (settings.frequency > 0) ? (1000000u / settings.frequency) : 1000000u;
-	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, microsec_per_frame2, NULL);
+	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, microsec_per_frame2, settings.quality, settings.frame_count, NULL);
 	{
 		img_data_t img_rgb(settings.width, settings.height);
 		for (int i = 0; i < settings.frame_count; i++)
