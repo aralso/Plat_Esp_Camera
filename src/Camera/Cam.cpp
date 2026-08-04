@@ -306,11 +306,11 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     uint8_t* rgb_buf = NULL;
     size_t rgb_len;
 
- 		// alloc RGB888
-		rgb_len = (size_t)w * (size_t)h * 3 * sizeof(uint8_t);
-		rgb_buf = (uint8_t*)malloc(rgb_len);
-		if (rgb_buf) 
-			memset(rgb_buf, 0, rgb_len);
+    // alloc RGB888
+    rgb_len = (size_t)w * (size_t)h * 3 * sizeof(uint8_t);
+    rgb_buf = (uint8_t*)malloc(rgb_len);
+    if (rgb_buf) 
+        memset(rgb_buf, 0, rgb_len);
     else {
       free(jpg_buf);
       return 9;

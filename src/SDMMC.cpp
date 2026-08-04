@@ -24,7 +24,6 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);
 uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1);
 uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings);
-uint8_t decode_lpc(const char *path_in, uint8_t qual_decod);
 
 char path_c[128];
 uint8_t code_encod = 'H';
@@ -602,27 +601,6 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality
     uint8_t res = reduc_image(fs, jpg_buf, fileSize, path1, size, quality);
     return res;
 
-}
-
-
-
-
-uint8_t decodeFile()
-{
-
-  //Serial.printf("Decoding file %s with quality %i\n", path_c, qual_decod);
-  //delay(200);
-
-    //uint8_t res = decode_lpc(path_c, qual_decod);
-
-  /*if (fs.rename(path1, path2)) {
-    Serial.println("File renamed");
-    return 0;
-  } else {
-    Serial.println("Rename failed");
-    return 1;
-  }*/
- return 0;
 }
 
 uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len)

@@ -7,10 +7,10 @@
 #include <iostream>
 #include <string>
 
-#include "helpers.h"
 #include "mjpegw.h"
 
-#include "lpc.h"
+#include "header.h"
+#include "LPC/lpc.h"
 #include "FS.h"
 #include "SD_MMC.h"
 #include "SDMMC.h"
@@ -522,7 +522,6 @@ const int g_run_profile		= 1 << 6;
 const int g_exit 			= 1 << 31;
 
 uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *input_path, const char *output_path);
-uint8_t lpc_to_jpg(lpc_decoder_t &lpc, const char *input_path, const char *output_path);
 
 int parse_cmd(const char* cmd, uint8_t *quality)
 {
@@ -636,140 +635,6 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 	return 0;
 }
 
-
-uint8_t decode_lpc(const char *path_in, uint8_t qual_decod)
-{
-	if (strcmp(get_filename_ext(path_in), "lpc") != 0)
-	{
-		Serial.println("Input file n'est pas un fichier LPC");
-		return 1;
-	}	
-
-	// remplacement .lpc par .jpg  Attention : les repertoires ne doivent pas contenir de '.'
-	String output_path = String(path_in);
-	int pos = output_path.lastIndexOf('.');
-	if (pos >= 0)
-		output_path = output_path.substring(0, pos) + ".avi";
-	else
-		output_path += ".avi";
-
-	if (SD_MMC.exists(output_path)) {
-			Serial.println("suppression du fichier de sortie existant");
-			SD_MMC.remove(output_path);
-	}
-
-
-	filestream_t stream_input(SD_MMC, path_in, FILE_READ);
-
-	lpc_decoder_t decoder;
-	decoder.open(&stream_input);
-
-	const lpc_settings_t settings = decoder.get_settings();
-	printf("Decoding %s %d frames of size (%dx%d)\n", output_path.c_str(),settings.frame_count, settings.width, settings.height);
-
-	int res = lpc_to_avi(decoder, path_in, output_path.c_str());
-
-	/*// buffer image RGB
-	img_data_t img_rgb(settings.width, settings.height);
-
-	// décodage LPC → RGB
-	decoder.decode_frame(img_rgb.bytes);
-
-	filestream_t stream_output(SD_MMC, output_path.c_str(), FILE_APPEND);
-
-	// encodage RGB -> JPEG
-    auto write_cb = [](void *ctx, void *data, int size)
-    {
-        lpc_stream_out_t *stream = (lpc_stream_out_t *)ctx;
-		stream->write_bytes((uint8_t *)data, size);
-    };
-
-    int res = tje_encode_with_func(
-        write_cb,
-        &stream_output,
-        settings.quality,   // qualité JPEG depuis LPC settings
-        settings.width,
-        settings.height,
-        3,                  // RGB
-        img_rgb.bytes
-    );*/
-
-    if (res != 0)
-    {
-        Serial.println("Erreur encodage JPEG");
-        return 2;
-    }
-
-    Serial.println("Decode LPC → JPEG OK");
-    return 0;
-}
-
-/// MAIN LOOP
-
-uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *input_path, const char *output_path)
-{
-	const lpc_settings_t settings = lpc.get_settings();
-
-	std::string frame_path = input_path;
-	frame_path.replace(frame_path.find_last_of('.'), std::string::npos, "_frame_");
-
-	Serial.printf("Encodage A: %s width=%d height=%d quality=%d\n", output_path, settings.width, settings.height, settings.quality);
-
-	uint32_t microsec_per_frame = (settings.frequency > 0) ? (1000000u / settings.frequency) : 1000000u;
-	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, microsec_per_frame, settings.quality, settings.frame_count, NULL);
-	if(!avi)
-	{
-		Serial.println("mjpegw_open FAILED");
-		return 1;
-	}
-
-	Serial.printf("avi=%p\n", avi);
-	debug_ctx(avi);
-
-	{
-		img_data_t img_rgb(settings.width, settings.height);
-		for (int i = 0; i < settings.frame_count; i++)
-		{
-			lpc.decode_frame(img_rgb.bytes);
-
-			img_rgb.dump_bmp((frame_path + std::to_string(i) + ".bmp").c_str());
-			Serial.println("AB5");
-
-			Serial.printf("avi=%p\n", avi);
-			Serial.printf("pixels=%p\n", img_rgb.bytes);
-
-			mjpegw_add_frame(avi, img_rgb.bytes, 3);
-			Serial.println("AB6");
-		}
-	}
-	mjpegw_close(avi);
-	return 0;
-}
-
-uint8_t lpc_to_jpg(lpc_decoder_t &lpc, const char *input_path, const char *output_path)
-{
-	const lpc_settings_t settings = lpc.get_settings();
-
-	std::string frame_path = input_path;
-	frame_path.replace(frame_path.find_last_of('.'), std::string::npos, "_frame_");
-
-	uint32_t microsec_per_frame2 = (settings.frequency > 0) ? (1000000u / settings.frequency) : 1000000u;
-	struct mjpegw_context *avi = mjpegw_open(output_path, settings.width, settings.height, microsec_per_frame2, settings.quality, settings.frame_count, NULL);
-	{
-		img_data_t img_rgb(settings.width, settings.height);
-		for (int i = 0; i < settings.frame_count; i++)
-		{
-			lpc.decode_frame(img_rgb.bytes);
-
-			img_rgb.dump_bmp((frame_path + std::to_string(i) + ".bmp").c_str());
-
-			mjpegw_add_frame(avi, img_rgb.bytes, 3);
-		}
-	}
-	mjpegw_close(avi);
-	return 0;
-}
-
 //fonction plus robuste mais moins rapide que getJpegSize
 bool get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
 {
@@ -855,201 +720,6 @@ bool get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
 
 	#endif	
 }
-
-/*int main(int argc, const char **argv)
-{
-	if (file_exists(argv[1]))
-	{
-		if (strcmp(get_filename_ext(argv[1]), "lpc") == 0)
-		{
-			filestream_t stream(argv[1], "rb");
-			lpc_decoder_t decoder;
-			decoder.open(&stream);
-
-			const lpc_settings_t settings = decoder.get_settings();
-			printf("Decoding %d frames of size (%dx%d)\n", settings.frame_count, settings.width, settings.height);
-
-			lpc_to_avi(decoder, argv[1]);
-		}
-		else // encode
-		{
-			lpc_settings_t settings =
-			{
-				.quality = (uint8_t)10,
-				.frame_count = 1,
-				.frequency = 2
-			};
-			get_jpeg_size(argv[1], &settings.width, &settings.height);
-			printf("Encoding '%s' (%dx%d) with quality = %d\n", argv[1], settings.width, settings.height, settings.quality);
-
-			std::string output = argv[1];
-			output.replace(output.find_last_of('.'), std::string::npos, ".lpc");
-			filestream_t stream(output.c_str(), "wb");
-
-			lpc_encoder_t encoder;
-			encoder.open(settings, &stream);
-
-			filestream_t jpeg(argv[1], "rb");
-			encoder.encode_jpeg(&jpeg);
-
-			encoder.close();
-		}
-
-		return 0;
-	}
-
-	int type = IMG_LARGE;
-	uint32_t img_count = (type == IMG_NORMAL) ? 14 : 12;
-
-	const char *output_path = "bin/large.lpc";
-	lpc_settings_t settings =
-	{
-		.width = 800,
-		.height = 600,
-		.quality = (uint8_t)10,
-		.frequency = 2
-	};
-
-	int actions = 0;
-	if (argc > 1)
-	{
-		std::string cmd = argv[1];
-		for (int i = 2; i < argc; i++)
-			cmd += " " + std::string(argv[i]);
-		actions = parse_cmd(cmd.c_str(), &settings.quality);
-	}
-	bool interactive = actions == 0;
-
-	do {
-
-		while (actions == 0)
-		{
-			printf("What to do ?\n");
-			printf(" 1. Run encoder\n");
-			printf(" 2. Run decoder\n");
-			printf(" 3. Display encoding stats\n");
-			printf(" 4. Set encoding quality\n");
-			LPC_DEBUG_ONLY(printf(" 5. Run unit tests\n"));
-			LPC_DEBUG_ONLY(printf(" 6. Run encoder with procedural image\n"));
-			printf(" q. Exit\n");
-			printf(" > ");
-
-			std::string answer;
-			std::getline(std::cin, answer);
-			actions = parse_cmd(answer.c_str(), &settings.quality);
-		}
-
-		printf("\n");
-
-		if (actions & g_exit)
-		{
-			interactive = false;
-		}
-
-		if (actions & g_run_encode)
-		{
-			#if ESP32
-			filestream_t stream(fs, output_path, FILE_APPEND);
-			#else
-			filestream_t stream(output_path, "wb");
-			#endif
-
-			settings.frame_count = 1;
-
-			lpc_encoder_t encoder;
-			encoder.open(settings, &stream);
-
-			for (uint32_t i = 0; i < settings.frame_count; ++i)
-			{
-				filestream_t jpeg(get_img(i, type), "rb");
-				encoder.encode_jpeg(&jpeg);
-
-				#ifdef LPC_DEBUG
-				if (actions & g_display_stats)
-					encoder.stats.print();
-				#endif
-			}
-
-			encoder.close();
-		}
-
-		#if ESP32 == 0
-		if (actions & g_run_decode)
-		{
-			printf("\n>>>>> Decoding frames %s\n", output_path);
-
-			filestream_t stream(output_path, "rb");
-
-			lpc_decoder_t decoder;
-			decoder.open(&stream);
-
-			img_data_t img_rgb(decoder.get_settings().width, decoder.get_settings().height);
-			for (int frame = 0; frame < decoder.get_settings().frame_count; frame++)
-			{
-				decoder.decode_frame(img_rgb.bytes);
-				img_rgb.dump_bmp(("bin/decoded_" + std::to_string(frame) + ".bmp").c_str());
-			}
-		}
-		#endif
-
-		#ifdef LPC_DEBUG
-		if (actions & g_run_unit_tests)
-		{
-			lpc_unit_tests::run();
-		}
-		#endif
-
-		if (actions & g_procedural_img)
-		{
-			{
-				img_data_t img_rgb(settings.width, settings.height);
-
-				filestream_t stream("bin/procedural.lpc", "wb");
-				settings.frame_count = 3;
-
-				lpc_encoder_t encoder;
-				encoder.open(settings, &stream);
-
-				for (int frame = 0; frame < settings.frame_count; frame++)
-				{
-					// Make a gradient
-					for (int i = 0; i < settings.width; i++)
-					for (int j = 0; j < settings.height; j++)
-					{
-						int idx = (i + j * settings.width) * 3;
-						img_rgb.bytes[idx + 0] = 1;
-						img_rgb.bytes[idx + 1] = 1;
-						img_rgb.bytes[idx + 2] = 1;
-						img_rgb.bytes[idx + min(frame, 3)] = i * 255 / settings.width;
-					}
-					encoder.encode_frame(img_rgb.bytes);
-				}
-
-				encoder.close();
-			}
-			{
-				filestream_t stream("bin/procedural.lpc", "rb");
-				lpc_decoder_t decoder;
-				decoder.open(&stream);
-
-				img_data_t img_rgb(settings.width, settings.height);
-				for (int frame = 0; frame < settings.frame_count; frame++)
-				{
-					decoder.decode_frame(img_rgb.bytes);
-					img_rgb.dump_bmp(("bin/procedural_" + std::to_string(frame) + ".bmp").c_str());
-				}
-			}
-		}
-
-		if (interactive)
-		{
-			actions = 0;
-			printf("\n\n");
-		}
-	}
-	while (interactive);
-}*/
-
 
 uint8_t encodeFile()
 {
@@ -1373,8 +1043,17 @@ uint8_t encodeFile()
 			jpeg_reader_t jpeg(SD_MMC, path_c);   // lecture du fichier JPEG
 			encoder.encode_jpeg(&jpeg);
 		}
+
 		enc3 = millis();
+		
+		#ifdef LPC_DEBUG
+		float num_mb = (float)max(encoder.stats.num_macroblocks, 1);
+		float pblocks = 100.0f*encoder.stats.num_block_match_pred / num_mb;
+		Serial.printf("Encoding image:%i time:%lu ms p-blocks:%.1f%%", i, enc3-encprec, pblocks);
+		#else
 		Serial.printf("Encoding image:%i time:%lu ms\n", i, enc3-encprec);
+		#endif
+
 		encprec = enc3;
 	}
 	encoder.close();

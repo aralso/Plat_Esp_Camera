@@ -4,81 +4,12 @@
 // For JPEG
 #include "header.h"
 
-#define FMT_RGB 0
-#define FMT_422 1
-#define FMT_420 2
-
-#define IMG_NORMAL 0
-#define IMG_LARGE 1
-
 static inline uint8_t clamp(int v)
 {
 	if (v < 0) return 0;
 	if (v > 255) return 255;
 	return v;
 }
-
-
-const char *get_img_normal(int i)
-{
-	i++;
-	if (i >= 2) i++;
-	static char filename[64];
-	sprintf(filename, "img/normal/C01-026-F5-Q3-T0-201001-%06d.jpg", i);
-	return filename;
-}
-
-const char *get_img_large(int i)
-{
-	i = 4 + i;
-	static char filename[64];
-	sprintf(filename, "img/large/C01-066-F5-Q3-T0-201001-%06d.jpg", i);
-	return filename;
-}
-
-const char *get_img(int i, int type)
-{
-	if (type == IMG_NORMAL)
-		return get_img_normal(i);
-	if (type == IMG_LARGE)
-		return get_img_large(i);
-
-	return NULL;
-}
-
-const char *get_img_recomp(int i)
-{
-	static char filename[64];
-	sprintf(filename, "img/normal-recomp/img%02d.jpg", i);
-	return filename;
-}
-
-const char *get_img_diff(int i, int type)
-{
-	static char filename[64];
-	const char* type_name = (type == IMG_NORMAL) ? "normal" : "large";
-	sprintf(filename, "img/%s-diff/img%02d.jpg", type_name, i);
-	return filename;
-}
-
-const char *get_img_extract(int i, int type, bool to_bmp)
-{
-	static char filename[64];
-	const char* type_name = (type == IMG_NORMAL) ? "normal" : "large";
-	const char* format = to_bmp ? "bmp" : "jpg";
-	sprintf(filename, "img/%s-extract/img%02d.%s", type_name, i, format);
-	return filename;
-}
-
-const char *get_img_heif(int i, int type, bool to_bmp)
-{
-	static char filename[64];
-	const char* type_name = (type == IMG_NORMAL) ? "normal" : "large";
-	const char* format = to_bmp ? "bmp" : "jpg";
-	sprintf(filename, "img/%s-heif/img%02d.%s", type_name, i, format);
-	return filename;
-}
-
 
 struct img_data_t
 {

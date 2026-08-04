@@ -964,10 +964,6 @@ void taskHandler(void *parameter) {
                   encodeFile();
                   break;
 
-                case EVENT_DECODE_LPC:
-                  decodeFile();
-                  break;
-
                 case EVENT_ERREUR:
 
 

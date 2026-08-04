@@ -191,6 +191,7 @@ void neighbour_ctx_t::print_all() const
 
 /// LPC_STATS
 
+#if EXTENDED_STATS
 float compute_psnr(float mse)
 {
 	if (mse == 0)
@@ -213,6 +214,7 @@ float compute_mse(const macroblock_t &original, const macroblock_t &coded)
 	mse /= (LUMA_BLOCK_COUNT*LUMA_BLOCK_SIZE) * (LUMA_BLOCK_COUNT*LUMA_BLOCK_SIZE);
 	return mse;
 }
+#endif
 
 struct countbytes_t : public lpc_stream_out_t
 {
@@ -296,9 +298,10 @@ void lpc_stats_t::print()
 
 	printf("\n === ENCODING STATISTICS ===\n");
 	printf("> MSE = %.3f\n", mse/num_macroblocks);
+	
+#if EXTENDED_STATS
 	printf("> PSNR = %.3f\n", compute_psnr(mse/num_macroblocks));
 
-#if EXTENDED_STATS
 	printf("\n");
 	printf("> QP average = %.3f\n", float(qp_avg) / num_macroblocks);
 	printf("> Num macroblocks = %d\n", num_macroblocks);
@@ -351,10 +354,15 @@ void lpc_stats_t::print()
 
 void stats_add_mb(lpc_stats_t &stats, const predicted_macroblock_t &predicted, const macroblock_t &original)
 {
-	if (predicted.frame_type == FRAME_TYPE_P)
-		return;
-
 	stats.num_macroblocks++;
+
+	if (predicted.frame_type == FRAME_TYPE_P)
+	{
+		if (predicted.type == MB_TYPE_P)
+			stats.num_block_match_pred++;
+		return;
+	}
+
 	stats.num_mb_luma_4x4 += (predicted.type == MB_TYPE_I_4x4) ? 1 : 0;
 
 	if (predicted.type == MB_TYPE_I_16x16)
@@ -380,12 +388,16 @@ void stats_add_mb(lpc_stats_t &stats, const predicted_macroblock_t &predicted, c
 
 	stats.num_block_per_intra_mode[STAT_CHROMA][predicted.mode_chroma]++;
 
-	stats.mse += compute_mse(original, predicted.mb);
 	stats.qp_avg += predicted.qp;
+	
+#if EXTENDED_STATS
+	stats.mse += compute_mse(original, predicted.mb);
+#endif
 }
 
 /// UNIT TESTS
 
+#if LPC_TESTS
 namespace lpc_unit_tests
 {
 	static void test_quantization()
@@ -1154,3 +1166,4 @@ namespace lpc_unit_tests
 		remove(filename);
 	}
 }
+#endif

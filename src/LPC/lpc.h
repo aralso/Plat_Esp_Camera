@@ -21,7 +21,8 @@
 
 /// Debug macros
 
-#define EXTENDED_STATS 1
+#define EXTENDED_STATS 0
+#define LPC_TESTS 0
 
 #ifdef DEBUG
 #define LPC_DEBUG

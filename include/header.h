@@ -19,63 +19,67 @@
 #define JPGE_VERBOSE 0
 
 #define heap_caps_malloc(a, b) malloc(a)
-#define IRAM_ATTR
 
 #ifndef DECODER
-#include "variables.h" // provide extern uint8_t log_detail
+    #include "variables.h" // provide extern uint8_t log_detail
 
-// Map log_detail levels to ESP_LOGx behavior in host build.
-// log_detail: 0=NONE,1=ERROR,2=WARN,3=INFO,4=DEBUG
-#ifndef ESP_LOGE
-template<typename... Types>
-static inline void ESP_LOGE(const char *tag, Types... types)
-{
-    if (log_detail >= 1) {
-        printf("[ERROR] %s ", tag);
-        printf(types...);
+    // Map log_detail levels to ESP_LOGx behavior in host build.
+    // log_detail: 0=NONE,1=ERROR,2=WARN,3=INFO,4=DEBUG
+    #ifndef ESP_LOGE
+    template<typename... Types>
+    static inline void ESP_LOGE(const char *tag, Types... types)
+    {
+        if (log_detail >= 1) {
+            printf("[ERROR] %s ", tag);
+            printf(types...);
+        }
     }
-}
-#endif
+    #endif
 
-#ifndef ESP_LOGW
-template<typename... Types>
-static inline void ESP_LOGW(const char *tag, Types... types)
-{
-    if (log_detail >= 2) {
-        printf("[WARNING] %s ", tag);
-        printf(types...);
+    #ifndef ESP_LOGW
+    template<typename... Types>
+    static inline void ESP_LOGW(const char *tag, Types... types)
+    {
+        if (log_detail >= 2) {
+            printf("[WARNING] %s ", tag);
+            printf(types...);
+        }
     }
-}
-#endif
+    #endif
 
-#ifndef ESP_LOGI
-template<typename... Types>
-static inline void ESP_LOGI(const char *tag, Types... types)
-{
-    if (log_detail >= 3) {
-        printf("[INFO] %s ", tag);
-        printf(types...);
+    #ifndef ESP_LOGI
+    template<typename... Types>
+    static inline void ESP_LOGI(const char *tag, Types... types)
+    {
+        if (log_detail >= 3) {
+            printf("[INFO] %s ", tag);
+            printf(types...);
+        }
     }
-}
-#endif
+    #endif
 
-#ifndef ESP_LOGD
-template<typename... Types>
-static inline void ESP_LOGD(const char *tag, Types... types)
-{
-    if (log_detail >= 4) {
-        printf("[DEBUG] %s ", tag);
-        printf(types...);
+    #ifndef ESP_LOGD
+    template<typename... Types>
+    static inline void ESP_LOGD(const char *tag, Types... types)
+    {
+        if (log_detail >= 4) {
+            printf("[DEBUG] %s ", tag);
+            printf(types...);
+        }
     }
-}
-#endif
+    #endif
 #else
-#define ESP_LOGE(...)
-#define ESP_LOGW(...)
-#define ESP_LOGI(...)
-#define ESP_LOGD(...)
-#define log_detail 0
+    #define ESP_LOGE(...)
+    #define ESP_LOGW(...)
+    #define ESP_LOGI(...)
+    #define ESP_LOGD(...)
+    #define log_detail 0
 #endif
+
+#ifndef IRAM_ATTR
+    #define IRAM_ATTR
+#endif
+
 
 typedef enum {
 	JPG_SCALE_NONE,
