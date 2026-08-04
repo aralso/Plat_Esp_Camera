@@ -12,7 +12,4 @@ g++ -std=c++11 -O2 -DDECODER -Wshadow -c ../src/LPC/lpc.cpp -I ../include -o bin
 g++ -std=c++11 -O2 -DDECODER -Wshadow -c to_jpg.cpp -I ../include -I ../src/LPC -o bin/to_jpg.o
 g++ -std=c++11 -O2 -DDECODER -Wshadow -c main.cpp -I ../include -I ../src/LPC -o bin/main.o
 
-g++ -std=c++11 -O2 -Wshadow -o lpc.exe bin/main.o bin/lpc.o bin/to_jpg.o bin/jpge.o bin/yuv.o bin/mjpegw.o
-
-echo Done.
-pause
+g++ -std=c++11 -O2 -Wshadow -o lpc.exe bin/*.o

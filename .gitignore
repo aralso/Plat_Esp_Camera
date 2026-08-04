@@ -8,6 +8,9 @@
 .vscode/
 *.pioenvs/
 
+# MPV
+mpv/
+
 # Compiled files
 *.elf
 *.bin

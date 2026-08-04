@@ -84,7 +84,7 @@ void lpc_to_avi(lpc_decoder_t &lpc, const char *path)
 	std::string output = path;
 	output.replace(output.find_last_of('.'), std::string::npos, ".avi");
 
-	uint8_t cap_interval_dsec2 = settings.frequency;
+	int cap_interval_dsec2 = settings.frequency;
 	struct mjpegw_context *avi = mjpegw_open(output.c_str(), settings.width, settings.height, cap_interval_dsec2 * 100000, 60, settings.frame_count, NULL);
 	{
 		size_t bytes_len = settings.width * settings.height * 3 * sizeof(uint8_t);
@@ -97,6 +97,10 @@ void lpc_to_avi(lpc_decoder_t &lpc, const char *path)
 		}
 	}
 	mjpegw_close(avi);
+
+	std::string mpv = "C:\\Data\\Donnees\\IOT\\WS_Platformio\\Plat_Esp_Camera\\decoder\\mpv\\mpv.exe";
+	std::string cmd = mpv + " \"" + output + "\"";
+	system(cmd.c_str());
 }
 
 
@@ -167,4 +171,49 @@ int main(int argc, const char **argv)
 
 		return 0;
 	}
+
+
+	/*
+	lpc_settings_t settings =
+	{
+		.width = 578,
+		.height = 430,
+		.quality = (uint8_t)50,
+		.frequency = 2
+	};
+
+	{
+		img_data_t img_rgb(settings.width, settings.height);
+
+		filestream_t stream("procedural.lpc", "wb");
+		settings.frame_count = 1;
+
+		lpc_encoder_t encoder;
+		encoder.open(settings, &stream);
+
+		filestream_t jpeg("CA-260804-094224-H-145.jpg", "rb");
+		encoder.encode_jpeg(&jpeg);
+
+		printf("Encoding complete\n");
+		encoder.stats.print();
+
+		encoder.close();
+	}
+	{
+		printf("Decoding\n");
+
+		filestream_t stream("procedural.lpc", "rb");
+		lpc_decoder_t decoder;
+		decoder.open(&stream);
+
+		img_data_t img_rgb(settings.width, settings.height);
+		for (int frame = 0; frame < settings.frame_count; frame++)
+		{
+			decoder.decode_frame(img_rgb.bytes);
+			img_rgb.dump_jpg(("procedural_" + std::to_string(frame) + ".jpg").c_str(), 60);
+		}
+
+		decoder.close();
+	}
+	*/
 }

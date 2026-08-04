@@ -197,12 +197,13 @@ static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
 static bool _jpg_write(JDEC *decoder, rgb_t *input, const JRECT &rect)
 {
 	uint16_t w = rect.right + 1 - rect.left;
+	uint16_t h = rect.bottom + 1 - rect.top;
 	macroblock_t *macroblocks = (macroblock_t*)decoder->device.output;
 
-	unsigned first_x = (rect.left * decoder->out_width / decoder->in_width);
-	unsigned last_x = (rect.right * decoder->out_width / decoder->in_width);
-	unsigned first_y = (rect.top * decoder->out_height / decoder->in_height);
-	unsigned last_y = (rect.bottom * decoder->out_height / decoder->in_height);
+	unsigned first_x = (rect.left * decoder->out_width) / decoder->in_width;
+	unsigned last_x = (rect.right * decoder->out_width) / decoder->in_width;
+	unsigned first_y = (rect.top * decoder->out_height) / decoder->in_height;
+	unsigned last_y = (rect.bottom * decoder->out_height) / decoder->in_height;
 
 	for (unsigned mb_x = first_x / MB_SIZE; mb_x <= last_x / MB_SIZE; mb_x++)
 	{
@@ -227,11 +228,11 @@ static bool _jpg_write(JDEC *decoder, rgb_t *input, const JRECT &rect)
 					pos_x = pos_x * decoder->in_width / decoder->out_width;
 					pos_y = pos_y * decoder->in_height / decoder->out_height;
 
-					int x0 = min(pos_x + 0, decoder->in_width - 1) - rect.left;
-					int y0 = min(pos_y + 0, decoder->in_height - 1) - rect.top;
+					int x0 = max(0, (int)(min(pos_x + 0, decoder->in_width - 1) - rect.left));
+					int y0 = max(0, (int)(min(pos_y + 0, decoder->in_height - 1) - rect.top));
 
-					int x1 = min(pos_x + 1, decoder->in_width - 1) - rect.left;
-					int y1 = min(pos_y + 1, decoder->in_height - 1) - rect.top;
+					int x1 = max(0, (int)(min(pos_x + 1, decoder->in_width - 1) - rect.left));
+					int y1 = max(0, (int)(min(pos_y + 1, decoder->in_height - 1) - rect.top));
 
 					rgb_t &p00 = input[x0 + y0 * w];
 					rgb_t &p10 = input[x1 + y0 * w];
@@ -808,11 +809,10 @@ static JRESULT mcu_output (
 	/* Squeeze up pixel table if a part of MCU is to be truncated */
 	if (rx < mx) {
 		uint8_t *s, *d;
-		unsigned int x, y;
 
 		s = d = (uint8_t *)jd->workbuf;
-		for (y = 0; y < ry; y++) {
-			for (x = 0; x < rx; x++) {  /* Copy effective pixels */
+		for (unsigned y2 = 0; y2 < ry; y2++) {
+			for (unsigned x2 = 0; x2 < rx; x2++) {  /* Copy effective pixels */
 				*d++ = *s++;
 				*d++ = *s++;
 				*d++ = *s++;

@@ -243,6 +243,10 @@ lpc_stats_t::~lpc_stats_t()
 		delete[] debug_img;
 }
 
+// One value per pixel
+#define IMG_SIZE_X (num_mb_x * MB_SIZE)
+#define IMG_SIZE_Y (num_mb_y * MB_SIZE)
+
 void lpc_stats_t::reset(int mb_x, int mb_y)
 {
 	this->~lpc_stats_t();
@@ -250,15 +254,16 @@ void lpc_stats_t::reset(int mb_x, int mb_y)
 
 	num_mb_x = mb_x;
 	num_mb_y = mb_y;
-	debug_img = new uint8_t[num_mb_x * num_mb_y * 4 * 4 * 3];
+
+	debug_img = new uint8_t[IMG_SIZE_X * IMG_SIZE_Y * 3];
 }
 
 void lpc_stats_t::set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b)
 {
 	if (!debug_img)
 		return;
-
-	int idx = (num_mb_x * 4) * y + x;
+		
+	int idx = IMG_SIZE_X * y + x;
 	debug_img[idx * 3 + 0] = r;
 	debug_img[idx * 3 + 1] = g;
 	debug_img[idx * 3 + 2] = b;
@@ -287,9 +292,9 @@ void lpc_stats_t::print()
 	{
 		uint8_t *bmp;
 		size_t bmp_len;
-		fmt2bmp(debug_img, num_mb_x * 4, num_mb_y * 4, &bmp, &bmp_len);
+		fmt2bmp(debug_img, IMG_SIZE_X, IMG_SIZE_Y, &bmp, &bmp_len);
 
-		std::ofstream file_out("bin/stats_debug_img.bmp", std::ios::binary);
+		std::ofstream file_out("stats_debug_img.bmp", std::ios::binary);
 		for (int i = 0; i < bmp_len; i++)
 			file_out << bmp[i];
 

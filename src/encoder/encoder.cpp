@@ -1007,7 +1007,7 @@ uint8_t encodeFile()
 		height,    // height
 		qualite,     // quality
 		nb_images,      // frame_count
-		1,       // frequency
+		cap_interval_dsec,       // frequency
 	};
 
 	uint8_t code_im = nbIm_to_code (nb_images);
@@ -1049,7 +1049,7 @@ uint8_t encodeFile()
 		#ifdef LPC_DEBUG
 		float num_mb = (float)max(encoder.stats.num_macroblocks, 1);
 		float pblocks = 100.0f*encoder.stats.num_block_match_pred / num_mb;
-		Serial.printf("Encoding image:%i time:%lu ms p-blocks:%.1f%%", i, enc3-encprec, pblocks);
+		Serial.printf("Encoding image:%i time:%lu ms p-blocks:%.1f%%\n", i, enc3-encprec, pblocks);
 		#else
 		Serial.printf("Encoding image:%i time:%lu ms\n", i, enc3-encprec);
 		#endif

@@ -157,14 +157,14 @@ struct lpc_stream_out_t
 		}
 	}
 
-	void write_byte(uint8_t byte)
+	void write_byte(uint8_t input)
 	{
 		LPC_ASSERT(bit_idx == 0);
 
 		if (len == LPC_STREAM_CACHE_SIZE)
 			flush();
 
-		cache[len++] = byte;
+		cache[len++] = input;
 	}
 
 	void write_uint16(uint16_t val)
