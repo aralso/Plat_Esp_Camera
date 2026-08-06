@@ -15,7 +15,7 @@
 #define LPC_USE_YCBCR 1
 #define LPC_USE_CABAC 1
 #define LPC_SUPPORT_P_FRAMES 1
-#define LPC_SUPPORT_4x4 0
+#define LPC_SUPPORT_4x4 0   // 1: support 4x4 luma blocks, 0: only 16x16 luma blocks
 #define LPC_ADAPTIVE_QP 0
 
 

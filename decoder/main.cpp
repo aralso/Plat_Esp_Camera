@@ -117,6 +117,9 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 
 		img_rgb.dump_jpg(output.c_str(), 60);
 	}
+
+	ShellExecute(NULL, NULL, output.c_str(), NULL, NULL, SW_SHOW);
+
 	return 0;
 }
 

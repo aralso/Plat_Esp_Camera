@@ -1836,6 +1836,7 @@ static void win_handler(AsyncWebServerRequest *request)
     if (log_detail >= 3) ESP_LOGI(TAG, "Set Window: Start: %d %d, End: %d %d, Offset: %d %d, Total: %d %d, Output: %d %d, Scale: %u, Binning: %u", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+    Serial.printf("set_res_raw : startX: %i startY: %i endX: %i endY: %i offsetX: %i offsetY: %i totalX: %i totalY: %i outputX: %i outputY: %i scale: %u binning: %u\n", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
     if (res) {
         request->send(500);
         return;

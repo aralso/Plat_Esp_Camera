@@ -226,20 +226,20 @@ uint8_t configCamera()
         int res = 0;
         if (type_cam==2)  // OV2640
         {
-       //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
-        //  int res = s->set_res_raw(s, 0,0,0,0, im_x_debut, im_y_debut, 
-        //    im_x_fin-im_x_debut, im_y_fin-im_y_debut, im_x_fin-im_x_debut, im_y_fin-im_y_debut,0, 0);
+        //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
+          int res = s->set_res_raw(s, 0,0,0,0, x_S, y_S, x_E-x_S, y_E-y_S, x_E-x_S, y_E-y_S,0, 0);
         // ov2640 :
         // setWindow(start_x, 0, 0, 0, offset_x, offset_y, total_x, total_y, output_x, output_y, false, false, function(code, txt){
        //Set Window: Start: 0 0, End: 0 0, Offset: 400 300, Total: 800 600, Output: 320 240, Scale: 0, Binning: 0
+            Serial.printf("Camera OV2640 windowing applied %d\n", res);
         }
         if (type_cam==1) // OV3660
         {
        // ov3660 : 
        //     setWindow(start_x, start_y, end_x, end_y, offset_x, offset_y, total_x, total_y, output_x, output_y, scaling, binning, function(code, txt){
           //int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+            Serial.printf("Camera OV3660 windowing applied %d\n", res);
         }
-        Serial.printf("Camera windowing applied %d\n", res);
     }
   }
   return 0;
