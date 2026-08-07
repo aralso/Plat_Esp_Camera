@@ -725,8 +725,8 @@ uint8_t encodeFile()
 {
 	unsigned long start_enc = millis();
 
-	uint8_t nb_images_orig, nb_images, qualite_orig, qualite;
-	uint16_t width_orig, height_orig, width, height;
+	uint8_t nb_images_orig=0, nb_images, qualite_orig=0, qualite;
+	uint16_t width_orig=0, height_orig=0, width, height;
 
 	uint8_t code_images, code_width, code_compression;
 
@@ -808,13 +808,13 @@ uint8_t encodeFile()
 						if (r == 0) break;
 						total += r;
 					}
-					uint16_t w=0,h=0;
+					uint16_t w=0, h=0;
 					if (getJpegSize(frame_buf, total, w, h))
 					{
 						nb_images_orig = 1; // at least one frame
 						width_orig = w;
 						height_orig = h;
-						Serial.printf("AAA :frame_buf:%i total:%i wi:%i he:%i\n", frame_buf, total, w, h);
+						Serial.printf("frame_buf total:%i wi:%i he:%i\n", total, w, h);
 						// Try to extract quality from COM/APP markers inside the JPEG frame
 						auto extract_quality = [](const uint8_t *buf, size_t len)->int {
 							if (!buf || len < 4) return -1;
@@ -1032,7 +1032,7 @@ uint8_t encodeFile()
 	unsigned long enc2 = millis();
 	encoder.open(settings, &stream_out);
 	unsigned long encprec = millis();
-	unsigned long enc3;
+	unsigned long enc3=0;
 
 	for (uint32_t i = 0; i < settings.frame_count; ++i)
 	{

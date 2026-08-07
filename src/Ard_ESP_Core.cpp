@@ -1107,7 +1107,10 @@ uint8_t nvs_read(Param &p) {
 
         Serial.printf("parametre %s : valeur %s\n", p.key, ptr);
         return 0;
-      }    
+      }   
+
+      default:
+        break; 
   }
 
   return 1;
@@ -2898,7 +2901,7 @@ void requete_status(char *json_response, uint8_t socket, uint8_t type)
   uint32_t nb_car;
   nb_car = (uint32_t)p - (uint32_t)json_response;
   //nb_car = *p - nb_car;
-  Serial.printf("nb car status:%lu  max:%i\n\r", (uint32_t)nb_car, MAX_DUMP);
+  Serial.printf("nb car status:%u  max:%i\n\r", (uint32_t)nb_car, MAX_DUMP);
   if ((nb_car) >= MAX_DUMP-2)  // erreur dépassement de tableau
   {
     uint8_t depass;
@@ -3324,7 +3327,7 @@ void writeLog(uint8_t code, uint8_t c1, uint8_t c2, uint8_t c3, const char* mess
       addr = (activePage-1)*PAGE_SIZE + (activeIndex * LOG_ENTRY_SIZE);
     }
 
-    LogEntry log = {0};  // initialise toute la structure à 0, y compris message
+    LogEntry log = {0,0,0,0,0,0};  // initialise toute la structure à 0, y compris message
     getLocalTime(&timeinfo,100);
     time_t timestamp = mktime(&timeinfo);   // Convertit struct tm en timestamp
     log.timestamp = static_cast<uint32_t>(timestamp);  // cast explicite sur 4 octets
@@ -3505,7 +3508,7 @@ void init_time_ps()
     int day = (duree_reset / 60 / 24);
     snprintf(duree_RESET, sizeof(duree_RESET), "%d jours %d heures %d min", day, hour, min);
 
-    Serial.printf("Precedent reset(en min):%lu\n\r", (uint32_t)duree_reset);
+    Serial.printf("Precedent reset(en min):%u\n\r", (uint32_t)duree_reset);
     preferences_nvs.putUInt("time_reset0", sec / 60);
   }
 }
@@ -4100,7 +4103,7 @@ void diagnoseWiFiError() {
   } else {
     Serial.printf("   %d réseaux trouvés:\n", n);
     for (int i = 0; i < min(n, 5); ++i) { // Affiche seulement les 5 premiers
-      Serial.printf("   - %s (RSSI: %ld, Ch: %ld, %s)\n", 
+      Serial.printf("   - %s (RSSI: %i, Ch: %i, %s)\n", 
         WiFi.SSID(i).c_str(), 
         WiFi.RSSI(i), 
         WiFi.channel(i),
@@ -4199,8 +4202,8 @@ uint8_t connectWiFiWithDiagnostic() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("✅ WiFi connecté avec succès !");
     Serial.printf("   - Adresse IP: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("   - RSSI: %d dBm\n", WiFi.RSSI());
-    Serial.printf("   - Canal: %ld\n", WiFi.channel());
+    Serial.printf("   - RSSI: %i dBm\n", WiFi.RSSI());
+    Serial.printf("   - Canal: %i\n", WiFi.channel());
     Serial.printf("   - Masque: %s\n", WiFi.subnetMask().toString().c_str());
     Serial.printf("   - Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
     Serial.printf("   - DNS: %s\n", WiFi.dnsIP().toString().c_str());

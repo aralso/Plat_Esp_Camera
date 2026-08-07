@@ -243,7 +243,8 @@ void lpc_decoder_t::open(lpc_stream_in_t *stream_in)
 	prev_frame = nullptr;
 
 	int version = stream->read_byte();
-
+	(void) version;
+	
 	settings.width = stream->read_uint16();
 	settings.height = stream->read_uint16();
 	settings.quality = stream->read_byte();

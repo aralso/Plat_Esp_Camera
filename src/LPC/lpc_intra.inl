@@ -441,6 +441,9 @@ uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
 		case INTRA_HORIZONTAL_UP:
 			cost = hu_prediction(top, left, result->Y);
 			break;
+
+		default:
+			break;
 	}
 
 	return cost == 0 ? eval_cost(original, *result) : cost;
@@ -471,6 +474,9 @@ uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
 		case INTRA_PLANE:
 			cost = plane_prediction_16x16(top, left, result);
 			break;
+
+		default:
+    		break;
 	}
 
 	return cost == 0 ? eval_cost<BLOCK_SIZE>(original, result) : cost;
@@ -499,6 +505,9 @@ uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
 
 		case INTRA_PLANE:
 			cost = plane_prediction_8x8(top, left, result->C);
+			break;
+
+		default:
 			break;
 	}
 

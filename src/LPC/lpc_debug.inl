@@ -287,6 +287,9 @@ void lpc_stats_t::print()
 	int num_luma_4x4_block = num_mb_luma_4x4 * LUMA_BLOCK_COUNT*LUMA_BLOCK_SIZE;
 	int num_luma_16x16_block = num_macroblocks - num_mb_luma_4x4;
 	int num_chroma_block = num_macroblocks;
+	(void) num_luma_4x4_block;
+	(void) num_luma_16x16_block;
+	(void) num_chroma_block;
 
 	if (has_pixel)
 	{

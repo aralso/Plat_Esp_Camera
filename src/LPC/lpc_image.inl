@@ -197,7 +197,7 @@ static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
 static bool _jpg_write(JDEC *decoder, rgb_t *input, const JRECT &rect)
 {
 	uint16_t w = rect.right + 1 - rect.left;
-	uint16_t h = rect.bottom + 1 - rect.top;
+	//uint16_t h = rect.bottom + 1 - rect.top; // unused variable
 	macroblock_t *macroblocks = (macroblock_t*)decoder->device.output;
 
 	unsigned first_x = (rect.left * decoder->out_width) / decoder->in_width;
@@ -293,7 +293,7 @@ void decode_jpeg(lpc_stream_in_t *stream, uint8_t *out, int width, int height)
 
 /*----------------------------------------------------------------------------/
 / TJpgDec - Tiny JPEG Decompressor R0.01c                     (C)ChaN, 2019
-/-----------------------------------------------------------------------------/
+/-----------------------------------------------------------------------------*/
 
 
 /*-----------------------------------------------*/

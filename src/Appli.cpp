@@ -300,6 +300,7 @@ uint8_t requete_Set_appli (String param, float valf)
 {
   uint8_t res=1;
   int8_t val = round(valf);
+  (void)val;
 
     if (param == "consigne")     // Forcage consigne, rajouter duree
     {
@@ -338,7 +339,7 @@ uint8_t requete_SetReg_appli(int param, float valeurf)
 {
   int16_t valeur = int16_t(round(valeurf));
   uint8_t res = 1;
-
+  (void)valeur;
 
   return res;
 }

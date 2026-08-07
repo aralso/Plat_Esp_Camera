@@ -37,10 +37,10 @@ struct neighbour_t
 	const uint8_t *get_chroma_u() const { return valid ? chroma_u : NULL; }
 	const uint8_t *get_chroma_v() const { return valid ? chroma_v : NULL; }
 
-	const intra_mode_t get_mode_luma(int i, intra_mode_t invalid_val = INTRA_MODE_COUNT) const
+	intra_mode_t get_mode_luma(int i, intra_mode_t invalid_val = INTRA_MODE_COUNT) const
 	{ return valid && *type != MB_TYPE_P ? modes_luma[i] : invalid_val; }
 
-	const intra_mode_t get_mode_chroma(intra_mode_t invalid_val = INTRA_MODE_COUNT) const
+	intra_mode_t get_mode_chroma(intra_mode_t invalid_val = INTRA_MODE_COUNT) const
 	{ return valid && *type != MB_TYPE_P ? *mode_chroma : invalid_val; }
 };
 

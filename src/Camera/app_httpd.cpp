@@ -158,7 +158,7 @@ static struct {
     int quality;
     char file_path[128];
     TimerHandle_t timer;
-} avi_session = {0};
+} avi_session = {0}; //= {0,NULL,0,0,0,0,0,0,0,NULL};
 
 // Timer callback posted when it's time to capture the next frame. Runs in the
 // timer daemon task context; it simply posts EVENT_PRISE_VIDEO to the eventQueue.
@@ -444,6 +444,7 @@ static void capture_handler(AsyncWebServerRequest *request)
     uint8_t *buf = NULL;
     size_t buf_len = 0;
     int buf_format = 0;  // Save format before returning fb
+    (void) buf_format;
 #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
     int64_t fr_start = esp_timer_get_time();
 #endif
@@ -717,6 +718,7 @@ void capture_photo_sd()
     }
 
     buf_format = fb->format;  // Save format before returning fb
+    (void) buf_format;  // unused
 
     #if CONFIG_ESP_FACE_DETECT_ENABLED
         size_t out_len, out_width, out_height;
@@ -762,7 +764,7 @@ void capture_photo_sd()
 
     // Save image dimensions before returning fb
     int img_width = fb->width;
-    int img_height = fb->height;
+    //int img_height = fb->height;   // unused
 
     esp_camera_fb_return(fb);
     
@@ -771,7 +773,6 @@ void capture_photo_sd()
         lectureHeure(); // Met à jour timeinfo
         char dir_path[32];
         char file_path[64];
-        char base_name[32];
         int year = timeinfo.tm_year + 1900;
         int month = timeinfo.tm_mon + 1;
         int day = timeinfo.tm_mday;
@@ -798,7 +799,7 @@ void capture_photo_sd()
             // File name: C<ADDRESS>-YYMMDD-HHMMSS-<Global>-<nb><size><comp>.jpg
             int yy = year % 100;
             // Compute global code from triplet (images=1 for single photo, size_code and compression code)
-            int images_code = 1; // single photo
+            //int images_code = 1; // single photo
 
             // 2) Framesize code: derive from actual image width using size_to_code
             uint8_t size_code = 0;
