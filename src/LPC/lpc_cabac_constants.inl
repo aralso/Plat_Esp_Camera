@@ -1,5 +1,3 @@
-#include <cinttypes>
-
 namespace cst
 {
 	// Arithmetic coder
@@ -97,7 +95,7 @@ namespace cst
 	};
 	
 	// Tables 9-12 to 9-21
-	static const int g_ctx_init[CTX_COUNT][2] =
+	static const int8_t g_ctx_init[CTX_COUNT][2] =
 	{
 		{  20,  -15},  // ctxIdx 0-10: mb_type (SI/I)
 		{   2,   54},

@@ -1,5 +1,3 @@
-#include <cstdlib>
-
 /// CABAC CONTEXT
 
 // Table 9-11
@@ -168,11 +166,13 @@ void cabac_coder_t::encode_bytes(const uint8_t *bytes, size_t byte_count, int co
 
 void cabac_coder_t::encode_bit(bool bin, int context)
 {
+	PROFILER_SCOPE(CABAC_ENCODE);
+
 #if LPC_USE_CABAC == 0
 	return stream_out->write_bit(bin);
 #endif
 
-	assert(context < CTX_COUNT);
+	LPC_ASSERT(context < CTX_COUNT);
 
 	cabac_ctx_t &ctx = contexts[context];
 
@@ -203,6 +203,8 @@ void cabac_coder_t::encode_bit(bool bin, int context)
 
 void cabac_coder_t::encode_bypass(bool bin)
 {
+	PROFILER_SCOPE(CABAC_BYPASS);
+
 #if LPC_USE_CABAC == 0
 	return stream_out->write_bit(bin);
 #endif
@@ -274,7 +276,7 @@ bool cabac_coder_t::decode_bit(int context)
 	return stream_in->read_bit();
 #endif
 
-	assert(context < CTX_COUNT);
+	LPC_ASSERT(context < CTX_COUNT);
 
 	if (context == CTX_COUNT)
 	{

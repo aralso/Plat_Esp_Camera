@@ -4,6 +4,8 @@
 
 void predicted_macroblock_t::select_mode(const macroblock_t &orig, const neighbour_ctx_t &neighbours)
 {
+	PROFILER_SCOPE(SELECT_MODE);
+
 	qp_backup = 255;
 	uint32_t intra_cost = select_intra_modes(orig, neighbours);
 
@@ -81,8 +83,8 @@ inline uint32_t find_mode_luma_blocks(const macroblock_t &orig,
 			auto *pred_block = &predicted->mb.luma[block_idx];
 			auto *pred_mode = &predicted->modes_luma[block_idx];
 
-			const uint8_t *block_top = top ? &top[block_i * LUMA_BLOCK_SIZE] : NULL;
-			const uint8_t *block_left = left ? &left[block_j * LUMA_BLOCK_SIZE] : NULL;
+			const uint8_t *block_top = top ? &top[block_i * LUMA_BLOCK_SIZE] : nullptr;
+			const uint8_t *block_left = left ? &left[block_j * LUMA_BLOCK_SIZE] : nullptr;
 
 			uint32_t pred_cost = find_mode_luma_4x4(block,
 					block_top, block_left, pred_block, pred_mode);
@@ -147,8 +149,8 @@ void predict_luma_blocks(const intra_mode_t *modes,
 			intra_mode_t mode = modes[block_idx];
 			luma_block_t *block = blocks + block_idx;
 
-			const uint8_t *block_top = top ? &top[block_i * LUMA_BLOCK_SIZE] : NULL;
-			const uint8_t *block_left = left ? &left[block_j * LUMA_BLOCK_SIZE] : NULL;
+			const uint8_t *block_top = top ? &top[block_i * LUMA_BLOCK_SIZE] : nullptr;
+			const uint8_t *block_left = left ? &left[block_j * LUMA_BLOCK_SIZE] : nullptr;
 
 			predict_luma_4x4(*block, mode, block_top, block_left, block);
 		}
@@ -212,6 +214,7 @@ uint32_t compute_variance(const macroblock_t &mb)
 
 int compute_qp_delta(const macroblock_t &mb, float log_var_avg)
 {
+#if LPC_ADAPTIVE_QP
 	float bias = 0.0f;
 	uint32_t variance = compute_variance(mb);
 	float log_var = logf(variance + 1.0f) - bias;
@@ -222,6 +225,9 @@ int compute_qp_delta(const macroblock_t &mb, float log_var_avg)
 
 	float strength = 5.0f;
 	return int((log_var_avg - log_var) * strength);
+#else
+	return 0;
+#endif
 }
 
 void predicted_macroblock_t::set_qp_delta(int8_t value)
@@ -252,6 +258,8 @@ void predicted_macroblock_t::restore_qp()
 
 void predicted_macroblock_t::build_residuals(const macroblock_t &orig, mb_residuals_t *residuals) const
 {
+	PROFILER_SCOPE(BUILD_RESIDUALS);
+
 	// Luma
 	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
@@ -346,6 +354,8 @@ void predicted_macroblock_t::build_residuals(const macroblock_t &orig, mb_residu
 
 void predicted_macroblock_t::add_residuals(mb_residuals_t &residuals)
 {
+	PROFILER_SCOPE(ADD_RESIDUALS);
+
 	// Luma
 	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{

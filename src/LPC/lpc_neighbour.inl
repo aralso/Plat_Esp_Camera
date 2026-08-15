@@ -33,9 +33,9 @@ struct neighbour_t
 	void validate() { valid = true; }
 	void invalidate() { valid = false; }
 
-	const uint8_t *get_luma()     const { return valid ? luma : NULL; }
-	const uint8_t *get_chroma_u() const { return valid ? chroma_u : NULL; }
-	const uint8_t *get_chroma_v() const { return valid ? chroma_v : NULL; }
+	const uint8_t *get_luma()     const { return valid ? luma : nullptr; }
+	const uint8_t *get_chroma_u() const { return valid ? chroma_u : nullptr; }
+	const uint8_t *get_chroma_v() const { return valid ? chroma_v : nullptr; }
 
 	intra_mode_t get_mode_luma(int i, intra_mode_t invalid_val = INTRA_MODE_COUNT) const
 	{ return valid && *type != MB_TYPE_P ? modes_luma[i] : invalid_val; }
@@ -115,6 +115,8 @@ struct neighbour_ctx_t
 
 void neighbour_ctx_t::update_data(const predicted_macroblock_t &predicted)
 {
+	PROFILER_SCOPE(NEIGHBOUR_UPDATE);
+
 	const macroblock_t &mb = predicted.mb;
 
 	// Update corner data that might have been skipped

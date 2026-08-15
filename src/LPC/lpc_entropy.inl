@@ -39,7 +39,7 @@ void reorder_linear(int16_t *dst, const int16_t *src, int coeff_count)
 	}
 }
 
-// Table 9-32 � Specification of ctxBlockCat for the different blocks 
+// Table 9-32: Specification of ctxBlockCat for the different blocks 
 enum
 {
 	LUMA_DC_BLOCK = 0,
@@ -471,6 +471,8 @@ void decode_residual_block(int block_category, int16_t *residuals, int num_resid
 
 void predicted_macroblock_t::compute_cbp_flags(const mb_residuals_t &residuals)
 {
+	PROFILER_SCOPE(CBP_FLAGS);
+
 	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
 		cbp_chroma = 2;
@@ -525,6 +527,8 @@ void predicted_macroblock_t::compute_cbp_flags(const mb_residuals_t &residuals)
 void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const mb_residuals_t &residuals,
 		cabac_coder_t *cabac) const
 {
+	PROFILER_SCOPE(ENCODE_MB);
+
 	if (frame_type == FRAME_TYPE_I)
 		encode_mb_type_i(*this, neighbours, cabac);
 	else
@@ -565,11 +569,15 @@ void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const 
 	// Luma
 	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
+		PROFILER_SCOPE(ENCODE_RESIDUAL_4x4);
+
 		for (int i = 0; i < LUMA_BLOCK_COUNT * LUMA_BLOCK_COUNT; i++)
 			encode_residual_block(LUMA_BLOCK, residuals.luma[i].val, 16, cabac);
 	}
 	else // 16x16
 	{
+		PROFILER_SCOPE(ENCODE_RESIDUAL_16x16);
+
 		encode_residual_block(LUMA_DC_BLOCK, residuals.luma_dc.val, 16, cabac);
 		if (cbp_luma != 0)
 		{
@@ -580,6 +588,8 @@ void predicted_macroblock_t::encode_mb(const neighbour_ctx_t &neighbours, const 
 
 	// Chroma
 	{
+		PROFILER_SCOPE(ENCODE_RESIDUAL_CHROMA);
+
 		if (cbp_chroma & 3)
 		{
 			for (int plane = 0; plane < 2; plane++)

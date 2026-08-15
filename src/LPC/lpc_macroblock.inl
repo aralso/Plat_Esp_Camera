@@ -144,7 +144,7 @@ struct predicted_macroblock_t
 // Sum of Absolute Differences
 inline uint32_t cost_sad(uint8_t a, uint8_t b)
 {
-	return std::abs(a - b);
+	return abs(a - b);
 }
 
 template <int SIZE>
@@ -153,7 +153,7 @@ uint32_t eval_cost(const uint8_t *a, const uint8_t *b)
 	uint32_t cost = 0;
 
 	for (int i = 0; i < SIZE * SIZE; i++)
-		cost += std::abs(a[i] - b[i]);
+		cost += abs(a[i] - b[i]);
 
 	return cost;
 }

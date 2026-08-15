@@ -1,6 +1,3 @@
-#include <cmath>
-#include <algorithm>
-
 #include "lpc.h"
 
 #define LPC_VERSION 0
@@ -9,49 +6,82 @@
 #define QP_MULT_P_FRAME 1
 #define QP_OFFSET_P_FRAME 10
 
+#ifdef __wasm__
+// Handle the nolibc situation
+extern "C" void* malloc(unsigned n);
+extern "C" void free(void* p);
+template<typename T> constexpr T min(T a, T b) { return a < b ? a : b; }
+template<typename T> constexpr T max(T a, T b) { return a > b ? a : b; }
+template<typename T> constexpr T abs(T x) { return x < 0 ? -x : x; }
+extern "C" void* memcpy(void* dest, const void* src, size_t n)
+{
+	auto* d = static_cast<unsigned char*>(dest);
+	const auto* s = static_cast<const unsigned char*>(src);
+	for (size_t i = 0; i < n; ++i) d[i] = s[i];
+	return dest;
+}
+extern "C" void* memset(void* dest, int value, size_t n)
+{
+	auto* d = static_cast<unsigned char*>(dest);
+	auto v = static_cast<const unsigned char>(value);
+	for (size_t i = 0; i < n; ++i) d[i] = v;
+	return dest;
+}
+#else
+#include <cstdlib>
+#include <cstring>
+#include <algorithm>
+
 using std::min;
 using std::max;
+using std::abs;
+#endif
 
 /// UTILS
 
 #ifdef LPC_DEBUG
+#include <unordered_map>
 static struct allocs_t
 {
-	uint32_t count = 0;
+	std::unordered_map<void*, const char*> allocations;
 	size_t memory = 0;
-	void add(size_t size, const char *msg)
+	void add(void *ptr, size_t size, const char *msg)
 	{
-		count++;
 		memory += size;
+		allocations[ptr] = msg;
 		//printf("TOTAL = %.1fKo\tAlloc [%s]: %d\n", allocated_memory/1000.0f, (msg ? msg : "Unknown"), size);
 	}
-	void free()
+	void free(void *ptr)
 	{
-		count--;
+		allocations.erase(ptr);
 	}
 
 	~allocs_t()
 	{
-		LPC_ASSERT(count == 0);
+		for (const auto it : allocations)
+			printf("[LEAK] %p: %s\n", it.first, it.second);
+
+		LPC_ASSERT(allocations.size() == 0);
 	}
 } allocs;
 #endif
 
-inline void* lpc_alloc(size_t size, const char *msg = NULL)
+inline void* lpc_alloc(size_t size, const char *msg = nullptr)
 {
-	LPC_DEBUG_ONLY(allocs.add(size, msg));
-	return malloc(size);
+	void *ptr = malloc(size);
+	LPC_DEBUG_ONLY(allocs.add(ptr, size, msg));
+	return ptr;
 }
 
 template <typename T>
-inline T* lpc_alloc(size_t size, const char *msg = NULL)
+inline T* lpc_alloc(size_t size, const char *msg = nullptr)
 {
 	return (T*)lpc_alloc(size * sizeof(T), msg);
 }
 
 inline void lpc_free(void *ptr)
 {
-	LPC_DEBUG_ONLY(allocs.free());
+	LPC_DEBUG_ONLY(allocs.free(ptr));
 	free(ptr);
 }
 
@@ -72,7 +102,51 @@ inline uint8_t compute_qp(uint8_t quality)
 	return min(max(0, QP_MAX * (100 - quality) / 100), QP_MAX);
 }
 
-LPC_DEBUG_ONLY(static lpc_stats_t *STATS = NULL);
+size_t lpc_stream_in_t::read_bytes(uint8_t *data, size_t size)
+{
+	LPC_ASSERT(bit_idx == 8);
+
+	size_t bytes_read = 0;
+
+	while (bytes_read < size)
+	{
+		if (idx == capacity)
+		{
+			capacity = (uint16_t)read(cache, LPC_STREAM_CACHE_SIZE);
+			idx = 0;
+		}
+
+		if (idx == capacity)
+		{
+			done = true;
+			break;
+		}
+
+		uint16_t cache_size = capacity - idx;
+		uint16_t read_count = (uint16_t)(size - bytes_read);
+		if (read_count > cache_size)
+			read_count = cache_size;
+
+		if (data)
+			memcpy(data + bytes_read, cache + idx, read_count);
+		bytes_read += read_count;
+		idx += read_count;
+	}
+
+	return bytes_read;
+}
+
+LPC_DEBUG_ONLY(static lpc_stats_t *STATS = nullptr);
+
+/// PROFILER
+
+#ifdef LPC_PROFILE
+#define PROFILER_SCOPE(id) lpc_profiler_t profiler_##__LINE__(id)
+lpc_profiler_t::stats_t lpc_profiler_t::markers[LPC_MARKER_COUNT];
+int lpc_profiler_t::nesting = 0;
+#else
+#define PROFILER_SCOPE(id)
+#endif
 
 /// HELPERS
 
@@ -121,6 +195,8 @@ void do_encode(
 	neighbour_ctx_t &neighbours,
 	cabac_coder_t &cabac)
 {
+	PROFILER_SCOPE(DO_ENCODE);
+
 	mb_residuals_t residuals;
 
 	// Encoding
@@ -141,6 +217,8 @@ void do_encode(
 
 void lpc_encoder_t::encode_frame(const uint8_t *rgb_bytes)
 {
+	PROFILER_SCOPE(ENCODE_FRAME);
+
 	int num_mb_x = div_round_up(width, MB_SIZE);
 	int num_mb_y = div_round_up(height, MB_SIZE);
 
@@ -175,6 +253,8 @@ void lpc_encoder_t::encode_frame(const uint8_t *rgb_bytes)
 
 void lpc_encoder_t::encode_jpeg(lpc_stream_in_t *stream_in)
 {
+	PROFILER_SCOPE(ENCODE_FRAME);
+
 	int num_mb_x = div_round_up(width, MB_SIZE);
 	int num_mb_y = div_round_up(height, MB_SIZE);
 	macroblock_t *macroblocks = lpc_alloc<macroblock_t>(num_mb_x * num_mb_y, "Decoded JPEG");
@@ -243,7 +323,7 @@ void lpc_decoder_t::open(lpc_stream_in_t *stream_in)
 	prev_frame = nullptr;
 
 	int version = stream->read_byte();
-	(void) version;
+	(void) version; // unused for now
 	
 	settings.width = stream->read_uint16();
 	settings.height = stream->read_uint16();

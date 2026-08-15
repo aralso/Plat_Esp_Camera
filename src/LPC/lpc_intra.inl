@@ -402,7 +402,7 @@ uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
 {
 	const int LOG2_BLOCK_SIZE = 2;
 
-	uint32_t cost = 0;
+	uint32_t cost;
 
 	switch (mode)
 	{
@@ -443,6 +443,7 @@ uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
 			break;
 
 		default:
+			cost = 0;
 			break;
 	}
 
@@ -455,7 +456,7 @@ uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
 	const int LOG2_BLOCK_SIZE = 4;
 	const int BLOCK_SIZE = MB_SIZE;
 
-	uint32_t cost = 0;
+	uint32_t cost;
 
 	switch (mode)
 	{
@@ -476,7 +477,8 @@ uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
 			break;
 
 		default:
-    		break;
+			cost = 0;
+			break;
 	}
 
 	return cost == 0 ? eval_cost<BLOCK_SIZE>(original, result) : cost;
@@ -487,7 +489,7 @@ uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
 {
 	const int LOG2_BLOCK_SIZE = 3;
 
-	uint32_t cost = 0;
+	uint32_t cost;
 
 	switch (mode)
 	{
@@ -508,6 +510,7 @@ uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
 			break;
 
 		default:
+			cost = 0;
 			break;
 	}
 

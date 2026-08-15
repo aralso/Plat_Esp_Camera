@@ -1055,6 +1055,18 @@ uint8_t encodeFile()
 		#endif
 
 		encprec = enc3;
+
+		#ifdef LPC_PROFILE
+		for (int i = 0; i < LPC_MARKER_COUNT; i++)
+		{
+			lpc_profiler_t::stats_t &s = lpc_profiler_t::markers[i];
+			if (s.count != 0)
+			{
+				for (int i = 0; i < s.nesting; i++) printf("  ");
+				printf("- %-16s %10.3f\n", to_string((LPC_MARKER)i), (double)s.total / 1e6);
+			}
+		}
+		#endif
 	}
 	encoder.close();
 	unsigned long end_enc = millis();

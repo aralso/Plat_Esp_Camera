@@ -189,9 +189,30 @@ void neighbour_ctx_t::print_all() const
 	printf("\n");
 }
 
+void lpc_profiler_t::print()
+{
+	printf("%-16s %8s %10s %10s %10s %10s\n",
+		"MARKER", "Count", "Avg", "Min", "Max", "Total");
+
+	for (int i = 0; i < LPC_MARKER_COUNT; i++)
+	{
+		stats_t &s = markers[i];
+		if (s.count == 0)
+			continue;
+
+		printf("%-16s %8llu %10.3f %10.3f %10.3f %10.3f\n",
+			to_string((LPC_MARKER)i),    // Name
+			(unsigned long long)s.count,     // Count
+			(double)s.total / s.count / 1e6, // Average
+			(double)s.min / 1e6,             // Min
+			(double)s.max / 1e6,             // Max
+			(double)s.total / 1e6);          // Total
+	}
+}
+
 /// LPC_STATS
 
-#if EXTENDED_STATS
+#ifdef LPC_PSNR
 float compute_psnr(float mse)
 {
 	if (mse == 0)
@@ -207,7 +228,7 @@ float compute_mse(const macroblock_t &original, const macroblock_t &coded)
 	{
 		for (int j = 0; j < LUMA_BLOCK_SIZE*LUMA_BLOCK_SIZE; j++)
 		{
-			float diff = (float)std::abs(original.luma[i].Y[j] - coded.luma[i].Y[j]);
+			float diff = (float)abs(original.luma[i].Y[j] - coded.luma[i].Y[j]);
 			mse += diff * diff;
 		}
 	}
@@ -284,13 +305,6 @@ void lpc_stats_t::print()
 	if (num_macroblocks == 0)
 		return;
 
-	int num_luma_4x4_block = num_mb_luma_4x4 * LUMA_BLOCK_COUNT*LUMA_BLOCK_SIZE;
-	int num_luma_16x16_block = num_macroblocks - num_mb_luma_4x4;
-	int num_chroma_block = num_macroblocks;
-	(void) num_luma_4x4_block;
-	(void) num_luma_16x16_block;
-	(void) num_chroma_block;
-
 	if (has_pixel)
 	{
 		uint8_t *bmp;
@@ -304,14 +318,26 @@ void lpc_stats_t::print()
 		free(bmp);
 	}
 
+#ifdef LPC_PROFILE
+	printf("\n === PERFORMANCE ===\n");
+	lpc_profiler_t::print();
+#endif
+
 	printf("\n === ENCODING STATISTICS ===\n");
+
+#ifdef LPC_PSNR
 	printf("> MSE = %.3f\n", mse/num_macroblocks);
-	
-#if EXTENDED_STATS
 	printf("> PSNR = %.3f\n", compute_psnr(mse/num_macroblocks));
+#endif
 
 	printf("\n");
 	printf("> QP average = %.3f\n", float(qp_avg) / num_macroblocks);
+
+#if EXTENDED_STATS
+	int num_luma_4x4_block = num_mb_luma_4x4 * LUMA_BLOCK_COUNT*LUMA_BLOCK_SIZE;
+	int num_luma_16x16_block = num_macroblocks - num_mb_luma_4x4;
+	int num_chroma_block = num_macroblocks;
+
 	printf("> Num macroblocks = %d\n", num_macroblocks);
 	print_stat(">", "Num macroblocks using 4x4 luma blocks",
 			num_mb_luma_4x4, num_macroblocks);
@@ -398,14 +424,14 @@ void stats_add_mb(lpc_stats_t &stats, const predicted_macroblock_t &predicted, c
 
 	stats.qp_avg += predicted.qp;
 	
-#if EXTENDED_STATS
+#ifdef LPC_PSNR
 	stats.mse += compute_mse(original, predicted.mb);
 #endif
 }
 
 /// UNIT TESTS
 
-#if LPC_TESTS
+#ifdef LPC_TESTS
 namespace lpc_unit_tests
 {
 	static void test_quantization()

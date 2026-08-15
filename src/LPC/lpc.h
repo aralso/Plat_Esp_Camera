@@ -1,11 +1,18 @@
 #pragma once
 
-#include <cassert>
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
-#include <cstddef>
-#include <cinttypes>
+#ifdef __wasm__
+	typedef unsigned char      uint8_t;
+	typedef unsigned short     uint16_t;
+	typedef unsigned int       uint32_t;
+	typedef unsigned int       size_t;
+	
+	typedef signed char        int8_t;
+	typedef signed short       int16_t;
+	typedef signed int         int32_t;
+#else
+	#include <cassert>
+	#include <cinttypes>
+#endif
 
 /// Compile time settings
 #ifndef LPC_STREAM_CACHE_SIZE
@@ -15,14 +22,13 @@
 #define LPC_USE_YCBCR 1
 #define LPC_USE_CABAC 1
 #define LPC_SUPPORT_P_FRAMES 1
-#define LPC_SUPPORT_4x4 0   // 1: support 4x4 luma blocks, 0: only 16x16 luma blocks
+#define LPC_SUPPORT_4x4 0
 #define LPC_ADAPTIVE_QP 0
 
 
 /// Debug macros
 
 #define EXTENDED_STATS 0
-#define LPC_TESTS 0
 
 #ifdef DEBUG
 #define LPC_DEBUG
@@ -36,7 +42,6 @@
 #define LPC_ASSERT(x)
 #endif
 
-const char *get_filename_ext(const char *filename);
 
 /// Public API
 
@@ -87,39 +92,7 @@ struct lpc_stream_in_t
 		return (((uint16_t)read_byte()) << 8) | (uint16_t)read_byte();
 	}
 
-	inline size_t read_bytes(uint8_t *data, size_t size)
-	{
-		LPC_ASSERT(bit_idx == 8);
-
-		size_t bytes_read = 0;
-
-		while (bytes_read < size)
-		{
-			if (idx == capacity)
-			{
-				capacity = (uint16_t)read(cache, LPC_STREAM_CACHE_SIZE);
-				idx = 0;
-			}
-
-			if (idx == capacity)
-			{
-				done = true;
-				break;
-			}
-
-			uint16_t cache_size = capacity - idx;
-			uint16_t read_count = (uint16_t)(size - bytes_read);
-			if (read_count > cache_size)
-				read_count = cache_size;
-
-			if (data)
-				memcpy(data + bytes_read, cache + idx, read_count);
-			bytes_read += read_count;
-			idx += read_count;
-		}
-
-		return bytes_read;
-	}
+	size_t read_bytes(uint8_t *data, size_t size);
 
 protected:
 	virtual size_t read(uint8_t *data, size_t size) = 0;
@@ -263,4 +236,8 @@ namespace lpc_unit_tests
 {
 	void run();
 }
+#endif
+
+#ifdef LPC_PROFILE
+#include "lpc_profile.inl"
 #endif
