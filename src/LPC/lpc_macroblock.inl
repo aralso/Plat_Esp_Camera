@@ -100,17 +100,15 @@ struct predicted_macroblock_t
 		// 4x4
 		intra_mode_t modes_luma[LUMA_BLOCK_COUNT*LUMA_BLOCK_COUNT];
 		// 16x16
-		struct
-		{
-			intra_mode_t mode_luma;
-			uint8_t cbp_luma;
-		};
+		intra_mode_t mode_luma;
 	};
 	intra_mode_t mode_chroma;
-	uint8_t cbp_chroma;
-	
-	frame_type_t frame_type;
+
+	uint8_t cbp_luma : 4;
+	uint8_t cbp_chroma : 2;
+	frame_type_t frame_type : 1;
 	mb_type_t type;
+
 	uint8_t qp;
 	uint8_t qp_backup;
 	int8_t qp_delta;

@@ -458,6 +458,33 @@ namespace lpc_unit_tests
 				assert(test.val[i] == residuals.val[i]);
 		}
 
+		// Process for Luma with MB_4x4
+		{
+			qp = 10;
+
+			residual_t residuals;
+			for (int i = 0; i < 4; i++)
+			{
+				int vals[4] = {0, 4, 8, 13};
+				for (int j = 0; j < 4; j++)
+					residuals.val[i * 4 + j] = vals[i];
+			}
+
+			residual_t test;
+			memcpy(&test, &residuals, sizeof(residual_t));
+
+			test.transform();
+			test.quantize(qp);
+
+			test.inverse_quantize(qp);
+			test.inverse_transform();
+
+			for (int i = 0; i < 4 * 4; i++)
+				assert(test.val[i] == residuals.val[i]);
+
+			qp = 0;
+		}
+
 		// Process for Luma with MB_16x16
 		{
 			residual_t residuals;
@@ -995,7 +1022,8 @@ namespace lpc_unit_tests
 			img_rgb[idx+2] = 1;
 
 			// Gradient in the given channel
-			img_rgb[idx+channel] = (i * 255) / MB_SIZE;
+			if (channel >= 0 && channel <= 3)
+				img_rgb[idx+channel] = (i * 255) / MB_SIZE;
 		}
 
 		return img_rgb;
@@ -1040,7 +1068,7 @@ namespace lpc_unit_tests
 			pred_decoded.decode_mb(neighbours, &resid_decoded, &decoder);
 
 			assert(pred_decoded.type == pred.type);
-			assert(pred_decoded.mode_chroma == pred.mode_chroma);
+			assert(pred_decoded.cbp_luma == pred.cbp_luma);
 			assert(pred_decoded.cbp_chroma == pred.cbp_chroma);
 
 			#if LPC_ADAPTIVE_QP
@@ -1049,7 +1077,6 @@ namespace lpc_unit_tests
 
 			if (pred.type == MB_TYPE_I_16x16)
 			{
-				assert(pred_decoded.cbp_luma == pred.cbp_luma);
 				assert(pred_decoded.mode_luma == pred.mode_luma);
 				for (int i = 0; i < 4*4; i++)
 				{
@@ -1068,6 +1095,7 @@ namespace lpc_unit_tests
 				}
 			}
 
+			assert(pred_decoded.mode_chroma == pred.mode_chroma);
 			for (int plane = 0; plane < 2; plane++)
 			{
 				for (int i = 0; i < 2 * 2; i++)

@@ -113,8 +113,8 @@ uint32_t predicted_macroblock_t::select_intra_modes(const macroblock_t &orig, co
 				predicted_luma, &mode_luma);
 
 		type = (LPC_SUPPORT_4x4 && cost_16x16 > 200 * uint32_t(qp)) ? MB_TYPE_I_4x4 : MB_TYPE_I_16x16;
-		//type = MB_TYPE_4x4;
-		//type = MB_TYPE_16x16;
+		//type = MB_TYPE_I_4x4;
+		//type = MB_TYPE_I_16x16;
 
 		if (type == MB_TYPE_I_16x16 && cost_16x16 != MAX_COST(MB_SIZE))
 			reorder_luma_16x16_as_block(mb.luma, predicted_luma);
@@ -260,49 +260,50 @@ void predicted_macroblock_t::build_residuals(const macroblock_t &orig, mb_residu
 {
 	PROFILER_SCOPE(BUILD_RESIDUALS);
 
+	// Note residual blocks are ordered in 4 groups of 2x2 for cbp computations (instead of simply a group of 4x4)
+
 	// Luma
-	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
-		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+		for (int sub_block = 0; sub_block < 4; sub_block++)
 		{
-			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+			for (int b = 0; b < 4; b++)
 			{
-				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
+				int sbx = (sub_block >> 1) * 2;
+				int sby = (sub_block & 1) * 2;
+				
+				int bx = (b >> 1);
+				int by = (b & 1);
+
+				int block_idx = (sbx + bx) * 4 + (sby + by);
+				int residual_idx = sub_block * 4 + b;
+
 				auto &block = orig.luma[block_idx];
 				auto *pred_block = &mb.luma[block_idx];
 
 				// Compute the residuals
 				for (int i = 0; i < 4 * 4; i++)
-					residuals->luma[block_idx].val[i] = block.Y[i] - pred_block->Y[i];
+					residuals->luma[residual_idx].val[i] = block.Y[i] - pred_block->Y[i];
 
-				residuals->luma[block_idx].transform();
-				residuals->luma[block_idx].quantize(qp);
+				if (type == MB_TYPE_I_16x16)
+				{
+					// Transform and move DC to their own block
+					residuals->luma[residual_idx].transform();
+					residuals->luma_dc.val[block_idx] = residuals->luma[residual_idx].val[0];
+					residuals->luma[residual_idx].quantize(qp);
+				}
+				else
+				{
+					residuals->luma[residual_idx].transform();
+					residuals->luma[residual_idx].quantize(qp);
+				}
 			}
 		}
-	}
-	else // 16x16
-	{
-		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+
+		if (type == MB_TYPE_I_16x16)
 		{
-			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
-			{
-				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
-				auto &block = orig.luma[block_idx];
-				auto *pred_block = &mb.luma[block_idx];
-
-				// Compute the residuals
-				for (int i = 0; i < 4 * 4; i++)
-					residuals->luma[block_idx].val[i] = block.Y[i] - pred_block->Y[i];
-
-				// Transform and move DC to their own block
-				residuals->luma[block_idx].transform();
-				residuals->luma_dc.val[block_idx] = residuals->luma[block_idx].val[0];
-				residuals->luma[block_idx].quantize(qp);
-			}
+			residuals->luma_dc.dc_transform();
+			residuals->luma_dc.dc_quantize(qp);
 		}
-
-		residuals->luma_dc.dc_transform();
-		residuals->luma_dc.dc_quantize(qp);
 	}
 
 	// Chroma
@@ -357,44 +358,43 @@ void predicted_macroblock_t::add_residuals(mb_residuals_t &residuals)
 	PROFILER_SCOPE(ADD_RESIDUALS);
 
 	// Luma
-	if (type == MB_TYPE_I_4x4 || type == MB_TYPE_P)
 	{
-		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+		if (type == MB_TYPE_I_16x16)
 		{
-			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
-			{
-				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
-				auto &block = mb.luma[block_idx];
-				auto &resid = residuals.luma[block_idx];
-
-				// Inverse transform
-				resid.inverse_quantize(qp);
-				resid.inverse_transform();
-
-				// Add residuals to prediction
-				for (int i = 0; i < 4 * 4; i++)
-					block.Y[i] = clamp8(block.Y[i] + resid.val[i]);
-			}
+			// Dequantize
+			residuals.luma_dc.dc_inverse_quantize(qp);
+			residuals.luma_dc.dc_inverse_transform();
 		}
-	}
-	else // 16x16
-	{
-		// Dequantize
-		residuals.luma_dc.dc_inverse_quantize(qp);
-		residuals.luma_dc.dc_inverse_transform();
 
-		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
+		for (int sub_block = 0; sub_block < 4; sub_block++)
 		{
-			for (int block_j = 0; block_j < LUMA_BLOCK_COUNT; block_j++)
+			for (int b = 0; b < 4; b++)
 			{
-				int block_idx = block_i * LUMA_BLOCK_COUNT + block_j;
-				auto &block = mb.luma[block_idx];
-				auto &resid = residuals.luma[block_idx];
+				int sbx = (sub_block >> 1) * 2;
+				int sby = (sub_block & 1) * 2;
+				
+				int bx = (b >> 1);
+				int by = (b & 1);
 
-				// Restore the DC and transform
-				resid.inverse_quantize(qp);
-				resid.val[0] = residuals.luma_dc.val[block_idx];
-				resid.inverse_transform();
+				int block_idx = (sbx + bx) * 4 + (sby + by);
+				int residual_idx = sub_block * 4 + b;
+
+				auto &block = mb.luma[block_idx];
+				auto &resid = residuals.luma[residual_idx];
+
+				if (type == MB_TYPE_I_16x16)
+				{
+					// Restore the DC and transform
+					resid.inverse_quantize(qp);
+					resid.val[0] = residuals.luma_dc.val[block_idx];
+					resid.inverse_transform();
+				}
+				else
+				{
+					// Inverse transform
+					resid.inverse_quantize(qp);
+					resid.inverse_transform();
+				}
 
 				// Add residuals to prediction
 				for (int i = 0; i < 4 * 4; i++)

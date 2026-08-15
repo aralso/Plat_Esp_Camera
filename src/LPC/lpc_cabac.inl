@@ -9,6 +9,7 @@ enum
 	CTX_MB_QP_DELTA_START = 60,				// mb_qp_delta (ctxIdx 60-63)
 	CTX_INTRA_CHROMA_PRED_START = 64,		// intra_chroma_pred_mode (ctxIdx 64-67)
 	CTX_PREV_INTRA_PRED_FLAG_START = 68,	// prev_intra*_pred_mode_flag (ctxIdx 68-72)
+	CTX_CODED_BLOCK_PATTERN_START = 73,		// coded_block_pattern (ctxIdx 73-84)
 	CTX_CODED_BLOCK_FLAG_START = 85,		// coded_block_flag (ctxIdx 85-104)
 	CTX_SIG_COEFF_FLAG_START = 105,			// significant_coeff_flag (ctxIdx 105-165)
 	CTX_LAST_SIG_COEFF_START = 166,			// last_significant_coeff_flag (ctxIdx 166-226)
@@ -21,7 +22,6 @@ enum
 	CTX_SUB_MB_TYPE_B_START = 36,			// B slice sub_mb_type (ctxIdx 36-39)
 	CTX_MVD_START = 40,						// mvd (ctxIdx 40-46)
 	CTX_REF_IDX_START = 54,					// ref_idx (ctxIdx 54-59)
-	CTX_CODED_BLOCK_PATTERN_START = 73,		// coded_block_pattern (ctxIdx 73-84)
 
 	CTX_COUNT = 276
 };
