@@ -82,13 +82,17 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
     </table>
 
     <script>
-        let currentPath = '/';
+		let url = new URL(window.location.href)
+        let currentPath = url.searchParams.get("path") || '/';
 
         function loadDirectory(path) {
             currentPath = path;
             fetch(`/getSD?action=1&path=${encodeURIComponent(path)}&fs=SD_MMC`)
                 .then(response => response.json())
                 .then(data => {
+					url.searchParams.set("path", path);
+					history.pushState({}, '', url.href)
+
                     const tbody = document.getElementById('fileList');
                     tbody.innerHTML = '';
                     data.forEach(item => {
@@ -290,8 +294,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        // Load root on start
-        loadDirectory('/');
+        loadDirectory(currentPath);
     </script>
 </body>
 </html>
