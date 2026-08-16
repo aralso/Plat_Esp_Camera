@@ -4261,11 +4261,11 @@ uint16_t decod_asc16 (uint8_t * index)
 	return val;
 }
 
-#if defined(ARDUINO_ARCH_ESP32) && defined(WIFI_TX_INFO_T)
+//#if defined(ARDUINO_ARCH_ESP32) && defined(WIFI_TX_INFO_T)
 void OnDataSent(const wifi_tx_info_t* info, esp_now_send_status_t status)
-#else
+/*#else
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status)
-#endif
+#endif*/
 {
     if (status == ESP_NOW_SEND_SUCCESS) {
         ackReceived = true;

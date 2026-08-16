@@ -90,7 +90,7 @@ typedef enum {
 } jpg_scale_t;
 
 
-typedef int32_t esp_err_t;
+//typedef int32_t esp_err_t;
 
 typedef size_t(*jpg_out_cb)(void*,size_t,const void*, int);
 

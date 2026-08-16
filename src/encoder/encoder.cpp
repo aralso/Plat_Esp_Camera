@@ -1,4 +1,3 @@
-#define ESP32 1
 
 #include <stdint.h>
 #include <cstring>
@@ -427,7 +426,7 @@ static uint8_t probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_cou
 }
 
 
-#if ESP32
+#if CONFIG_ESP32
 struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
 {
     File file;
@@ -638,7 +637,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 //fonction plus robuste mais moins rapide que getJpegSize
 bool get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
 {
-	#if ESP32
+	#if CONFIG_ESP32
 	filestream_t stream(SD_MMC, path);
 
     while (!stream.empty())

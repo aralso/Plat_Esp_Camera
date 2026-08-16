@@ -11,6 +11,8 @@
 #include "camera.h"
 #include "../lpc/lpc.h"
 
+
+
 // size/code helpers moved to end of file
 // (size_to_code and code_to_size are defined at the end of this TU)
 
@@ -21,6 +23,9 @@
 
 #include "SDMMC.h"
 #include "camera_pins.h"
+
+
+
 
 
 // nb images : 1(1) 2(2) 3(4) 4(8) 5(16) 6(32) 7(64)
@@ -40,7 +45,7 @@
  uint8_t im_y_fin;
  uint8_t type_cam;   // 0:non def, 1:OV3660  2:0V2640
 
- bool fmt2rgb888_scaled(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, jpg_scale_t scale, int *width, int *height);
+// bool fmt2rgb888_scaled(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, jpg_scale_t scale, int *width, int *height);
 
  // Size/codec helpers
 // New signatures: each function provides the other two values via output parameters.
@@ -164,7 +169,7 @@ uint8_t inline initCamera() {
 
   }
 
-  esp_err_t err = esp_camera_init(&config);
+  uint8_t err = (uint8_t) esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     return 1;

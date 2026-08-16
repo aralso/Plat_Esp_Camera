@@ -38,7 +38,8 @@ static const char * jd_errors[] = {
     "Not supported JPEG standard"
 };
 
-static uint32_t _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
+static UINT _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
+//static uint32_t _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
 {
     uint16_t x = rect->left;
     uint16_t y = rect->top;
@@ -54,7 +55,8 @@ static uint32_t _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
     return 0;
 }
 
-static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
+static UINT _jpg_read(JDEC *decoder, BYTE *buf, UINT len)
+//static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
 {
     esp_jpg_decoder_t * jpeg = (esp_jpg_decoder_t *)decoder->device;
     if (jpeg->len && len > (jpeg->len - jpeg->index)) {

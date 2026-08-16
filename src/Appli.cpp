@@ -27,15 +27,16 @@
 extern WiFiClient client;
 extern Preferences preferences_nvs;  // Déclaration externe
 
-//void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len);
-void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len);
+
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len);
+//void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len);
 //void OnDataRecv(const esp_now_peer_info_t * info, const uint8_t *incomingData, int len);
 
-#if defined(ARDUINO_ARCH_ESP32) && defined(WIFI_TX_INFO_T)
+//#if defined(ARDUINO_ARCH_ESP32) && defined(WIFI_TX_INFO_T)
 void OnDataSent(const wifi_tx_info_t* info, esp_now_send_status_t status);
-#else
+/*#else
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status);
-#endif
+#endif*/
 
 uint8_t parseMacString(const char* str, uint8_t mac[6]);
 
@@ -619,15 +620,15 @@ float readBatteryVoltage() {
 }
 
 // Callback reception ESP-NOW
-void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+//void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
 //void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
-//void OnDataRecv(const esp_now_peer_info_t * info, const uint8_t *incomingData, int len) {
+void OnDataRecv(const esp_now_recv_info_t * info, const uint8_t *incomingData, int len) {
   // 🔍 DIAGNOSTIC: Afficher infos de réception
   Serial.println("\n📥 ========== RECEPTION ESP-NOW ==========");
-  for (int i = 0; i < 6; i++) {
+  /*for (int i = 0; i < 6; i++) {
         Serial.printf("%02X", mac[i]);
         if (i < 5) Serial.print(":");
-    }
+    }*/
   /*Serial.printf("   Source MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
                 info->src_addr[0], info->src_addr[1], info->src_addr[2],
                 info->src_addr[3], info->src_addr[4], info->src_addr[5]);*/

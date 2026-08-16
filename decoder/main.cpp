@@ -1,4 +1,4 @@
-#define ESP32 0
+#define CONFIG_ESP32 0
 
 #include <chrono>
 
@@ -16,7 +16,7 @@
 
 /// FILE STREAMS
 
-#if ESP32
+#if CONFIG_ESP32
 struct filestream_t : public lpc_stream_out_t
 {
 	File file;

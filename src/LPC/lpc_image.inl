@@ -227,11 +227,11 @@ static bool _jpg_write(JDEC *decoder, rgb_t *input, const JRECT &rect)
 					pos_x = pos_x * decoder->in_width / decoder->out_width;
 					pos_y = pos_y * decoder->in_height / decoder->out_height;
 
-					int x0 = max(0, (int)(min(pos_x + 0, decoder->in_width - 1) - rect.left));
-					int y0 = max(0, (int)(min(pos_y + 0, decoder->in_height - 1) - rect.top));
+					int x0 = max(0, (int)(min(pos_x + 0, (unsigned int)decoder->in_width - 1) - rect.left));
+					int y0 = max(0, (int)(min(pos_y + 0, (unsigned int)decoder->in_height - 1) - rect.top));
 
-					int x1 = max(0, (int)(min(pos_x + 1, decoder->in_width - 1) - rect.left));
-					int y1 = max(0, (int)(min(pos_y + 1, decoder->in_height - 1) - rect.top));
+					int x1 = max(0, (int)(min(pos_x + 1, (unsigned int)decoder->in_width - 1) - rect.left));
+					int y1 = max(0, (int)(min(pos_y + 1, (unsigned int)decoder->in_height - 1) - rect.top));
 
 					rgb_t &p00 = input[x0 + y0 * w];
 					rgb_t &p10 = input[x1 + y0 * w];
