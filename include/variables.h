@@ -100,23 +100,23 @@ typedef struct Param {
 // Forward declarations for variables used in PARAMS
 extern uint8_t mode_reseau;
 extern uint16_t nb_reset;
-extern RTC_DATA_ATTR uint8_t periode_cycle;
-extern RTC_DATA_ATTR uint8_t mode_rapide;
+extern  uint8_t periode_cycle;
+extern  uint8_t mode_rapide;
 extern uint8_t log_detail;
 extern uint8_t DelaiWebsocket;
-extern RTC_DATA_ATTR uint8_t skip_graph;
+extern  uint8_t skip_graph;
 extern uint16_t Seuil_batt_sonde;
-extern RTC_DATA_ATTR uint8_t Nb_jours_Batt_log;
-extern RTC_DATA_ATTR uint16_t prolong_veille;
-extern RTC_DATA_ATTR uint8_t action_stockage;
-extern RTC_DATA_ATTR uint8_t action_envoi;
+extern  uint8_t Nb_jours_Batt_log;
+extern  uint16_t prolong_veille;
+extern  uint8_t action_stockage;
+extern  uint8_t action_envoi;
 extern char nom_routeur[];
 extern char mdp_routeur[];
 extern uint8_t websocket_on;
 extern char ip_websocket[];
 extern uint8_t id_websocket;
 extern uint8_t WIFI_CHANNEL;
-extern RTC_DATA_ATTR uint8_t last_wifi_channel;
+extern  uint8_t last_wifi_channel;
 extern IPAddress local_ip;
 extern IPAddress gateway;
 extern IPAddress subnet;
@@ -333,9 +333,9 @@ extern uint16_t nb_reset;
 extern QueueHandle_t eventQueue;  // File d'attente des événements sequenceur
 extern uint16_t erreur_queue;
 extern TimerHandle_t debounceTimer;
-extern RTC_DATA_ATTR uint8_t periode_cycle;
-extern RTC_DATA_ATTR uint8_t mode_rapide;
-extern RTC_DATA_ATTR uint16_t prolong_veille;
+extern  uint8_t periode_cycle;
+extern  uint8_t mode_rapide;
+extern  uint16_t prolong_veille;
 
 #define MAX_DUMP 6900              // 600 + 1050 car par graphique
 extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
@@ -343,21 +343,20 @@ extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
 extern uint16_t date_ac;
 extern uint8_t cpt_securite;
 extern uint8_t WIFI_CHANNEL;
-extern RTC_DATA_ATTR uint8_t
-    last_wifi_channel;     // Mémorisation du canal Wifi en DeepSleep
+extern uint8_t last_wifi_channel;     // Mémorisation du canal Wifi en DeepSleep
 extern uint8_t rtc_valid;  // 0:cold reset  1:reset apres deep sleep
-extern RTC_DATA_ATTR uint16_t   cpt_cycle_batt;                   // Compteur cycles pour mesure batterie
+extern  uint16_t   cpt_cycle_batt;                   // Compteur cycles pour mesure batterie
 extern volatile uint8_t ackReceived;  // global pour indiquer que le peer a acké
 extern volatile int ackChannel;       // canal où ça a marché
 extern uint8_t init_time;
 extern float heure;
-extern RTC_DATA_ATTR uint8_t skip_graph;
-extern RTC_DATA_ATTR uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
+extern  uint8_t skip_graph;
+extern  uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
 extern float Tint, Text;
 
 
-extern RTC_DATA_ATTR float tempI_moy24h, tempE_moy24h, cout_moy24h;
-extern RTC_DATA_ATTR uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
+extern  float tempI_moy24h, tempE_moy24h, cout_moy24h;
+extern  uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
 
 extern char mdp_routeur[];
 extern char nom_routeur[];
@@ -366,8 +365,8 @@ extern uint8_t log_detail;
 extern uint8_t websocket_on;
 extern char ip_websocket[];
 extern uint8_t id_websocket;
-extern RTC_DATA_ATTR uint8_t action_stockage;
-extern RTC_DATA_ATTR uint8_t action_envoi;
+extern  uint8_t action_stockage;
+extern  uint8_t action_envoi;
 
 // IP addresses (RAM objects)
 extern IPAddress local_ip;
@@ -376,14 +375,14 @@ extern IPAddress subnet;
 extern IPAddress primaryDNS;
 extern IPAddress secondaryDNS;
 
-extern RTC_DATA_ATTR int16_t graphique[NB_Val_Graph][NB_Graphique];
+extern  int16_t graphique[NB_Val_Graph][NB_Graphique];
 extern uint16_t Seuil_batt_sonde;  // millivolt
 extern uint16_t Seuil_batt_arret_ESP;  // millivolt
 extern uint8_t type_reveil;  //0:pas de reveil 1: réveil par timer, 2: réveil par bouton_reveil 3:reveil par PIR
 extern uint8_t compteur_graph;
 
-extern RTC_DATA_ATTR uint8_t etat_now;
-extern RTC_DATA_ATTR uint8_t Nb_jours_Batt_log;
+extern  uint8_t etat_now;
+extern  uint8_t Nb_jours_Batt_log;
 
 extern bool force_stay_awake;
 extern unsigned long wake_up_time;  // Temps de réveil/dernière activité
