@@ -156,7 +156,7 @@ uint8_t inline initCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
-    Serial.printf("PS RAM Found [%d]\n", ESP.getPsramSize());
+    if (log_detail>=4) Serial.printf("PS RAM Found [%d]\n", ESP.getPsramSize());
     config.jpeg_quality = 4;
     // Use more frame buffers when PSRAM is available to avoid contention between stream and captures
     config.fb_count = 4; // increase for robustness (was 3)
@@ -178,8 +178,9 @@ uint8_t inline initCamera() {
   // restaurer les réglages stockés sur NVS
   camera_load_settings(s, nullptr);
   if (s != NULL) {
-        if (s->id.PID == OV3660_PID) type_cam=1;
-        else type_cam=2; // OV2640
+        type_cam = 0;
+        if (s->id.PID == OV2640_PID) type_cam=1;
+        if (s->id.PID == OV3660_PID) type_cam=2;
   }
 
   //camera_set_parameter(s, "framesize", fs, false);
@@ -225,24 +226,24 @@ uint8_t configCamera()
   uint16_t y_E = ((uint32_t) height * im_y_fin / 100) & 0xFFF0;
   if ((x_E > x_S) && (y_E > y_S) && (x_E <= width) && (y_E <= height))
   {  
-    Serial.printf("Camera windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
     if ((im_x_debut) || (im_x_fin < 100) || (im_y_debut) || (im_y_fin < 100))
     {
         int res = 0;
-        if (type_cam==2)  // OV2640
+        if (type_cam==1)  // OV2640
         {
         //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
           int res = s->set_res_raw(s, 0,0,0,0, x_S, y_S, x_E-x_S, y_E-y_S, x_E-x_S, y_E-y_S,0, 0);
         // ov2640 :
         // setWindow(start_x, 0, 0, 0, offset_x, offset_y, total_x, total_y, output_x, output_y, false, false, function(code, txt){
        //Set Window: Start: 0 0, End: 0 0, Offset: 400 300, Total: 800 600, Output: 320 240, Scale: 0, Binning: 0
-            Serial.printf("Camera OV2640 windowing applied %d\n", res);
+            Serial.printf("Camera OV2640 windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
         }
-        if (type_cam==1) // OV3660
+        if (type_cam==2) // OV3660
         {
        // ov3660 : 
        //     setWindow(start_x, start_y, end_x, end_y, offset_x, offset_y, total_x, total_y, output_x, output_y, scaling, binning, function(code, txt){
           //int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+            Serial.printf("Camera OV3660windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
             Serial.printf("Camera OV3660 windowing applied %d\n", res);
         }
     }
@@ -253,7 +254,7 @@ uint8_t configCamera()
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
-    Serial.println("Camera Ready! Use 'http://cam");
+    if (log_detail>=3) Serial.printf("Camera Ready! Type:%i Use 'http://cam'\n", type_cam);
   }
   else
   {
@@ -263,21 +264,6 @@ uint8_t setup_camera() {
   return configCamera();
 }
 
-void encodeP()
-{
-  if (sdcard_ok) 
-  {
-    lpc_settings_t settings = {
-      800,    // width
-      600,    // height
-      30,     // quality
-      1,      // frame_count
-      1,       // frequency
-    };
-    //encode_lpc(settings);
-    encode_lpc2(settings, nullptr, 0, "/sd/lpc_test.jpg");
-  }
-}
 
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h) {
     for (size_t i = 0; i < len - 9; i++) {
@@ -741,12 +727,12 @@ typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_e
 // Unified static table mapping single-char global code to the triplet (images_code, size_code, comp_code)
 // A..Z entries, A fixed to 100 (1,0,0), Z fixed to 789 (7,8,9), intermediates unique.
 static global_entry_t global_table[] = {
-    { 'A', 1, 0, 0 }, // 100 (fixed)
-    { 'B', 1, 0, 1 },
-    { 'C', 1, 0, 2 },
-    { 'D', 1, 1, 3 },
-    { 'E', 1, 2, 3 },
-    { 'F', 1, 3, 3 },
+    { 'A', 1, 0, 2 }, // 100 (fixed)
+    { 'B', 1, 0, 4 },
+    { 'C', 1, 0, 7 },
+    { 'D', 1, 1, 2 },
+    { 'E', 1, 1, 4 },
+    { 'F', 1, 1, 7 },
     { 'G', 1, 4, 3 },
     { 'H', 1, 4, 5 },
     { 'I', 1, 4, 6 },

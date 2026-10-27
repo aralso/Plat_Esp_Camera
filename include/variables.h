@@ -67,11 +67,22 @@
 // ⚠️ IMPORTANT : Ce canal DOIT correspondre au canal de votre routeur WiFi
 // "garches" Pour le trouver : regardez les logs de l'esp_remote au démarrage
 
+const uint8_t MAC_SERVEUR[] = {0xB0, 0xCB, 0xD8, 0xE9, 0x0C, 0x74};
 
-typedef struct {
-  uint8_t type;  // 1: Temperature, 2: Batterie
-  float value;
+#define MAX_PAYLOAD 200
+#define MAX_TEMP 30   // taille max autorisée pour l'envoi des temp/humid
+#define SERVER_ADD 'H'
+
+typedef struct __attribute__((packed)) {   // packed permet d'éviter les octets de padding ajoutés par le compilateur
+    uint8_t destinataire;
+    uint8_t emetteur;
+    uint8_t longueur;
+    uint8_t code;
+    uint8_t code2;
+    uint8_t payload[MAX_PAYLOAD];
 } Message_EspNow;
+
+
 
 // structure des paramètres 
 typedef enum ParamType {
@@ -220,6 +231,8 @@ uint8_t requete_Set_appli(const char* param, float valf);
 uint8_t requete_GetReg(int reg, float* valeur);
 void capture_video_sd();
 void capture_photo_sd();
+void encodeFile();
+void decodeFile();
 
 // Capture AVI in background (no HTTP response). Implemented in app_httpd.cpp
 void capture_avi_b();
@@ -295,6 +308,7 @@ typedef enum {
   EVENT_PRISE_VIDEO,
   EVENT_PRISE_PHOTO,
   EVENT_ENCODE_LPC,
+  EVENT_DECODE_LPC,
   EVENT_UART1
 } systeme_eve_type_t;
 
@@ -350,7 +364,6 @@ extern volatile uint8_t ackReceived;  // global pour indiquer que le peer a ack�
 extern volatile int ackChannel;       // canal où ça a marché
 extern uint8_t init_time;
 extern float heure;
-extern  uint8_t skip_graph;
 extern  uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
 extern float Tint, Text;
 
@@ -358,15 +371,10 @@ extern float Tint, Text;
 extern  float tempI_moy24h, tempE_moy24h, cout_moy24h;
 extern  uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
 
-extern char mdp_routeur[];
-extern char nom_routeur[];
 extern uint8_t DelaiWebsocket;
-extern uint8_t log_detail;
 extern uint8_t websocket_on;
 extern char ip_websocket[];
 extern uint8_t id_websocket;
-extern  uint8_t action_stockage;
-extern  uint8_t action_envoi;
 
 // IP addresses (RAM objects)
 extern IPAddress local_ip;
@@ -376,13 +384,11 @@ extern IPAddress primaryDNS;
 extern IPAddress secondaryDNS;
 
 extern  int16_t graphique[NB_Val_Graph][NB_Graphique];
-extern uint16_t Seuil_batt_sonde;  // millivolt
 extern uint16_t Seuil_batt_arret_ESP;  // millivolt
 extern uint8_t type_reveil;  //0:pas de reveil 1: réveil par timer, 2: réveil par bouton_reveil 3:reveil par PIR
 extern uint8_t compteur_graph;
 
 extern  uint8_t etat_now;
-extern  uint8_t Nb_jours_Batt_log;
 
 extern bool force_stay_awake;
 extern unsigned long wake_up_time;  // Temps de réveil/dernière activité

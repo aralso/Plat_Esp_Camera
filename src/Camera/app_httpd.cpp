@@ -498,6 +498,7 @@ static void capture_handler(AsyncWebServerRequest *request)
             #endif
             // Copy JPEG buffer because fb->buf will be returned to the driver
             buf_len = fb->len;
+            Serial.printf("capture_handler(): Taille JPEG %u\n", (unsigned)buf_len);
             buf = (uint8_t*)malloc(buf_len);
             if (!buf) {
                 esp_camera_fb_return(fb);

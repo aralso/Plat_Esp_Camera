@@ -113,6 +113,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                                 <div class="icon move-icon action-icon" onclick="moveItem('${item.name}')"></div>
                                 <div class="icon sd-icon action-icon" onclick="reducItem('${item.name}')">R</div>
                                 <div class="icon sd-icon action-icon" onclick="encodItem('${item.name}')">E</div>
+                                <div class="icon sd-icon action-icon" onclick="decodItem('${item.name}')">D</div>
                                 <div class="icon sd-icon action-icon" onclick="compressItem('${item.name}')">Co</div>
                             </td>
                         `;
@@ -231,6 +232,20 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                     })
                   );
             }
+        }
+
+        function decodItem(name) {
+            const srcPath = joinPath(currentPath, name);
+            fetch(`/setSD?action=9&path=${encodeURIComponent(srcPath)}&fs=SD_MMC`)
+                .then(response =>
+                  response.text().then(text => {
+                    if (response.ok) {
+                        loadDirectory(currentPath);
+                    } else {
+                        alert("Erreur décodage : code: " + text);
+                    }
+                  })
+                );
         }
 
         function compressItem(name) {
@@ -918,6 +933,18 @@ void server_routes_SDCARD()
           }
         }
     }
+    else if (action == 9)
+    { // decode lpc vers avi/jpg
+      strncpy(path_c, path.c_str(), sizeof(path_c));
+      path_c[sizeof(path_c) - 1] = '\0';  // carac final
+      systeme_eve_t evt = { EVENT_DECODE_LPC, 0 }; 
+      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+      {
+        if (erreur_queue<5) num_err_queue[erreur_queue]=3;
+        erreur_queue++;
+      }
+      result = 0;
+    }
     else {
       request->send(400, "text/plain", "Invalid action");
       return;
@@ -963,36 +990,38 @@ uint8_t sd_init()
     return 3;
   }
 
-  Serial.print("SD_MMC Card Type: ");
-  if (cardType == CARD_MMC) {
-    Serial.println("MMC");
-  } else if (cardType == CARD_SD) {
-    Serial.println("SDSC");
-  } else if (cardType == CARD_SDHC) {
-    Serial.println("SDHC");  // carte sd
-  } else {
-    Serial.println("UNKNOWN");
-  }
+  if (log_detail>=4)
+  {
+    Serial.print("SD_MMC Card Type: ");
+    if (cardType == CARD_MMC) {
+      Serial.println("MMC");
+    } else if (cardType == CARD_SD) {
+      Serial.println("SDSC");
+    } else if (cardType == CARD_SDHC) {
+      Serial.println("SDHC");  // carte sd
+    } else {
+      Serial.println("UNKNOWN");
+    }
 
-  uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
-  Serial.printf("SD_MMC Card Size: %lluMB\n", cardSize);
+    uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
+    Serial.printf("SD_MMC Card Size: %lluMB\n", cardSize);
 
-  const char* mountPoint = "/";
-  listDir(SD_MMC, mountPoint, 0);
-  //createDir(SD_MMC, "/mydir");
-  //mountPoint = "/mydir";
-  //listDir(SD_MMC, mountPoint, 1);
-  //removeDir(SD_MMC, "/mydir");
-  //listDir(SD_MMC, "/", 2);
-  //writeFile(SD_MMC, "/hello.txt", "Hello ");
-  //appendFile(SD_MMC, "/hello.txt", "World!\n");
-  //readFile(SD_MMC, "/hello.txt");
-  //deleteFile(SD_MMC, "/foo.txt");
-  //renameFile(SD_MMC, "/hello.txt", "/sdcard/foo.txt");
-  //readFile(SD_MMC, "/foo.txt");
-  //testFileIO(SD_MMC, "/test.txt");
-  Serial.printf("Total space: %lluMB\n", SD_MMC.totalBytes() / (1024 * 1024));
-  Serial.printf("Used space: %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024));
-
+    const char* mountPoint = "/";
+    listDir(SD_MMC, mountPoint, 0);
+    //createDir(SD_MMC, "/mydir");
+    //mountPoint = "/mydir";
+    //listDir(SD_MMC, mountPoint, 1);
+    //removeDir(SD_MMC, "/mydir");
+    //listDir(SD_MMC, "/", 2);
+    //writeFile(SD_MMC, "/hello.txt", "Hello ");
+    //appendFile(SD_MMC, "/hello.txt", "World!\n");
+    //readFile(SD_MMC, "/hello.txt");
+    //deleteFile(SD_MMC, "/foo.txt");
+    //renameFile(SD_MMC, "/hello.txt", "/sdcard/foo.txt");
+    //readFile(SD_MMC, "/foo.txt");
+    //testFileIO(SD_MMC, "/test.txt");
+    Serial.printf("Total space: %lluMB\n", SD_MMC.totalBytes() / (1024 * 1024));
+    Serial.printf("Used space: %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024));
+ }
   return 0;
 }
