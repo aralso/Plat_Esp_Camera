@@ -6,13 +6,66 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifdef ARDUINO
+#include <Arduino.h>
+#include "FS.h"
+#include "SD_MMC.h"
+#else
+#include <stdio.h>
+#endif
+
 #ifdef DECODER
 #define ESP_LOGD(...)
 #define ESP_LOGI(...)
 #define log_detail 0
+#elif !defined(ARDUINO)
+#define ESP_LOGD(...)
+#define ESP_LOGI(...)
+#define log_detail 0
 #else
-#include <Arduino.h>
 #include "variables.h"
+#endif
+
+#ifdef ARDUINO
+typedef File mjpeg_file_t;
+
+static mjpeg_file_t *mjpeg_open_file(const char *path)
+{
+    SD_MMC.remove(path);
+    mjpeg_file_t *file = new mjpeg_file_t(SD_MMC.open(path, FILE_WRITE));
+    return file->operator bool() ? file : (delete file, (mjpeg_file_t *)NULL);
+}
+
+static size_t mjpeg_write(const void *data, size_t size, size_t count, mjpeg_file_t *file)
+{
+    return file->write((const uint8_t *)data, size * count) / size;
+}
+
+static long mjpeg_tell(mjpeg_file_t *file) { return (long)file->position(); }
+static int mjpeg_seek(mjpeg_file_t *file, long offset, int origin)
+{
+    uint32_t position = 0;
+    if (origin == SEEK_END) position = file->size() + offset;
+    else if (origin == SEEK_CUR) position = file->position() + offset;
+    else position = offset;
+    return file->seek(position) ? 0 : -1;
+}
+static int mjpeg_close(mjpeg_file_t *file)
+{
+    file->close();
+    delete file;
+    return 0;
+}
+#else
+typedef FILE mjpeg_file_t;
+static mjpeg_file_t *mjpeg_open_file(const char *path) { return fopen(path, "wb+"); }
+static size_t mjpeg_write(const void *data, size_t size, size_t count, mjpeg_file_t *file)
+{
+    return fwrite(data, size, count, file);
+}
+static long mjpeg_tell(mjpeg_file_t *file) { return ftell(file); }
+static int mjpeg_seek(mjpeg_file_t *file, long offset, int origin) { return fseek(file, offset, origin); }
+static int mjpeg_close(mjpeg_file_t *file) { return fclose(file); }
 #endif
 
 
@@ -161,7 +214,7 @@ int tje_encode_with_func(tje_write_func* func,
 //-----------------------------------------------------------------------------------------------------------------------------
 typedef struct mjpegw_context
 {
-    FILE* f;
+    mjpeg_file_t* f;
 
     uint32_t width;
     uint32_t height;
