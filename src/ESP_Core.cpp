@@ -119,7 +119,9 @@ extern "C" {
 //#include "fb_gfx.h"
 #include "esp32-hal-ledc.h"
 #include "sdkconfig.h"
-#include "i2c.h"
+#ifdef CAPT_I2C
+  #include "i2c.h"
+#endif
 
 uint8_t err_wifi_repet;  // permet de resetter si le wifi ne se rétablit pas au bout de 4 jours
 uint16_t Seuil_batt_arret_ESP;  // millivolt

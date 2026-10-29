@@ -52,6 +52,8 @@
 #define ADDRESS "A"
 #endif
 
+//#define CAPT_I2C
+
 //#define Temp_int_DS18B20
 
 // Réseau
@@ -231,8 +233,8 @@ uint8_t requete_Set_appli(const char* param, float valf);
 uint8_t requete_GetReg(int reg, float* valeur);
 void capture_video_sd();
 void capture_photo_sd();
-void encodeFile();
-void decodeFile();
+uint8_t encodeFile();
+uint8_t decodeFile();
 
 // Capture AVI in background (no HTTP response). Implemented in app_httpd.cpp
 void capture_avi_b();

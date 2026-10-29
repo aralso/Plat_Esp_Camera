@@ -426,7 +426,7 @@ static uint8_t probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_cou
 }
 
 
-#if CONFIG_ESP32
+/*#if CONFIG_ESP32
 struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
 {
     File file;
@@ -479,7 +479,7 @@ struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
 		return file.seek(pos);
 	}	
 };
-#else
+#else*/
 struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
 {
 	FILE *file;
@@ -505,7 +505,7 @@ struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
 	}
 	#endif
 };
-#endif
+//#endif
 
 /// CONSOLE CONTROLS
 
