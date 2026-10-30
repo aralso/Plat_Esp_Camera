@@ -19,6 +19,7 @@
 
 #include "variables.h"
 
+extern char path_c[128];
 
 static inline uint8_t clamp(int v)
 {
@@ -218,9 +219,6 @@ void lpc_to_avi(lpc_decoder_t &lpc, const char *path)
 	}
 	mjpegw_close(avi);
 
-	std::string mpv = "C:\\Data\\Donnees\\IOT\\WS_Platformio\\Plat_Esp_Camera\\decoder\\mpv\\mpv.exe";
-	std::string cmd = mpv + " \"" + output + "\"";
-	system(cmd.c_str());
 }
 
 
@@ -238,7 +236,6 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 		img_rgb.dump_jpg(output.c_str(), 60);
 	}
 
-	ShellExecute(NULL, NULL, output.c_str(), NULL, NULL, SW_SHOW);
 
 	return 0;
 }
@@ -297,4 +294,6 @@ uint8_t decodeFile()
 
 		return 0;
 	}
+
+	return 1;
 }

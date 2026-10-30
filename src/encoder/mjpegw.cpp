@@ -300,7 +300,7 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     // use user allocator or default
     mjpegw_mem_interface allocator = mem ? *mem : default_allocator();
 
-    ctx = allocator.malloc_fn(sizeof(mjpegw_context), allocator.user);
+    ctx = (mjpegw_context*)allocator.malloc_fn(sizeof(mjpegw_context), allocator.user);
     if(!ctx)
         return NULL;
 
@@ -316,7 +316,7 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->frame_count = 0;
     ctx->mem = allocator;
 
-    ctx->f = fopen(filename, "wb+");
+    ctx->f = mjpeg_open_file(filename);
     //ctx->f =  filestream_t(SD_MMC, filename, FILE_WRITE);
     if(!ctx->f)
     {
@@ -327,10 +327,10 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     memcpy(ctx->riff.riff, "RIFF", 4);
     ctx->riff.size = 0; // patch later
     memcpy(ctx->riff.avi, "AVI ", 4);
-    ctx->riff_pos = ftell(ctx->f);
+    ctx->riff_pos = mjpeg_tell(ctx->f);
     //ctx->riff_pos = ctx->f->position();
     //ctx->f->write((uint8_t*)&ctx->riff, sizeof(ctx->riff));
-    fwrite(&ctx->riff, sizeof(ctx->riff), 1, ctx->f);
+    mjpeg_write(&ctx->riff, sizeof(ctx->riff), 1, ctx->f);
 
     // Precompute chunk payload sizes (payload = bytes after chunk header)
     const uint32_t avih_payload = 56; // fixed
@@ -347,9 +347,9 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     memcpy(ctx->hdrl.list, "LIST", 4);
     ctx->hdrl.size = hdrl_payload;
     memcpy(ctx->hdrl.type, "hdrl", 4);
-    fwrite(&ctx->hdrl, sizeof(ctx->hdrl), 1, ctx->f);
+    mjpeg_write(&ctx->hdrl, sizeof(ctx->hdrl), 1, ctx->f);
 
-    ctx->frame_count_pos = ftell(ctx->f) +  offsetof(avih_chunk, total_frames);
+    ctx->frame_count_pos = mjpeg_tell(ctx->f) +  offsetof(avih_chunk, total_frames);
 
     // avih chunk
     memcpy(ctx->avih.id, "avih", 4);
@@ -364,20 +364,20 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->avih.suggested_buffer_size = ctx->width*ctx->height*3;
     ctx->avih.width = width;
     ctx->avih.height = height;
-    fwrite(&ctx->avih, sizeof(ctx->avih), 1, ctx->f);
+    mjpeg_write(&ctx->avih, sizeof(ctx->avih), 1, ctx->f);
 
     // strl LIST header
     memcpy(ctx->strl.list, "LIST", 4);
     ctx->strl.size = strl_payload;
     memcpy(ctx->strl.type, "strl", 4);
-    fwrite(&ctx->strl, sizeof(ctx->strl), 1, ctx->f);
+    mjpeg_write(&ctx->strl, sizeof(ctx->strl), 1, ctx->f);
 
     // remember position near where we'll later patch the stream length field
     // Compute offset of the 'length' field inside the upcoming 'strh' chunk.
-    // File layout: at current ftell() we will write 'strh' id (4) and size (4),
+    // File layout: at current mjpeg_tell() we will write 'strh' id (4) and size (4),
     // then payload. Inside payload the 'length' field is at payload offset 32.
     // Therefore the absolute file offset for the 'length' field is ftell + 8 (header) + 32.
-    ctx->length_pos = ftell(ctx->f) + 8 + 32; // = ftell + 40
+    ctx->length_pos = mjpeg_tell(ctx->f) + 8 + 32; // = ftell + 40
 
 
     // strh chunk
@@ -410,7 +410,7 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strh.frame.top = 0;
     ctx->strh.frame.right = width;
     ctx->strh.frame.bottom = height;
-    fwrite(&ctx->strh, sizeof(ctx->strh), 1, ctx->f);
+    mjpeg_write(&ctx->strh, sizeof(ctx->strh), 1, ctx->f);
 
     // strf chunk (BITMAPINFOHEADER)
     memcpy(ctx->strf.id, "strf", 4);
@@ -426,28 +426,28 @@ mjpegw_context* mjpegw_open(const char *filename, uint32_t width, uint32_t heigh
     ctx->strf.bi_y_ppm = 0;
     ctx->strf.bi_clr_used = 0;
     ctx->strf.bi_clr_important = 0;
-    fwrite(&ctx->strf, sizeof(ctx->strf), 1, ctx->f);
+    mjpeg_write(&ctx->strf, sizeof(ctx->strf), 1, ctx->f);
 
     // movi header
     memcpy(ctx->movi.list, "LIST", 4);
     ctx->movi.size = 0; // patch later
     memcpy(ctx->movi.type, "movi", 4);
-    ctx->movi_pos = ftell(ctx->f);
-    fwrite(&ctx->movi, sizeof(ctx->movi), 1, ctx->f);
+    ctx->movi_pos = mjpeg_tell(ctx->f);
+    mjpeg_write(&ctx->movi, sizeof(ctx->movi), 1, ctx->f);
 
     ctx->idx_capacity = 256;
     ctx->idx_count = 0;
-    ctx->idx = ctx->mem.malloc_fn(sizeof(idx1_entry) * ctx->idx_capacity, ctx->mem.user);
+    ctx->idx = (idx1_entry*)ctx->mem.malloc_fn(sizeof(idx1_entry) * ctx->idx_capacity, ctx->mem.user);
     if (!ctx->idx)
     {
-        fclose(ctx->f);
+        mjpeg_close(ctx->f);
         //ctx->f = nullptr;
         ctx->mem.free_fn(ctx, ctx->mem.user);
         return NULL;
     }
 
     ctx->jpeg_capacity = width*height*2;
-    ctx->jpeg_data = ctx->mem.malloc_fn(ctx->jpeg_capacity, ctx->mem.user);
+    ctx->jpeg_data = (uint8_t*)ctx->mem.malloc_fn(ctx->jpeg_capacity, ctx->mem.user);
     ctx->jpeg_size = 0;
 
     return ctx;
@@ -497,7 +497,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
     if(ctx->idx_count >= ctx->idx_capacity)
     {
         uint32_t new_capacity = ctx->idx_capacity * 2;
-        idx1_entry* new_idx = ctx->mem.realloc_fn(ctx->idx, sizeof(idx1_entry) * ctx->idx_capacity,
+        idx1_entry* new_idx = (idx1_entry*)ctx->mem.realloc_fn(ctx->idx, sizeof(idx1_entry) * ctx->idx_capacity,
                                                   sizeof(idx1_entry) * new_capacity, ctx->mem.user);
 
         assert(new_idx != NULL);
@@ -505,7 +505,7 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
         ctx->idx_capacity = new_capacity;
     }
 
-    long frame_pos = ftell(ctx->f);
+    long frame_pos = mjpeg_tell(ctx->f);
     //long frame_pos = ctx->f->position();
     assert(frame_pos != -1L);
 
@@ -514,16 +514,16 @@ void mjpegw_add_frame(mjpegw_context *ctx, const void* pixels, const int quality
 
     frame_chunk hdr = { .size = chunk_size };
     memcpy(hdr.id, "00dc", 4);
-    fwrite(&hdr, sizeof(frame_chunk), 1, ctx->f);
+    mjpeg_write(&hdr, sizeof(frame_chunk), 1, ctx->f);
     //ctx->f->write((uint8_t*)&hdr, sizeof(frame_chunk));
     
-    fwrite(ctx->jpeg_data, 1, ctx->jpeg_size, ctx->f);
+    mjpeg_write(ctx->jpeg_data, 1, ctx->jpeg_size, ctx->f);
     //ctx->f->write((uint8_t*)ctx->jpeg_data, ctx->jpeg_size);
 
     if (ctx->jpeg_size & 1)
     {
         uint8_t pad = 0;
-        fwrite(&pad, 1, 1, ctx->f);
+        mjpeg_write(&pad, 1, 1, ctx->f);
         //ctx->f->write(&pad, 1);
     }
 
@@ -556,7 +556,7 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
     if(ctx->idx_count >= ctx->idx_capacity)
     {
         uint32_t new_capacity = ctx->idx_capacity * 2;
-        idx1_entry* new_idx = ctx->mem.realloc_fn(ctx->idx, sizeof(idx1_entry) * ctx->idx_capacity,
+        idx1_entry* new_idx = (idx1_entry*)ctx->mem.realloc_fn(ctx->idx, sizeof(idx1_entry) * ctx->idx_capacity,
                                                   sizeof(idx1_entry) * new_capacity, ctx->mem.user);
 
         assert(new_idx != NULL);
@@ -564,7 +564,7 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
         ctx->idx_capacity = new_capacity;
     }
 
-    long frame_pos = ftell(ctx->f);
+    long frame_pos = mjpeg_tell(ctx->f);
     assert(frame_pos != -1L);
 
     uint32_t chunk_size = jpeg_len;
@@ -572,14 +572,14 @@ void mjpegw_add_frame_jpg(mjpegw_context *ctx, const void* jpeg_buf, uint32_t jp
 
     frame_chunk hdr = { .size = chunk_size };
     memcpy(hdr.id, "00dc", 4);
-    fwrite(&hdr, sizeof(frame_chunk), 1, ctx->f);
+    mjpeg_write(&hdr, sizeof(frame_chunk), 1, ctx->f);
 
-    fwrite(jpeg_buf, 1, jpeg_len, ctx->f);
+    mjpeg_write(jpeg_buf, 1, jpeg_len, ctx->f);
 
     if (jpeg_len & 1)
     {
         uint8_t pad = 0;
-        fwrite(&pad, 1, 1, ctx->f);
+        mjpeg_write(&pad, 1, 1, ctx->f);
     }
 
     ctx->movi.size += sizeof(frame_chunk) + chunk_size + chunk_padding;
@@ -616,10 +616,10 @@ void mjpegw_set_quality(mjpegw_context *ctx, uint32_t quality)
 
     // Patch quality into file
     if (ctx->f) {
-        fseek(ctx->f, quality_pos, SEEK_SET);
-        fwrite(&ctx->strh.quality, sizeof(uint32_t), 1, ctx->f);
+        mjpeg_seek(ctx->f, quality_pos, SEEK_SET);
+        mjpeg_write(&ctx->strh.quality, sizeof(uint32_t), 1, ctx->f);
         // restore file position to end so subsequent writes append as expected
-        fseek(ctx->f, 0, SEEK_END);
+        mjpeg_seek(ctx->f, 0, SEEK_END);
     }
 }
 
@@ -634,27 +634,27 @@ void mjpegw_close(mjpegw_context *ctx)
     // Update stored frame_count to be consistent
     ctx->frame_count = final_frame_count;
 
-    fseek(ctx->f, ctx->frame_count_pos, SEEK_SET);
+    mjpeg_seek(ctx->f, ctx->frame_count_pos, SEEK_SET);
     //ctx->f->seek(ctx->frame_count_pos, SEEK_SET);
 
-    fwrite(&final_frame_count, sizeof(uint32_t), 1, ctx->f);
+    mjpeg_write(&final_frame_count, sizeof(uint32_t), 1, ctx->f);
     //ctx->f->write((uint8_t*)&final_frame_count, sizeof(uint32_t));
-    fseek(ctx->f, ctx->length_pos, SEEK_SET);
+    mjpeg_seek(ctx->f, ctx->length_pos, SEEK_SET);
     //ctx->f->seek(ctx->length_pos, SEEK_SET);
-    fwrite(&final_frame_count, sizeof(uint32_t), 1, ctx->f);
+    mjpeg_write(&final_frame_count, sizeof(uint32_t), 1, ctx->f);
     //ctx->f->write((uint8_t*)&final_frame_count, sizeof(uint32_t));
 
     // write idx1 chunk
-    fseek(ctx->f, 0, SEEK_END); 
+    mjpeg_seek(ctx->f, 0, SEEK_END); 
     //ctx->f->seek(0, SEEK_END); 
     idx1_header idxh = {0};
     memcpy(idxh.id, "idx1", 4);
     idxh.size = ctx->idx_count * sizeof(idx1_entry);
 
-    fwrite(&idxh, sizeof(idx1_header), 1, ctx->f);
+    mjpeg_write(&idxh, sizeof(idx1_header), 1, ctx->f);
     //ctx->f->write((uint8_t*)&idxh, sizeof(idx1_header));
     if (ctx->idx_count)
-        fwrite(ctx->idx, sizeof(idx1_entry), ctx->idx_count, ctx->f);
+        mjpeg_write(ctx->idx, sizeof(idx1_entry), ctx->idx_count, ctx->f);
         //ctx->f->write((uint8_t*)ctx->idx, sizeof(idx1_entry) * ctx->idx_count);
 
     // Debug: dump last idx entry for verification
@@ -667,7 +667,7 @@ void mjpegw_close(mjpegw_context *ctx)
     }
 
     // patch movi LIST size
-    long cur_pos = ftell(ctx->f);
+    long cur_pos = mjpeg_tell(ctx->f);
     //long cur_pos = ctx->f->position();
 
     // movi_size should represent the size of the 'movi' data only (frames). Since we wrote idx1 after movi,
@@ -675,16 +675,16 @@ void mjpegw_close(mjpegw_context *ctx)
     uint32_t idx_section_size = sizeof(idx1_header) + (ctx->idx_count * sizeof(idx1_entry));
     uint32_t movi_size = (uint32_t)(cur_pos - (ctx->movi_pos + 8) - idx_section_size);
 
-    fseek(ctx->f, ctx->movi_pos + 4, SEEK_SET);
+    mjpeg_seek(ctx->f, ctx->movi_pos + 4, SEEK_SET);
     //ctx->f->seek(ctx->movi_pos + 4, SEEK_SET);
-    fwrite(&movi_size, sizeof(uint32_t), 1, ctx->f);
+    mjpeg_write(&movi_size, sizeof(uint32_t), 1, ctx->f);
     //ctx->f->write((uint8_t*)&movi_size, sizeof(uint32_t));
 
     // patch RIFF size
-    fseek(ctx->f, ctx->riff_pos + 4, SEEK_SET);
+    mjpeg_seek(ctx->f, ctx->riff_pos + 4, SEEK_SET);
     //ctx->f->seek(ctx->riff_pos + 4, SEEK_SET);
     uint32_t riff_size = (uint32_t)(cur_pos - (ctx->riff_pos + 8));
-    fwrite(&riff_size, sizeof(uint32_t), 1, ctx->f);
+    mjpeg_write(&riff_size, sizeof(uint32_t), 1, ctx->f);
     //ctx->f->write((uint8_t*)&riff_size, sizeof(uint32_t));
 
     if (ctx->idx)
@@ -701,7 +701,7 @@ void mjpegw_close(mjpegw_context *ctx)
         ctx->jpeg_capacity = 0;
     }
 
-    fclose(ctx->f);
+    mjpeg_close(ctx->f);
     ctx->f = NULL;
 }
 

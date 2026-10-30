@@ -437,9 +437,11 @@ uint8_t requete_action_appli(const char *reg, const char *data)
   if (strcmp(reg, "Tint") == 0) 
     { 
       res=0; 
-      uint8_t Tint_erreur = lecture_Tint(&Tint);
+      float humid;
+      uint8_t Tint_erreur = lecture_Tint(&Tint, &humid);
       Serial.println(Tint_erreur);
       Serial.println(Tint);
+      Serial.println(humid);
     }
 
     
@@ -448,10 +450,11 @@ uint8_t requete_action_appli(const char *reg, const char *data)
 
 
 // erreur :0:ok  sinon erreur 2 à 7
-uint8_t lecture_Tint(float *mesure)
+uint8_t lecture_Tint(float *mesure, float*humid)
 {
   uint8_t Tint_erreur = 7;
   float valeur = 20;
+  float valeur2 = 50;
 
   #ifdef Temp_int_DHT22
     //dht[0].begin();
@@ -491,8 +494,13 @@ uint8_t lecture_Tint(float *mesure)
 
   if (valeur > 50) Tint_erreur = 2;
   if (valeur < -20) Tint_erreur = 3;
-  Serial.printf("lecture Tint : %.2f Err:%i\n\r", valeur, Tint_erreur);
+  if (log_detail>=3) Serial.printf("lecture Tint : %.2f Humid:%.2f Tint_erreur:%i\n\r", valeur, valeur2, Tint_erreur);
+  if (Tint_erreur) {
+    valeur = 20.0;
+    valeur2 = 50.0;
+  }
   *mesure = valeur;
+  *humid = valeur2;
   return Tint_erreur;
 }
 
@@ -607,9 +615,7 @@ void event_mesure_temp()  // toutes les 15 minutes
     graphique[0][1] = round(Text * 10);
 
     graphique[0][2] = 0;  // 14:arret 16:marche
-    cout_moy24h += 0;  // 1000
   }
-  cpt24_Cout++;
 
     // cout moyen
 }

@@ -1515,7 +1515,8 @@ void setup()
       reveil = 4;
       uint64_t wakeup_pins = 0;
       if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO)
-        wakeup_pins = esp_sleep_get_gpio_wakeup_status();
+        // ESP32-S3 : pas d'API de statut GPIO wakeup (light sleep), on lit le niveau des broches (réveil niveau haut)
+        wakeup_pins = ((uint64_t)digitalRead(PIN_REVEIL) << PIN_REVEIL) | ((uint64_t)digitalRead(PIN_REVEIL2) << PIN_REVEIL2);
       else
         wakeup_pins = esp_sleep_get_ext1_wakeup_status();
       if (log_detail>=3) Serial.printf("wakeup_pins: %016llX\n\r", wakeup_pins);

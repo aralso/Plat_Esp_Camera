@@ -19,6 +19,7 @@
 
 
 // variables externes
+#define Version "V1.4"
 
 
 
@@ -34,13 +35,34 @@
 #define ESP32_S3
 //#define ESP32_Fire2
 
+#define ESP_VEILLE     // Rôle principal 
 
-//#define Temp_int_HDC1080  // Capteur I2C HDC1080
-#define MODE_Wifi  // Wifi sinon Ethernet
-//#define Sans_securite
-#define Sans_websocket
-//#define WatchDog
-#define Sans_EspNow
+#ifdef ESP_VEILLE
+  // en veille 11uA
+  // activation pendant 0,4 secondes à 40mA, chaque 15 minutes => 17uA en moyenne
+  // si bouton => activation pendant 30 secondes à 120mA (correspnd à 2 jours de veille)
+  #define GRAPH2  1 // 0:HUMID_ABS  1:HUMID_REL  2:Capteur PIR
+  #define GRAPH3  0
+  //#define PIR_ACTIF
+  
+  //#define ESP32_Fire2_C6
+  //#define ESP32_uPesy
+  #define ESP32_S3
+
+  //#define Temp_int_HDC1080  // Capteur I2C HDC1080
+  #define MODE_Wifi  // Wifi sinon Ethernet
+  //#define Sans_securite
+  //#define WatchDog
+  #define Sans_EspNow
+  #define Sans_websocket
+  #define OTA
+  #define ENVOI
+  #define STOCKAGE
+#endif
+
+#define BTN_COUNT 2  // Nombre de boutons
+#define NB_CAPT 1
+
 //#define ESP_VEILLE
 
 #define SDCARD
@@ -49,8 +71,11 @@
 
 // Device address identifier used in filenames (single letter or short string)
 #ifndef ADDRESS
-#define ADDRESS "A"
+   #define ADDRESS "A"
 #endif
+
+#define LATITUDE "48.8461"  // Garches => pour récupération Temp Ext
+#define LONGITUDE "2.1889"
 
 //#define CAPT_I2C
 
@@ -79,12 +104,32 @@ typedef struct __attribute__((packed)) {   // packed permet d'éviter les octets
     uint8_t destinataire;
     uint8_t emetteur;
     uint8_t longueur;
+    uint8_t num_seq;  // pour renvoi Ack
+    uint8_t statut;  //  bit0-1:node actif(C) bit2:dernier message  bit3:1:pas d'ack 
     uint8_t code;
     uint8_t code2;
     uint8_t payload[MAX_PAYLOAD];
-} Message_EspNow;
+} Message_Struct;
 
+uint8_t envoi_data(Message_Struct mess_esp, uint8_t node);
 
+#define NB_OCTETS_NODE_TX 5000  // Définir la taille du buffer de transmission vers la gateway
+
+typedef struct {
+  uint8_t Add_node;
+  uint16_t nb_mess_recu;
+  uint8_t Nstatut;  // bits0-1:00:inactif, 01:mode A(veille), 10:modeB(balise), 11:mode C 
+  uint8_t mac_node[6];
+  uint32_t dernier_timestamp_reçu; // derniere reception de message en 6s
+  uint32_t dernier_tick6s; // en 6s
+  bool offset_valide;
+  uint8_t num_sequentiel;
+  uint16_t head;
+  uint16_t tail;
+  uint8_t queue_tx[NB_OCTETS_NODE_TX];
+} S_Node;
+
+extern S_Node Node[1];
 
 // structure des paramètres 
 typedef enum ParamType {
@@ -111,47 +156,65 @@ typedef struct Param {
 } Param;
 
 // Forward declarations for variables used in PARAMS
+extern uint8_t My_Address;
+extern uint8_t log_detail;
 extern uint8_t mode_reseau;
 extern uint16_t nb_reset;
-extern  uint8_t periode_cycle;
 extern  uint8_t mode_rapide;
-extern uint8_t log_detail;
+extern  uint8_t periode_cycle;
 extern uint8_t DelaiWebsocket;
 extern  uint8_t skip_graph;
 extern uint16_t Seuil_batt_sonde;
 extern  uint8_t Nb_jours_Batt_log;
+extern uint8_t vit_cpu;
+extern uint8_t pas_de_veille;
 extern  uint16_t prolong_veille;
 extern  uint8_t action_stockage;
 extern  uint8_t action_envoi;
+extern uint8_t boot_rapide;
+extern char latitude[];
+extern char longitude[];
+
+extern  uint8_t last_wifi_channel;
+extern uint8_t WIFI_CHANNEL;
+extern uint8_t local_ip[4];
+extern uint8_t gateway[4];
+extern uint8_t subnet[4];
+extern uint8_t primaryDNS[4];
+extern uint8_t secondaryDNS[4];
+extern char mac_gw_str[20];
+
 extern char nom_routeur[];
 extern char mdp_routeur[];
 extern uint8_t websocket_on;
 extern char ip_websocket[];
 extern uint8_t id_websocket;
-extern uint8_t WIFI_CHANNEL;
-extern  uint8_t last_wifi_channel;
-extern IPAddress local_ip;
-extern IPAddress gateway;
-extern IPAddress subnet;
-extern IPAddress primaryDNS;
-extern IPAddress secondaryDNS;
+
 extern uint8_t cap_nb_images;
 extern uint8_t cap_interval_dsec;
 extern uint8_t cap_size;
 extern uint8_t cap_jpg_comp;
-extern char latitude[];
-extern char longitude[];
-extern uint8_t pas_de_veille;
 extern uint8_t im_x_debut;
 extern uint8_t im_x_fin;
 extern uint8_t im_y_debut;
 extern uint8_t im_y_fin;
+
+extern uint16_t val_test;
 
 // Current camera JPEG quality (camera sensor 'quality' value, e.g. 63..4)
 extern uint8_t current_sensor_quality;
 
 extern const size_t PARAMS_COUNT;
 extern Param PARAMS[];
+
+template<typename T>
+void payloadWrite(uint8_t* payload, uint8_t& pos, const T& value)
+{
+    memcpy(&payload[pos], &value, sizeof(T));
+    pos += sizeof(T);
+}
+
+extern int8_t last_rssi;
 
 //  -------  CONFIGURATION DES PINS
 //  -----------------------------------------------
@@ -180,16 +243,6 @@ extern Param PARAMS[];
 #define BTN4 15  // marche/Arret    (no pull)  0V:arret 12V:marche
 #define BNT5 16  // Reset pour Accesspoint*/
 
-#ifdef MODE_WT32  // WT32_Eth01
-// const int PIN_Tint = 11;   // GPIO IN1 Temp interieure DS18B20
-const int PIN_Tint22 = 5;  // GPIO IN1 Temp interieure DHT22
-const int PIN_PAC = 4;     // GPIO OUT PAC PWM
-const int PIN_Text = 36;   //  Text:Entrée analogique 32 à 36 et 39
-#else                      // ESP32_DevKit
-// const int PIN_Tint = 13;  Défini dans le fichier appli.ino
-const int PIN_Tint22 = 5;  // GPIO IN1 Temp interieure DHT22
-const int PIN_PAC = 4;     //  OUT PAC - PWM  40kOhm+100nF(Fc=40Hz) et PWM=40khz
-#define PIN_Vbatt 0        // Pin Surveillance Batterie (LiPo/2)
 
 // Pin Reveil
 #ifdef ESP32_v1
@@ -203,6 +256,11 @@ const int PIN_PAC = 4;     //  OUT PAC - PWM  40kOhm+100nF(Fc=40Hz) et PWM=40khz
 #endif
 #ifdef ESP32_S3
   #define PIN_REVEIL 12  // Pin de réveil (Bouton externe)
+  #define PIN_Vbatt 10        // Pin Surveillance Batterie (LiPo/2)
+  #define PIN_REVEIL2 11  // Pin d'entrée pour interruption (ex: detecteur)
+  #define PIN_OUT0 4     // Power pour alimenter le capteur PIR : 10uA
+  #define PIN_SDA 8
+  #define PIN_SCL 9
 #endif
 
 // Structure d'un message uart
@@ -243,14 +301,30 @@ void capture_avi_b();
 #ifdef __cplusplus
 int encode_lpc(const lpc_settings_t &settings);
 #endif
+void  activation_writelog();
+void setup_nvs_rtc();
+uint8_t setup_appli();
+void enreg_24h( uint8_t veille);
 void printMemoryStatus();
+void resetI2C();
+void i2cRecovery();
+void i2cBootRecovery();
+uint16_t selec_graph(uint8_t code, uint16_t hum, uint16_t ha, uint16_t pir);
+void detection_pir();
+uint8_t envoi_valeur_instant(float Tint, float Humid, float HA);
+void envoi_temp_hygro();
+void writeLogG(uint8_t code, uint16_t c1, uint16_t c2, uint16_t c3);
 
-void passage_deep_sleep(uint64_t temps);
+void passage_deep_sleep(uint64_t temps, uint8_t index);
+void envoi_ack(Message_Struct &msg);
 
+extern float Vbatt_ESP;   // Tension batterie ESP
 extern float Vbatt_Th;   // Tension batterie thermomètre
 extern bool Vbatt_Th_I;  // indicateur de réception batt sonde
 extern unsigned long last_remote_Text_time, last_remote_Tint_time, last_remote_heure_time;
 extern struct tm timeinfo;
+extern int BTN_PIN[];  // Pins des boutons
+extern uint8_t mac_gw[6];
 
 extern uint8_t num_err_queue[];
 
@@ -275,7 +349,6 @@ const int PIN_off = 19;
 // const int PIN_DE = 33;
 const int PIN_RXSTM = 18;  // RX STM32
 const int PIN_TXSTM = 17;  // TX STM32
-#endif
 // #define sorties analogique : 25 ou 26 (avec Dacwrite)
 
 // Modbus
@@ -299,10 +372,15 @@ typedef enum {
   EVENT_NONE = 0,
   EVENT_INIT,
   EVENT_UART,
+  EVENT_SENSOR,
   EVENT_ERREUR,
   EVENT_GPIO_ON,
   EVENT_GPIO_OFF,
+  EVENT_ESP_RECV,
+  EVENT_ESP_RECALAGE,
   EVENT_ECOUTE_WebSock,
+  EVENT_GATEWAY_QUEUE,
+  EVENT_REVEIL_PERIODIQUE,
   EVENT_WATCHDOG,
   EVENT_24H,
   EVENT_3min,
@@ -320,6 +398,13 @@ typedef struct {
   uint32_t data;            // Donnée associée (ex: valeur capteur, byte UART)
 } systeme_eve_t;
 
+// Structure pour la queue de réception ESP-NOW (message + adresse source)
+typedef struct {
+  uint8_t src_addr[6];
+  Message_Struct msg;
+  int len;
+  int8_t rssi;
+} EspNowRecvMsg_t;
 
 /* Codes erreur*/
 #define Code_erreur_Tint 1
@@ -334,7 +419,6 @@ typedef struct {
 #define Code_erreur_wifi 9
 #define Code_erreur_esp_now 10
 
-#define DEBOUNCE_INTERVAL 300  // Temps anti-rebond en ms
 
 #ifdef __cplusplus
 constexpr int NB_Graphique = 6;  // Temp Ext, Temp int, Chaud, MoyText, MoyTint, Cout,
@@ -344,46 +428,43 @@ constexpr int NB_Val_Graph = 99;
 #define NB_Val_Graph 99
 #endif
 
+#define NB_VAL_TAB  12
+
+#define MAX_DUMP 6900              // 600 + 1050 car par graphique
+extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
+
+extern  uint8_t esp_now_actif;  // 0:esp_now inactif  1:actif
+
 extern uint8_t protocole;
 extern uint16_t nb_reset;
 extern QueueHandle_t eventQueue;  // File d'attente des événements sequenceur
 extern uint16_t erreur_queue;
 extern TimerHandle_t debounceTimer;
-extern  uint8_t periode_cycle;
-extern  uint8_t mode_rapide;
 extern  uint16_t prolong_veille;
 
-#define MAX_DUMP 6900              // 600 + 1050 car par graphique
-extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
+extern  uint16_t compteur_detection;
+extern  uint16_t Nb_PI[];
+
+extern float Tint, Text, Humid;
 
 extern uint16_t date_ac;
 extern uint8_t cpt_securite;
-extern uint8_t WIFI_CHANNEL;
-extern uint8_t last_wifi_channel;     // Mémorisation du canal Wifi en DeepSleep
 extern uint8_t rtc_valid;  // 0:cold reset  1:reset apres deep sleep
 extern  uint16_t   cpt_cycle_batt;                   // Compteur cycles pour mesure batterie
 extern volatile uint8_t ackReceived;  // global pour indiquer que le peer a acké
 extern volatile int ackChannel;       // canal où ça a marché
+extern uint8_t num_sequentiel;  // pour Ack
+
 extern uint8_t init_time;
 extern float heure;
-extern  uint16_t err_Tint, err_Text, err_Heure;  // compteurs d'erreurs
-extern float Tint, Text;
 
+extern unsigned long last_remote_Tint_time, last_remote_Text_time,
+    last_remote_heure_time;
+extern  uint16_t err_Tint, err_Text, err_Heure;
 
-extern  float tempI_moy24h, tempE_moy24h, cout_moy24h;
-extern  uint8_t cpt24_Tint, cpt24_Text, cpt24_Cout;
+extern  float tempI_moy24h, tempE_moy24h, Hum_24h, HA_moy24h, PIR_24h;
+extern  uint16_t cpt24_Tint, cpt24_Text, cpt24_Hum, cpt24_HA, cpt24_PIR;
 
-extern uint8_t DelaiWebsocket;
-extern uint8_t websocket_on;
-extern char ip_websocket[];
-extern uint8_t id_websocket;
-
-// IP addresses (RAM objects)
-extern IPAddress local_ip;
-extern IPAddress gateway;
-extern IPAddress subnet;
-extern IPAddress primaryDNS;
-extern IPAddress secondaryDNS;
 
 extern  int16_t graphique[NB_Val_Graph][NB_Graphique];
 extern uint16_t Seuil_batt_arret_ESP;  // millivolt
@@ -394,6 +475,7 @@ extern  uint8_t etat_now;
 
 extern bool force_stay_awake;
 extern unsigned long wake_up_time;  // Temps de réveil/dernière activité
+
 extern uint8_t sdcard_ok, camera_ok;
 
 void writeLog(uint8_t code, uint8_t c1, uint8_t c2, uint8_t c3,
@@ -411,12 +493,13 @@ uint8_t requete_action_appli(const char* reg, const char* data);
 void appli_event_on(systeme_eve_t evt);
 void appli_event_off(systeme_eve_t evt);
 #ifdef __cplusplus
-uint8_t requete_Get_appli(String var, float* valeur);
-uint8_t requete_Set_appli(String param, float valf);
 uint8_t requete_GetReg_appli(int reg, float* valeur);
 uint8_t requete_SetReg_appli(int param, float valeurf);
 uint8_t requete_Get_String_appli(uint8_t type, String var, char* valeur);
 uint8_t requete_Set_String_appli(int param, const char* texte);
+uint8_t requete_SetReg(int param, float valeurf, uint8_t secu);
+uint8_t lecture_Tint(float* mesure, float *hum );
+uint8_t lecture_Text(float* mesure);
 #else
 uint8_t requete_Get_appli(const char* var, float* valeur);
 uint8_t requete_Set_appli(const char* param, float valf);
@@ -425,11 +508,9 @@ uint8_t requete_SetReg_appli(int param, float valeurf);
 uint8_t requete_Get_String_appli(uint8_t type, const char* var, char* valeur);
 uint8_t requete_Set_String_appli(int param, const char* texte);
 #endif
-uint8_t lecture_Tint(float* mesure);
-uint8_t lecture_Text(float* mesure);
-void event_mesure_temp();
-void maj_etat_chaudiere();
-void event_mesure_compresseur();
+void event_cycle();
+void envoi_detection();
+
 
 // Fonctions WiFi
 uint8_t connectWiFiWithDiagnostic();
