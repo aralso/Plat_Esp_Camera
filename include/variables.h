@@ -35,7 +35,8 @@
 #define ESP32_S3
 //#define ESP32_Fire2
 
-#define ESP_VEILLE     // Rôle principal 
+//#define ESP_VEILLE     // Rôle principal 
+//#define ESP_TJ_ACTIF
 
 #ifdef ESP_VEILLE
   // en veille 11uA
@@ -45,9 +46,6 @@
   #define GRAPH3  0
   //#define PIR_ACTIF
   
-  //#define ESP32_Fire2_C6
-  //#define ESP32_uPesy
-  #define ESP32_S3
 
   //#define Temp_int_HDC1080  // Capteur I2C HDC1080
   #define MODE_Wifi  // Wifi sinon Ethernet
@@ -58,12 +56,24 @@
   #define OTA
   #define ENVOI
   #define STOCKAGE
+
+#else  // Toujours actif
+  //#define ESP32_Fire2_C6
+  #define GRAPH2  1 // 0:HUMID_ABS  1:HUMID_REL  2:Capteur PIR
+  #define GRAPH3  0
+  #define MODE_Wifi  // Wifi sinon Ethernet
+  #define Sans_websocket
+  #define Sans_securite
+  #define WatchDog
+  #define OTA
+  #define ENVOI
+  #define STOCKAGE
+
 #endif
 
 #define BTN_COUNT 2  // Nombre de boutons
 #define NB_CAPT 1
 
-//#define ESP_VEILLE
 
 #define SDCARD
 #define CAMERA
@@ -171,6 +181,7 @@ extern uint8_t pas_de_veille;
 extern  uint16_t prolong_veille;
 extern  uint8_t action_stockage;
 extern  uint8_t action_envoi;
+extern uint8_t freq_envoi;
 extern uint8_t boot_rapide;
 extern char latitude[];
 extern char longitude[];
@@ -183,6 +194,7 @@ extern uint8_t subnet[4];
 extern uint8_t primaryDNS[4];
 extern uint8_t secondaryDNS[4];
 extern char mac_gw_str[20];
+extern uint8_t ip_serveur[4];
 
 extern char nom_routeur[];
 extern char mdp_routeur[];
@@ -200,12 +212,16 @@ extern uint8_t im_y_debut;
 extern uint8_t im_y_fin;
 
 extern uint16_t val_test;
+extern uint8_t battery_level;
+extern uint8_t photo_video_en_cours;
 
 // Current camera JPEG quality (camera sensor 'quality' value, e.g. 63..4)
 extern uint8_t current_sensor_quality;
 
 extern const size_t PARAMS_COUNT;
 extern Param PARAMS[];
+
+extern IPAddress ipServeur;
 
 template<typename T>
 void payloadWrite(uint8_t* payload, uint8_t& pos, const T& value)
@@ -289,13 +305,13 @@ uint8_t requete_Set_appli(String param, float valf);
 uint8_t requete_Set_appli(const char* param, float valf);
 #endif
 uint8_t requete_GetReg(int reg, float* valeur);
-void capture_video_sd();
-void capture_photo_sd();
+uint8_t capture_video_sd();
+uint8_t capture_photo_sd();
 uint8_t encodeFile();
 uint8_t decodeFile();
 
 // Capture AVI in background (no HTTP response). Implemented in app_httpd.cpp
-void capture_avi_b();
+uint8_t capture_avi_b();
 
 // encode_lpc is a C++ function; only declare for C++ compilation
 #ifdef __cplusplus
@@ -311,7 +327,7 @@ void i2cRecovery();
 void i2cBootRecovery();
 uint16_t selec_graph(uint8_t code, uint16_t hum, uint16_t ha, uint16_t pir);
 void detection_pir();
-uint8_t envoi_valeur_instant(float Tint, float Humid, float HA);
+uint8_t envoi_valeur_instant(float Tint, float Humid, float HA, float vbatt);
 void envoi_temp_hygro();
 void writeLogG(uint8_t code, uint16_t c1, uint16_t c2, uint16_t c3);
 
@@ -387,6 +403,7 @@ typedef enum {
   EVENT_CYCLE,
   EVENT_PRISE_VIDEO,
   EVENT_PRISE_PHOTO,
+  EVENT_ENVOI_FICHIER,
   EVENT_ENCODE_LPC,
   EVENT_DECODE_LPC,
   EVENT_UART1
@@ -428,7 +445,7 @@ constexpr int NB_Val_Graph = 99;
 #define NB_Val_Graph 99
 #endif
 
-#define NB_VAL_TAB  12
+#define NB_VAL_TAB 12
 
 #define MAX_DUMP 6900              // 600 + 1050 car par graphique
 extern char buffer_dmp[MAX_DUMP];  // max 250 logs, 16 octets chacun
@@ -442,8 +459,6 @@ extern uint16_t erreur_queue;
 extern TimerHandle_t debounceTimer;
 extern  uint16_t prolong_veille;
 
-extern  uint16_t compteur_detection;
-extern  uint16_t Nb_PI[];
 
 extern float Tint, Text, Humid;
 
@@ -477,6 +492,7 @@ extern bool force_stay_awake;
 extern unsigned long wake_up_time;  // Temps de réveil/dernière activité
 
 extern uint8_t sdcard_ok, camera_ok;
+extern uint8_t code_nb_images;
 
 void writeLog(uint8_t code, uint8_t c1, uint8_t c2, uint8_t c3,
               const char* message);

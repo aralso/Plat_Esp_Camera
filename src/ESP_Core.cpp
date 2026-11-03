@@ -140,6 +140,8 @@ RTC_NOINIT_ATTR uint8_t vit_cpu;
 uint8_t My_statut; // 0:inconnu 1:veille 2:balise 3:tj actif
 RTC_NOINIT_ATTR uint16_t val_test;  // valeur test, pour essais
 
+IPAddress ipServeur;
+
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
 void OnDataSent(const wifi_tx_info_t* info, esp_now_send_status_t status);
 #else
@@ -203,6 +205,9 @@ uint8_t esp_initialise=0;  // flag pour indiquer si ESP-NOW a été initialisé
   RTC_NOINIT_ATTR uint8_t subnet[4];    // Masque de sous-réseau
   RTC_NOINIT_ATTR uint8_t primaryDNS[4];      // DNS primaire
   RTC_NOINIT_ATTR uint8_t secondaryDNS[4];    // DNS secondaire
+  RTC_NOINIT_ATTR uint8_t ip_serveur[4];  // Adresse IP statique du serveur
+
+  RTC_NOINIT_ATTR uint8_t etat_now;
 
 
 #else  // WT32
@@ -1004,21 +1009,41 @@ void taskHandler(void *parameter) {
                     break;
 
                 #ifdef CAMERA
-                  case EVENT_PRISE_VIDEO:
-                    capture_video_sd();
+                  case EVENT_PRISE_VIDEO: {
+                    uint8_t res = capture_video_sd();
+                    if (res)  photo_video_en_cours=0;
                     break;
+                  }
 
-                  case EVENT_PRISE_PHOTO:
-                    capture_photo_sd();
+                  case EVENT_PRISE_PHOTO: {
+                    uint8_t res = capture_photo_sd();
+                    if (res)  photo_video_en_cours=0;
                     break;
+                  }
 
-                  case EVENT_ENCODE_LPC:
-                    encodeFile();
+                  case EVENT_ENCODE_LPC: {
+                    uint8_t res = encodeFile();
+                    if (res)  photo_video_en_cours=0;
+                    else
+                    {
+                      systeme_eve_t evt = { EVENT_ENVOI_FICHIER, 0 };  // Exemple : donnée = 123
+                      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+                      {
+                      if (erreur_queue<5) num_err_queue[erreur_queue]=9;
+                      erreur_queue++;
+                      }
+                    }
                     break;
+                  }
 
                   case EVENT_DECODE_LPC:
                     decodeFile();
                     break;
+                  case EVENT_ENVOI_FICHIER:
+                    envoyer_fichier();
+                    photo_video_en_cours=0;
+                    break;
+
                 #endif
 
                 case EVENT_SENSOR:
@@ -1575,7 +1600,7 @@ void setup()
     else if (reveil==2) type_reveil=2; // PIR
     else type_reveil=3;           // inconnu-watchdog-Exception
   }
-  #ifdef ESP_TJ_ACTIF
+  #ifndef ESP_VEILLE  // toujours actif
     type_reveil = 10;  // power on, toujours actif
   #endif
 
@@ -1595,7 +1620,7 @@ void setup()
   // Délai de stabilisation pour éviter les conflits UART/WiFi
   //delay(500);
 
-  #ifdef ESP_TJ_ACTIF
+  #ifndef ESP_VEILLE  // tj actif
     esp_log_level_set("*", ESP_LOG_WARN);  // niveau minimum   - ESP_LOG_INFO  ou rien
     esp_log_level_set("HTTPClient", ESP_LOG_WARN);
     esp_log_level_set("NetworkManager", ESP_LOG_WARN);
@@ -5375,6 +5400,7 @@ uint8_t connectWiFiWithDiagnostic() {
       IPAddress ipSubnet = makeIPAddress(subnet);
       IPAddress ipPrimaryDNS = makeIPAddress(primaryDNS);
       IPAddress ipSecondaryDNS = makeIPAddress(secondaryDNS);
+      ipServeur = makeIPAddress(ip_serveur);
 
       if (log_detail>=3) Serial.printf("Configuration IP statique: %s\n\r", ipLocal.toString().c_str());
       if (!WiFi.config(ipLocal, ipGateway, ipSubnet, ipPrimaryDNS, ipSecondaryDNS)) {

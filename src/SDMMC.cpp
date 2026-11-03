@@ -17,6 +17,10 @@
 #include "LPC/lpc.h"
 #include "camera.h"
 
+#include <HTTPClient.h>
+#include <WiFi.h>
+#include <esp_wifi.h>
+
 //#include "header.h"
 //#include "esp_jpg_decode.h"
 
@@ -25,7 +29,7 @@ bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);
 uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1);
 uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings);
 
-char path_c[128];
+char path_c[80];
 uint8_t code_encod = 'H';
 
 
@@ -1024,4 +1028,49 @@ uint8_t sd_init()
     Serial.printf("Used space: %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024));
  }
   return 0;
+}
+
+bool envoyer_fichier ()
+{
+  File fichier = SD_MMC.open(path_c, FILE_READ);
+
+  if (!fichier) {
+    Serial.println("Fichier introuvable");
+    return false;
+  }
+
+  WiFiClient client;
+  HTTPClient http;
+
+  String nomFichier = String(path_c);
+  int pos = nomFichier.lastIndexOf('/');
+  if (pos >=0) 
+  {
+    nomFichier = nomFichier.substring(pos+1);
+  }
+  
+  String url = "http://" + ipServeur.toString() + "/upload";
+  http.begin(client, url);
+
+  http.addHeader("Content-Type", "application/octet-stream");
+  http.addHeader("X-filename", nomFichier);
+
+  int code = http.sendRequest(
+    "POST",
+    &fichier,
+    fichier.size()
+  );
+
+  String reponse = http.getString();
+
+  fichier.close();
+  http.end();
+
+  if (log_detail>=2)
+  {
+    Serial.printf("HTTP : %d\n", code);
+    Serial.println(reponse);
+  }
+  
+  return code == 200;
 }

@@ -19,7 +19,9 @@
 
 #include "variables.h"
 
-extern char path_c[128];
+extern char path_c[80];
+
+const char *get_filename_ext(const char *filename);
 
 static inline uint8_t clamp(int v)
 {
@@ -189,12 +191,6 @@ bool file_exists(const char *name)
     return f.good();
 }
 
-const char *get_filename_ext(const char *filename)
-{
-    const char *dot = strrchr(filename, '.');
-    if (!dot || dot == filename) return "";
-    return dot + 1;
-}
 
 /// MAIN LOOP
 
@@ -240,7 +236,7 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 	return 0;
 }
 
-void get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
+void get_jpeg_size2(const char *path, uint16_t *width, uint16_t *height)
 {
 	filestream_t stream(path, "rb");
 

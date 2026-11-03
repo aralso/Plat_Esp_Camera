@@ -45,6 +45,9 @@
  uint8_t im_y_fin;
  uint8_t type_cam;   // 0:non def, 1:OV3660  2:0V2640
 
+ // Current camera JPEG quality (camera sensor 'quality' value). Initialized to a conservative default (4)
+uint8_t current_sensor_quality = 4;
+
 // bool fmt2rgb888_scaled(const uint8_t *src_buf, size_t src_len, pixformat_t format, uint8_t * rgb_buf, jpg_scale_t scale, int *width, int *height);
 
  // Size/codec helpers
