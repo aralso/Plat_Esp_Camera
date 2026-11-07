@@ -1,7 +1,7 @@
 #include "lpc.h"
 
 // Utility for 16x16 blocks
-void reorder_luma_16x16_as_block(luma_block_t *output, const uint8_t *prediction)
+void reorder_luma_16x16_as_block(LPC_RESTRICT(luma_block_t*) output, LPC_RESTRICT(const uint8_t*) prediction)
 {
 	const int BLOCK_SIZE = MB_SIZE;
 
@@ -14,6 +14,7 @@ void reorder_luma_16x16_as_block(luma_block_t *output, const uint8_t *prediction
 
 			for (int i = 0; i < LUMA_BLOCK_SIZE; i++)
 			{
+				/*
 				for (int j = 0; j < LUMA_BLOCK_SIZE; j++)
 				{
 					int src_i = (block_i * LUMA_BLOCK_SIZE + i);
@@ -22,12 +23,23 @@ void reorder_luma_16x16_as_block(luma_block_t *output, const uint8_t *prediction
 
 					block.Y[i * LUMA_BLOCK_SIZE + j] = prediction[src_idx];
 				}
+				*/
+
+				// Copy 4 uint8_t at a time
+				int src_i = (block_i * LUMA_BLOCK_SIZE + i);
+				int src_j = (block_j * LUMA_BLOCK_SIZE);
+				int src_idx = src_i * BLOCK_SIZE + src_j;
+
+				uint8_t* a = &(block.Y[i * LUMA_BLOCK_SIZE]);
+				const uint8_t* b = &(prediction[src_idx]);
+
+				*((uint32_t*)a) = *((uint32_t*)b);
 			}
 		}
 	}
 }
 
-void reorder_luma_16x16_linear(const luma_block_t *input, uint8_t *output)
+void reorder_luma_16x16_linear(LPC_RESTRICT(const luma_block_t*) input, LPC_RESTRICT(uint8_t*) output)
 {
 	const int BLOCK_SIZE = MB_SIZE;
 
@@ -40,6 +52,7 @@ void reorder_luma_16x16_linear(const luma_block_t *input, uint8_t *output)
 
 			for (int i = 0; i < LUMA_BLOCK_SIZE; i++)
 			{
+				/*
 				for (int j = 0; j < LUMA_BLOCK_SIZE; j++)
 				{
 					int src_i = (block_i * LUMA_BLOCK_SIZE + i);
@@ -48,6 +61,17 @@ void reorder_luma_16x16_linear(const luma_block_t *input, uint8_t *output)
 
 					output[src_idx] = block.Y[i * LUMA_BLOCK_SIZE + j];
 				}
+				*/
+
+				// Copy 4 uint8_t at a time
+				int src_i = (block_i * LUMA_BLOCK_SIZE + i);
+				int src_j = (block_j * LUMA_BLOCK_SIZE);
+				int src_idx = src_i * BLOCK_SIZE + src_j;
+
+				uint8_t* a = &(output[src_idx]);
+				const uint8_t* b = &(block.Y[i * LUMA_BLOCK_SIZE]);
+
+				*((uint32_t*)a) = *((uint32_t*)b);
 			}
 		}
 	}
@@ -56,43 +80,40 @@ void reorder_luma_16x16_linear(const luma_block_t *input, uint8_t *output)
 /// INTRA PREDICTION
 
 template <int BLOCK_SIZE>
-uint32_t vertical_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result, const uint8_t *original)
+uint32_t vertical_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result, const uint8_t *original)
 {
 	if (!top) return MAX_COST(BLOCK_SIZE);
 
 	uint32_t cost = 0;
 	for (int x = 0; x < BLOCK_SIZE; x++)
 	{
+        memset(&result[x * BLOCK_SIZE], top[x], BLOCK_SIZE);
+
 		for (int y = 0; y < BLOCK_SIZE; y++)
-		{
-			result[x * BLOCK_SIZE + y] = top[x];
 			cost += cost_sad(top[x], original[x * BLOCK_SIZE + y]);
-		}
 	}
 
 	return cost;
 }
 
 template <int BLOCK_SIZE>
-uint32_t horizontal_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result, const uint8_t *original)
+uint32_t horizontal_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result, const uint8_t *original)
 {
 	if (!left) return MAX_COST(BLOCK_SIZE);
 
 	uint32_t cost = 0;
 	for (int x = 0; x < BLOCK_SIZE; x++)
 	{
+        memcpy(&result[x * BLOCK_SIZE], left, BLOCK_SIZE);
 		for (int y = 0; y < BLOCK_SIZE; y++)
-		{
-			result[x * BLOCK_SIZE + y] = left[y];
 			cost += cost_sad(left[y], original[x * BLOCK_SIZE + y]);
-		}
 	}
 
 	return cost;
 }
 
 template <int BLOCK_SIZE>
-void dc_filter(const uint8_t *top, const uint8_t *left, uint8_t *result)
+void dc_filter(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	result[0] = (top[0] + left[0] + 2 * result[0] + 2) >> 2;
 
@@ -104,7 +125,7 @@ void dc_filter(const uint8_t *top, const uint8_t *left, uint8_t *result)
 }
 
 template <int BLOCK_SIZE, int LOG2_BLOCK_SIZE>
-uint32_t dc_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result, const uint8_t *original)
+uint32_t dc_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result, const uint8_t *original)
 {
 	uint8_t dc = 1 << 7;
 	if (top || left)
@@ -150,7 +171,7 @@ inline uint8_t combine3(uint8_t a, uint8_t b, uint8_t c)
 	return (a + 2 * b + c + 2) >> 2;
 }
 
-uint32_t ddl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t ddl_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	if (!top) return MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -182,7 +203,7 @@ uint32_t ddl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result
 	return 0;
 }
 
-uint32_t ddr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t ddr_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -213,7 +234,7 @@ uint32_t ddr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result
 	return 0;
 }
 
-uint32_t vr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t vr_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	if (!top || !left) return MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -244,7 +265,7 @@ uint32_t vr_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 	return 0;
 }
 
-uint32_t hd_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t hd_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	if (!left) return MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -274,7 +295,7 @@ uint32_t hd_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 	return 0;
 }
 
-uint32_t vl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t vl_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	if (!top) return MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -304,7 +325,7 @@ uint32_t vl_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 	return 0;
 }
 
-uint32_t hu_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t hu_prediction(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	if (!left) return MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -333,7 +354,7 @@ uint32_t hu_prediction(const uint8_t *top, const uint8_t *left, uint8_t *result)
 	return 0;
 }
 
-uint32_t plane_prediction_8x8(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t plane_prediction_8x8(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	const int BLOCK_SIZE = 8;
 
@@ -364,7 +385,7 @@ uint32_t plane_prediction_8x8(const uint8_t *top, const uint8_t *left, uint8_t *
 	return 0;
 }
 
-uint32_t plane_prediction_16x16(const uint8_t *top, const uint8_t *left, uint8_t *result)
+uint32_t plane_prediction_16x16(const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	const int BLOCK_SIZE = 16;
 
@@ -398,7 +419,7 @@ uint32_t plane_prediction_16x16(const uint8_t *top, const uint8_t *left, uint8_t
 /// BLOCK PREDICTION
 
 uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
-		const uint8_t *top, const uint8_t *left, luma_block_t *result)
+		const uint8_t *top, const uint8_t *left, LPC_RESTRICT(luma_block_t*) result)
 {
 	const int LOG2_BLOCK_SIZE = 2;
 
@@ -451,7 +472,7 @@ uint32_t predict_luma_4x4(const luma_block_t &original, intra_mode_t mode,
 }
 
 uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
-		const uint8_t *top, const uint8_t *left, uint8_t *result)
+		const uint8_t *top, const uint8_t *left, LPC_RESTRICT(uint8_t*) result)
 {
 	const int LOG2_BLOCK_SIZE = 4;
 	const int BLOCK_SIZE = MB_SIZE;
@@ -485,7 +506,7 @@ uint32_t predict_luma_16x16(const uint8_t *original, intra_mode_t mode,
 }
 
 uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
-		const uint8_t *top, const uint8_t *left, chroma_block_t *result)
+		const uint8_t *top, const uint8_t *left, LPC_RESTRICT(chroma_block_t*) result)
 {
 	const int LOG2_BLOCK_SIZE = 3;
 
@@ -521,7 +542,7 @@ uint32_t predict_chroma(const chroma_block_t &original, intra_mode_t mode,
 
 uint32_t find_mode_luma_4x4(const luma_block_t &original,
 		const uint8_t *top, const uint8_t *left,
-		luma_block_t *predicted, intra_mode_t *pred_mode)
+		LPC_RESTRICT(luma_block_t*) predicted, LPC_RESTRICT(intra_mode_t*) pred_mode)
 {
 	uint32_t pred_cost = MAX_COST(LUMA_BLOCK_SIZE);
 
@@ -551,7 +572,7 @@ uint32_t find_mode_luma_4x4(const luma_block_t &original,
 
 uint32_t find_mode_luma_16x16(const uint8_t *original,
 		const uint8_t *top, const uint8_t *left,
-		uint8_t *predicted, intra_mode_t *pred_mode)
+		LPC_RESTRICT(uint8_t*) predicted, LPC_RESTRICT(intra_mode_t*) pred_mode)
 {
 	uint32_t pred_cost = MAX_COST(MB_SIZE);
 
@@ -581,7 +602,7 @@ uint32_t find_mode_luma_16x16(const uint8_t *original,
 
 uint32_t find_mode_chroma(const macroblock_t &original,
 		const neighbour_t &top, const neighbour_t &left,
-		macroblock_t *predicted, intra_mode_t *predicted_mode)
+		LPC_RESTRICT(macroblock_t*) predicted, LPC_RESTRICT(intra_mode_t*) predicted_mode)
 {
 	uint32_t pred_cost = MAX_COST(CHROMA_BLOCK_SIZE) * 2;
 

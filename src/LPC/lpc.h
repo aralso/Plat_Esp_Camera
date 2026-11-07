@@ -25,10 +25,11 @@
 #define LPC_SUPPORT_4x4 0
 #define LPC_ADAPTIVE_QP 0
 
+#define LPC_RESTRICT(type) type __restrict
 
 /// Debug macros
 
-#define EXTENDED_STATS 0
+#define LPC_EXTENDED_STATS 0
 
 #ifdef DEBUG
 #define LPC_DEBUG
@@ -89,7 +90,10 @@ struct lpc_stream_in_t
 
 	uint16_t read_uint16()
 	{
-		return (((uint16_t)read_byte()) << 8) | (uint16_t)read_byte();
+		// Can't inline or the compiler may reorder the reads
+		uint16_t a = read_byte();
+		uint16_t b = read_byte();
+		return (a << 8) | b;
 	}
 
 	size_t read_bytes(uint8_t *data, size_t size);

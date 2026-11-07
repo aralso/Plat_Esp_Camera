@@ -1058,7 +1058,7 @@ uint8_t encodeFile()
 			if (s.count != 0)
 			{
 				for (int i = 0; i < s.nesting; i++) printf("  ");
-				printf("- %-16s %10.3f\n", to_string((LPC_MARKER)i), (double)s.total / 1e6);
+				printf("- %-16s %10.3f\n", to_string((LPC_MARKER)i), (double)s.total / 1e3);
 			}
 		}
 		#endif

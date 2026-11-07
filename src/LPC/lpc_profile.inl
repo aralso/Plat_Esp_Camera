@@ -5,10 +5,18 @@
 enum LPC_MARKER
 {
 	ENCODE_FRAME,
+
 	DECODE_JPEG,
+	JPEG_DOWNSCALE,
 
 	DO_ENCODE,
+
 	SELECT_MODE,
+	PREDICTION_LUMA_16x16,
+	PREDICTION_LUMA_4x4,
+	PREDICTION_CHROMA,
+	PREDICTION_P,
+
 	BUILD_RESIDUALS,
 	CBP_FLAGS,
 
@@ -31,13 +39,26 @@ static const char* to_string(LPC_MARKER id)
 	{
 	case ENCODE_FRAME:
 		return "ENCODE_FRAME";
+
 	case DECODE_JPEG:
 		return "DECODE_JPEG";
+	case JPEG_DOWNSCALE:
+		return "JPEG_DOWNSCALE";
 
 	case DO_ENCODE:
 		return "DO_ENCODE";
+
 	case SELECT_MODE:
 		return "SELECT_MODE";
+	case PREDICTION_LUMA_16x16:
+		return "PREDICTION_LUMA_16x16";
+	case PREDICTION_LUMA_4x4:
+		return "PREDICTION_LUMA_4x4";
+	case PREDICTION_CHROMA:
+		return "PREDICTION_CHROMA";
+	case PREDICTION_P:
+		return "PREDICTION_P";
+
 	case BUILD_RESIDUALS:
 		return "BUILD_RESIDUALS";
 	case CBP_FLAGS:
@@ -70,11 +91,11 @@ struct lpc_profiler_t
 {
 	struct stats_t
 	{
-		uint64_t count;
-		uint64_t total;
-		uint64_t min;
-		uint64_t max;
-		uint64_t nesting;
+		uint32_t count;
+		uint32_t total;
+		uint32_t min;
+		uint32_t max;
+		int32_t nesting;
 	};
 
 	static stats_t markers[LPC_MARKER_COUNT];
@@ -93,9 +114,8 @@ struct lpc_profiler_t
 	~lpc_profiler_t()
 	{
 		nesting--;
-		uint64_t elapsed =
-			std::chrono::duration_cast<std::chrono::nanoseconds>(
-				Clock::now() - start).count();
+		uint32_t elapsed = (uint32_t)std::chrono::duration_cast
+			<std::chrono::microseconds>(Clock::now() - start).count();
 
 		stats_t& stat = markers[id];
 
@@ -124,7 +144,7 @@ private:
 
 			s.count = 0;
 			s.total = 0;
-			s.min = UINT64_MAX;
+			s.min = UINT32_MAX;
 			s.max = 0;
 			s.nesting = 0;
 		}

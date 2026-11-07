@@ -99,7 +99,7 @@ inline uint8_t clamp8(int x)
 
 inline uint8_t compute_qp(uint8_t quality)
 {
-	return min(max(0, QP_MAX * (100 - quality) / 100), QP_MAX);
+	return (uint8_t)min(max(0, QP_MAX * (100 - quality) / 100), QP_MAX);
 }
 
 size_t lpc_stream_in_t::read_bytes(uint8_t *data, size_t size)
@@ -141,7 +141,9 @@ LPC_DEBUG_ONLY(static lpc_stats_t *STATS = nullptr);
 /// PROFILER
 
 #ifdef LPC_PROFILE
-#define PROFILER_SCOPE(id) lpc_profiler_t profiler_##__LINE__(id)
+#define LPC_CONCAT_IMPL(a, b) a##b
+#define LPC_CONCAT(a, b) LPC_CONCAT_IMPL(a, b)
+#define PROFILER_SCOPE(id) lpc_profiler_t LPC_CONCAT(profiler_, __LINE__)(id)
 lpc_profiler_t::stats_t lpc_profiler_t::markers[LPC_MARKER_COUNT];
 int lpc_profiler_t::nesting = 0;
 #else
@@ -168,6 +170,9 @@ int lpc_profiler_t::nesting = 0;
 
 void lpc_encoder_t::open(lpc_settings_t settings, lpc_stream_out_t *stream_out)
 {
+	LPC_ASSERT(settings.width % 2 == 0);
+	LPC_ASSERT(settings.height % 2 == 0);
+
 	stream = stream_out;
 	width = settings.width;
 	height = settings.height;

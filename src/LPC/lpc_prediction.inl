@@ -11,6 +11,8 @@ void predicted_macroblock_t::select_mode(const macroblock_t &orig, const neighbo
 
 	if (frame_type == FRAME_TYPE_P && neighbours.previous != nullptr)
 	{
+		PROFILER_SCOPE(PREDICTION_P);
+
 		// Evaluate luma cost
 		uint32_t total_cost = 0;
 		for (int block_i = 0; block_i < LUMA_BLOCK_COUNT; block_i++)
@@ -104,6 +106,8 @@ uint32_t predicted_macroblock_t::select_intra_modes(const macroblock_t &orig, co
 
 	// Luma 16x16
 	{
+		PROFILER_SCOPE(PREDICTION_LUMA_16x16);
+
 		uint8_t orig_luma[16 * 16];
 		uint8_t predicted_luma[16 * 16];
 		reorder_luma_16x16_linear(orig.luma, orig_luma);
@@ -125,11 +129,15 @@ uint32_t predicted_macroblock_t::select_intra_modes(const macroblock_t &orig, co
 	// Luma 4x4
 	if (type == MB_TYPE_I_4x4)
 	{
+		PROFILER_SCOPE(PREDICTION_LUMA_4x4);
+
 		total_cost = find_mode_luma_blocks(orig, top.get_luma(), left.get_luma(), this);
 	}
 
 	// Chroma
 	{
+		PROFILER_SCOPE(PREDICTION_CHROMA);
+
 		uint32_t cost_chroma = find_mode_chroma(orig, top, left, &mb, &mode_chroma);
 	}
 

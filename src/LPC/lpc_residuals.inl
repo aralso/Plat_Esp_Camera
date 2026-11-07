@@ -37,7 +37,14 @@ namespace cst
 	}
 }
 
-struct residual_t
+#ifdef ESP32
+extern "C" void residual_transform_4x4(int16_t x[8], int16_t y[8], int16_t result[16]);
+#define RESIDUAL_ALIGNAS alignas(16)
+#else
+#define RESIDUAL_ALIGNAS
+#endif
+
+struct RESIDUAL_ALIGNAS residual_t
 {
 	int16_t val[4*4];
 
@@ -77,6 +84,21 @@ struct residual_t
 
 	void transform()
 	{
+		#ifdef ESP32
+
+		alignas(16) int16_t x[8] = {
+			val[0+0*4], val[0+3*4], val[1+0*4], val[1+3*4],
+			val[3+0*4], val[3+3*4], val[2+0*4], val[2+3*4]
+		};
+		alignas(16) int16_t y[8] = {
+			val[0+1*4], val[0+2*4], val[1+1*4], val[1+2*4],
+			val[3+1*4], val[3+2*4], val[2+1*4], val[2+2*4]
+		};
+
+		// Fast implementation using dedicated hardware instructions
+		residual_transform_4x4(x, y, val);
+
+		#else
 		int tmp[4*4];
 
 		// Horizontal pass
@@ -106,6 +128,7 @@ struct residual_t
 			val[2*4+i] = s0 - s1;
 			val[3*4+i] = s3 - (s2<<1);
 		}
+		#endif
 	}
 
 	void inverse_transform()

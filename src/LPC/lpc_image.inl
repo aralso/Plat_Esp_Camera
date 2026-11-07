@@ -133,6 +133,8 @@ void macroblock_t::to_rgb(uint8_t *rgb, int width, int height, int x, int y) con
 
 /// JPEG decode
 
+static const unsigned fp_shift = 10;
+
 #define	JD_SZBUF		512	/* Size of stream input buffer */
 #define JD_FORMAT		0	/* Output pixel format 0:RGB888 (3 BYTE/pix), 1:RGB565 (1 WORD/pix) */
 #define	JD_USE_SCALE	0	/* Use descaling feature for output */
@@ -149,6 +151,9 @@ struct JDEC
 	uint32_t in_width, in_height;	/* Size of the input image (pixel) */
 	uint32_t out_width, out_height;	/* Size of the output image (pixel) */
 	uint32_t num_mb_x, num_mb_y;	/* Size of the output image (macroblocks) */
+
+	uint32_t downscale_x, downscale_y;
+	uint32_t upscale_x, upscale_y;
 
 	uint32_t dctr;				/* Number of bytes available in the input buffer */
 	uint8_t* dptr;				/* Current data read ptr */
@@ -189,54 +194,58 @@ typedef struct {
 	uint16_t left, right, top, bottom;
 } JRECT;
 
-static uint32_t _jpg_read(JDEC *decoder, uint8_t *buf, uint32_t len)
+static uint32_t _jpg_read(LPC_RESTRICT(JDEC*) decoder, LPC_RESTRICT(uint8_t*) buf, uint32_t len)
 {
 	return (uint32_t)decoder->device.input->read_bytes(buf, len);
 }
 
-static bool _jpg_write(JDEC *decoder, rgb_t *input, const JRECT &rect)
+static bool _jpg_write(LPC_RESTRICT(const JDEC*) decoder, LPC_RESTRICT(const rgb_t*) input, const JRECT &rect)
 {
+	PROFILER_SCOPE(JPEG_DOWNSCALE);
+
 	uint16_t w = rect.right + 1 - rect.left;
+	uint16_t h = rect.bottom + 1 - rect.top;
 	macroblock_t *macroblocks = (macroblock_t*)decoder->device.output;
 
-	unsigned first_x = (rect.left * decoder->out_width) / decoder->in_width;
-	unsigned last_x = (rect.right * decoder->out_width) / decoder->in_width;
-	unsigned first_y = (rect.top * decoder->out_height) / decoder->in_height;
-	unsigned last_y = (rect.bottom * decoder->out_height) / decoder->in_height;
+	unsigned first_x = (rect.left * decoder->downscale_x) >> fp_shift;
+	unsigned last_x = (rect.right * decoder->downscale_x) >> fp_shift;
+	unsigned first_y = (rect.top * decoder->downscale_y) >> fp_shift;
+	unsigned last_y = (rect.bottom * decoder->downscale_y) >> fp_shift;
 
 	for (unsigned mb_x = first_x / MB_SIZE; mb_x <= last_x / MB_SIZE; mb_x++)
 	{
+		// One +1 for div_round_up for both, one +1 for <= for last
+		int first_i = max(int(first_x - (mb_x * MB_SIZE) + 1), 0) >> 1;
+		int last_i = min(int(last_x - (mb_x * MB_SIZE) + 2) >> 1, CHROMA_BLOCK_SIZE);
+
 		for (unsigned mb_y = first_y / MB_SIZE; mb_y <= last_y / MB_SIZE; mb_y++)
 		{
+			int first_j = max(int(first_y - (mb_y * MB_SIZE) + 1), 0) >> 1;
+			int last_j = min(int(last_y - (mb_y * MB_SIZE) + 2) >> 1, CHROMA_BLOCK_SIZE);
+
 			auto &mb = macroblocks[mb_x * decoder->num_mb_y + mb_y];
 
-			for (int i = 0; i < CHROMA_BLOCK_SIZE; i++)
+			for (int i = first_i; i < last_i; i++)
 			{
-				for (int j = 0; j < CHROMA_BLOCK_SIZE; j++)
+				for (int j = first_j; j < last_j; j++)
 				{
-					unsigned pos_x = mb_x * MB_SIZE + i * 2;
-					unsigned pos_y = mb_y * MB_SIZE + j * 2;
+					int pos_x = (int)mb_x * MB_SIZE + i * 2;
+					int pos_y = (int)mb_y * MB_SIZE + j * 2;
 
-					// If we are inside the image, don't write outside of mb bounds
-					if (pos_x < decoder->out_width && pos_y < decoder->out_height)
-					{
-						if (pos_x < first_x || pos_x > last_x) continue;
-						if (pos_y < first_y || pos_y > last_y) continue;
-					}
+					int x0 = ((pos_x * decoder->upscale_x) >> fp_shift) - (int)rect.left;
+					int y0 = ((pos_y * decoder->upscale_y) >> fp_shift) - (int)rect.top;
+					int x1 = x0 + 1;
+					int y1 = y0 + 1;
 
-					pos_x = pos_x * decoder->in_width / decoder->out_width;
-					pos_y = pos_y * decoder->in_height / decoder->out_height;
+					if (x0 < 0) { x0 = x1 = 0; }
+					if (y0 < 0) { y0 = y1 = 0; }
+					if (x1 >= w) { x0 = x1 = w - 1; }
+					if (y1 >= h) { y0 = y1 = h - 1; }
 
-					int x0 = max(0, (int)(min(pos_x + 0, (unsigned int)decoder->in_width - 1) - rect.left));
-					int y0 = max(0, (int)(min(pos_y + 0, (unsigned int)decoder->in_height - 1) - rect.top));
-
-					int x1 = max(0, (int)(min(pos_x + 1, (unsigned int)decoder->in_width - 1) - rect.left));
-					int y1 = max(0, (int)(min(pos_y + 1, (unsigned int)decoder->in_height - 1) - rect.top));
-
-					rgb_t &p00 = input[x0 + y0 * w];
-					rgb_t &p10 = input[x1 + y0 * w];
-					rgb_t &p01 = input[x0 + y1 * w];
-					rgb_t &p11 = input[x1 + y1 * w];
+					const rgb_t &p00 = input[x0 + y0 * w];
+					const rgb_t &p10 = input[x1 + y0 * w];
+					const rgb_t &p01 = input[x0 + y1 * w];
+					const rgb_t &p11 = input[x1 + y1 * w];
 
 					// Luma
 					int block_i = (i * 2) / LUMA_BLOCK_SIZE;
@@ -934,6 +943,12 @@ JRESULT jd_prepare (
 
 			jd->in_width = LDB_WORD(seg + 3);    /* Image width in unit of pixel */
 			jd->in_height = LDB_WORD(seg + 1);   /* Image height in unit of pixel */
+
+			jd->downscale_x = (jd->out_width << fp_shift) / jd->in_width;
+			jd->downscale_y = (jd->out_height << fp_shift) / jd->in_height;
+			jd->upscale_x = (jd->in_width << fp_shift) / jd->out_width;
+			jd->upscale_y = (jd->in_height << fp_shift) / jd->out_height;
+
 			if (seg[5] != 3) return JDR_FMT3; /* Err: Supports only Y/Cb/Cr format */
 
 			/* Check three image components */
