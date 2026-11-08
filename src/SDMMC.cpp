@@ -981,8 +981,20 @@ uint8_t sd_init()
     
 
 
-  if (!SD_MMC.begin("/sdcard", true)) {
-      Serial.println("Card Mount Failed");
+  bool mounted = SD_MMC.begin("/sdcard", true);
+  if (!mounted) {
+      Serial.println("Card mount failed; retrying...");
+      delay(500);
+      mounted = SD_MMC.begin("/sdcard", true);
+  }
+
+  if (!mounted) {
+      Serial.println("Card mount retry failed; attempting format...");
+      mounted = SD_MMC.begin("/sdcard", true, true);
+  }
+
+  if (!mounted) {
+      Serial.println("Card mount failed after format attempt");
       return 2;
   }
 

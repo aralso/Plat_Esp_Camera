@@ -64,13 +64,14 @@
   #define MODE_Wifi  // Wifi sinon Ethernet
   #define Sans_websocket
   #define Sans_securite
-  #define WatchDog
+  //#define WatchDog
   #define OTA
   #define ENVOI
   #define STOCKAGE
 
 #endif
 
+//#define ENVOI_TEMP_HYGRO // Activer l'envoi des valeurs de température et d'humidité
 #define BTN_COUNT 2  // Nombre de boutons
 #define NB_CAPT 1
 
@@ -310,6 +311,9 @@ uint8_t capture_photo_sd();
 uint8_t encodeFile();
 uint8_t decodeFile();
 
+uint8_t  setup_camera();
+void server_routes_camera();
+
 // Capture AVI in background (no HTTP response). Implemented in app_httpd.cpp
 uint8_t capture_avi_b();
 
@@ -483,7 +487,7 @@ extern  uint16_t cpt24_Tint, cpt24_Text, cpt24_Hum, cpt24_HA, cpt24_PIR;
 
 extern  int16_t graphique[NB_Val_Graph][NB_Graphique];
 extern uint16_t Seuil_batt_arret_ESP;  // millivolt
-extern uint8_t type_reveil;  //0:pas de reveil 1: réveil par timer, 2: réveil par bouton_reveil 3:reveil par PIR
+extern uint8_t type_reveil;  //0:pas de reveil 1: réveil par timer, 2: réveil par bouton_reveil 3:reveil par PIR 10:tj actif
 extern uint8_t compteur_graph;
 
 extern  uint8_t etat_now;

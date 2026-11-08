@@ -370,7 +370,8 @@ uint8_t setup_appli()
         continue_setup=0;
       }
     }
-    else continue_setup=0;
+    else 
+    if (type_reveil != 10)  continue_setup=0;
 
 
     if (type_reveil == 1)    // reveil par timer
@@ -1310,11 +1311,13 @@ uint8_t envoi_valeur_instant(float Tint, float Humid, float HA, float vbatt)
 
 void envoi_temp_hygro()
 {
-  lecture_Tint(&Tint, &Humid);
-  if (log_detail>=2) Serial.printf("milli H2: %lu\n\r", millis());
+  #ifdef ENVOI_TEMP_HYGRO
+      lecture_Tint(&Tint, &Humid);
+    if (log_detail>=2) Serial.printf("milli H2: %lu\n\r", millis());
 
-  float HA = absoluteHumidity(Tint, Humid);
-  float vbatt = readBatteryVoltage();
-  if (log_detail>=2) Serial.printf("Temp int:%.2f Humid:%.2f HA:%.2f VBatt:%.2f\n\r", Tint, Humid, HA, vbatt); 
-  envoi_valeur_instant(Tint, Humid, HA, vbatt);
+    float HA = absoluteHumidity(Tint, Humid);
+    float vbatt = readBatteryVoltage();
+    if (log_detail>=2) Serial.printf("Temp int:%.2f Humid:%.2f HA:%.2f VBatt:%.2f\n\r", Tint, Humid, HA, vbatt); 
+    envoi_valeur_instant(Tint, Humid, HA, vbatt);
+  #endif  
 }

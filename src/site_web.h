@@ -298,9 +298,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                   let threshold = 120; // distance minimum en pixels
 
                   document.addEventListener("touchstart", function(e) {
-                      if (window.scrollY === 0) {
-                          startY = e.touches[0].pageY;
-                      }
+                      startY = (window.scrollY === 0) ? e.touches[0].pageY : -1;
+                      currentY = startY;
                   }, { passive: true });
 
                   document.addEventListener("touchmove", function(e) {
@@ -308,9 +307,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                   }, { passive: true });
 
                   document.addEventListener("touchend", function() {
-                      if (window.scrollY === 0 && currentY - startY > threshold) {
+                      if (startY >= 0 && window.scrollY === 0 && currentY - startY > threshold) {
                           location.reload(true); // recharge complet
                       }
+                      startY = -1;
                   });
 
 

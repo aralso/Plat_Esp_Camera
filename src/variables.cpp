@@ -1,5 +1,6 @@
 #include "../include/variables.h"
 
+// variables enregistrées en EEPROM : ces variables sont lues au boot, si la RAM_RTC a été perdue
 // Definition of the PARAMS array (kept in a single translation unit to avoid multiple definition linker errors)
 Param PARAMS[] = {
   {"LogD", 1, U8, 0, 5, 0, 0, nullptr, &log_detail, 0},             // registre 1 : détail logs

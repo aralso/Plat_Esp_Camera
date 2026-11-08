@@ -2,15 +2,29 @@
 
 TODO : 
 
-A compiler pour une firebeetle esp32-C6 ou uPesy vroom
-Avantages Platformio : Ifdef, intellisense, temps compil, backtrace
-
 v1.1 08/2026 nouveau core
+v1.2 11/2026 Core avec reception message en veille
+
+Interrogation des données par la liaison série uart (recep_message()) : 2-1 (type=2, reg=1)
+Données minimales à configurer pour avec un ESP32 fonctionnel en réseau wifi: 
+   (Modification adresse IP : Message type 2 ou 4 (à envoyer sur port série 115200 bauds))
+2-2:13              // 13 : mode wifi station   (AP:192.168.254.1)
+4-50:192.168.251.31  // adresse IP du module  (et .30 pour Caméra ou Sonde thermometre)
+4-51:192.168.251.1   // adresse IP de la gateway
+4-52:255.255.255.0   // subnet IP
+4-53:8.8.8.8         // DNS primaire
+4-54:8.8.4.4         // DNS secondaire
+4-55:garches        // nom routeur
+4-56:xxxx           // mot de passe du routeur
+
+A compiler pour :
+Caméra : sur esp32-s3
+capteur température : esp32 upesy
+Serveur caméra/température : esp32-S3 avec SD card pour enregistrer les videos recus des caméras
 
 Graphique 1 : par cycle : G1:temp_int(vert) G2:temp ext(bleu) G3:Nbdetect par cycle
 Graphique 2 : par 24h :   G1:Temp int(vert) G2:temp_ext(bleu) G3:Nb detect/24h
 
-Interrogation des données par la liaison série (recep_message) : 2-1 (type1, reg1)
 
 Conso sonde : 37uA en veille, 17mA pdt 1sec => 19uA. Avec 2000mAh => 4 Années
 
@@ -34,6 +48,8 @@ V0/1x : pour node : reveil periodique chaque x secondes
 V2 : pour gateway : message periodique suite a reveil
 K:accusé reception
 1à5 : valeurs eeprom
+
+Nota : Avantages Platformio : Ifdef, intellisense, temps compil, backtrace
 
 */
 
@@ -131,7 +147,7 @@ RTC_NOINIT_ATTR uint16_t prolong_veille;
 RTC_NOINIT_ATTR uint8_t action_stockage;
 RTC_NOINIT_ATTR uint8_t action_envoi;
 
-uint8_t sdcard_ok;
+uint8_t sdcard_ok, camera_ok;
 RTC_NOINIT_ATTR S_Node Node[NB_CAPT];
 
 uint8_t init_masquage=1;
@@ -724,11 +740,12 @@ void vTimerWebsocketCallback(TimerHandle_t xTimer)
 void vTimerWatchdogCallback(TimerHandle_t xTimer)
 {
   systeme_eve_t evt = { EVENT_WATCHDOG, 0};
-  if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
-    {
+   if (xQueueSend(eventQueue, &evt, 0) != pdTRUE) {
+   {
       if (erreur_queue<5) num_err_queue[erreur_queue]=5;
       erreur_queue++;
-    }
+   }
+}    
 }
 
 void vTimerGatewayQueueCallback(TimerHandle_t xTimer)
@@ -2169,6 +2186,9 @@ void setup()
       if (!sd_init()) sdcard_ok=1;
     #endif
 
+    #ifdef CAMERA
+    if (!setup_camera()) camera_ok=1;
+    #endif    
     //WiFi.setSleep(true);
 
     setup_3();
@@ -5164,6 +5184,9 @@ server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
     server_routes_SDCARD();
   #endif
 
+  #ifdef CAMERA
+    server_routes_camera();
+  #endif
 }
 
 const char* dumpTasksInfo() {

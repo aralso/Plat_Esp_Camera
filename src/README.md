@@ -1,7 +1,7 @@
 # Ard_ESP_Chaudiere_Garches :
 
 Modification adresse IP : Message type 2 ou 4 (à envoyer sur port série 115200 bauds)
-2-1:13              // 13 : mode wifi station   (AP:192.168.254.1)
+2-2:13              // 13 : mode wifi station   (AP:192.168.254.1)
 4-50:192.168.251.31  // adresse IP du module  (et .32 pour Sonde thermometre)
 4-51:192.168.251.1   // adresse IP de la gateway
 4-52:255.255.255.0   // subnet IP
