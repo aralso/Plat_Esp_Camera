@@ -427,17 +427,17 @@ static uint8_t probe_avi_mjpeg(File &file, size_t file_size, uint32_t &frame_cou
 
 
 //#if CONFIG_ESP32
-struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
+struct encoder_filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
 {
     File file;
 
-    filestream_t(fs::FS &fs, const char *path, const char *mode = FILE_READ)
+    encoder_filestream_t(fs::FS &fs, const char *path, const char *mode = FILE_READ)
     {
         file = fs.open(path, mode);
         assert(file);
     }
 
-    ~filestream_t()
+    ~encoder_filestream_t()
     {
         file.close();
     }
@@ -480,11 +480,11 @@ struct filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
 	}	
 };
 /*#else
-struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
+struct encoder_filestream_t : public lpc_stream_out_t, lpc_stream_in_t
 {
 	FILE *file;
-	filestream_t(const char *path, const char *mode) { file = fopen(path, mode); }
-	~filestream_t() { fclose(file); }
+	encoder_filestream_t(const char *path, const char *mode) { file = fopen(path, mode); }
+	~encoder_filestream_t() { fclose(file); }
 
 	#if 1
 	size_t read(uint8_t *data, size_t size) override { return fread(data, 1, size, file); }
@@ -561,7 +561,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 			Serial.println("suppression du fichier de sortie existant");
 			SD_MMC.remove(output_path);
 	}			
-	filestream_t stream(SD_MMC, output_path, FILE_APPEND);
+	encoder_filestream_t stream(SD_MMC, output_path, FILE_APPEND);
 	Serial.println("EnAAA");
 	lpc_encoder_t encoder;
 	encoder.open(settings, &stream);
@@ -633,7 +633,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 bool get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
 {
 	#if CONFIG_ESP32
-	filestream_t stream(SD_MMC, path);
+	encoder_filestream_t stream(SD_MMC, path);
 
     while (!stream.empty())
     {
@@ -685,7 +685,7 @@ bool get_jpeg_size(const char *path, uint16_t *width, uint16_t *height)
 
 	#else
 
-	filestream_t stream(path, "rb");
+	encoder_filestream_t stream(path, "rb");
 
     int off = 0;
     while(!stream.empty())
@@ -1014,6 +1014,12 @@ uint8_t encodeFile()
 	uint8_t code_global = triplet_to_global(code_im, code_si, code_qual);
 
 	output_path  = output_path + String((char)code_global) + '-' + String(code_im) + String(code_si) + String(code_qual) + ".lpc";
+	if (output_path.length() >= sizeof(path_lpc)) {
+		Serial.println("Chemin du fichier LPC trop long");
+		return 4;
+	}
+	strncpy(path_lpc, output_path.c_str(), sizeof(path_lpc) - 1);
+	path_lpc[sizeof(path_lpc) - 1] = '\0';
 
 	if (SD_MMC.exists(output_path)) {
 			Serial.println("suppression du fichier de sortie existant");
@@ -1022,7 +1028,7 @@ uint8_t encodeFile()
 
 	Serial.printf("Encodage vers %s width=%d height=%d quality=%d\n", output_path.c_str(), settings.width, settings.height, settings.quality);
 
-	filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
+	encoder_filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
 	lpc_encoder_t encoder;
 	unsigned long enc2 = millis();
 	encoder.open(settings, &stream_out);

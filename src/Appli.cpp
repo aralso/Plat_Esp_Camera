@@ -751,7 +751,7 @@ void detection_pir()
 
   PIR_24h++;
 
-  // determination action photo/video suite à detection_pir
+  // determination action photo/video suite à detection_pir, mesure batterylevel
     code_nb_images = eval_action_batt_frequence();
     
 
@@ -916,6 +916,7 @@ uint8_t requete_action_appli(const char *reg, const char *data)
   if (strcmp(reg, "Photo") == 0) 
     { 
       res=0; 
+      battery_level = 0;  // permet de ne pas encoder en lpc la photo et de ne pas l'envoyer au serveur
       systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
       if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
       {

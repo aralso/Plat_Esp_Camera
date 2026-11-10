@@ -16,6 +16,7 @@
 #include "camera_pins.h"
 #include "LPC/lpc.h"
 #include "camera.h"
+#include "SDMMC.h"
 
 #include <HTTPClient.h>
 #include <WiFi.h>
@@ -30,6 +31,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 uint8_t encode_lpc3(const char *path_in, const lpc_settings_t &settings);
 
 char path_c[80];
+char path_lpc[128] = {0};
 uint8_t code_encod = 'H';
 
 
@@ -240,7 +242,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
 
         function decodItem(name) {
             const srcPath = joinPath(currentPath, name);
-            fetch(`/setSD?action=9&path=${encodeURIComponent(srcPath)}&fs=SD_MMC`)
+            fetch(`/setSD?action=9&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=`)
                 .then(response =>
                   response.text().then(text => {
                     if (response.ok) {
@@ -842,10 +844,22 @@ void server_routes_SDCARD()
   });
 
   server.on("/setSD", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!request->hasParam("action") || !request->hasParam("path") || !request->hasParam("fs")) {
+      request->send(400, "text/plain", "Missing required parameter");
+      return;
+    }
+
     int action = request->getParam("action")->value().toInt();
     String path = request->getParam("path")->value();
     String fs_str = request->getParam("fs")->value();
-    String out = request->getParam("out")->value();
+    String out;
+    if (request->hasParam("out")) {
+      out = request->getParam("out")->value();
+    }
+    if (action >= 3 && action <= 7 && out.isEmpty()) {
+      request->send(400, "text/plain", "Missing or empty parameter: out");
+      return;
+    }
     fs::FS &fs = SD_MMC;
     
     // Normalize path for SD_MMC mount point
@@ -883,8 +897,6 @@ void server_routes_SDCARD()
       result = renameFile(fs, path.c_str(), out.c_str());
     } 
     else if (action == 5) { // reduc size et enregistre new image
-        String out = request->getParam("out")->value();
-
         int size = 0;
         int quality = 0;
 
@@ -911,7 +923,6 @@ void server_routes_SDCARD()
     else if (action == 7)
     { // compresse image
         result = 0;
-        String out = request->getParam("out")->value();
 
         int size = 0;
         int quality = 0;
@@ -1044,17 +1055,22 @@ uint8_t sd_init()
 
 bool envoyer_fichier ()
 {
-  File fichier = SD_MMC.open(path_c, FILE_READ);
+  if (path_lpc[0] == '\0') {
+    Serial.println("Chemin du fichier LPC vide");
+    return false;
+  }
+
+  File fichier = SD_MMC.open(path_lpc, FILE_READ);
 
   if (!fichier) {
-    Serial.println("Fichier introuvable");
+    Serial.printf("Fichier LPC introuvable : %s\n", path_lpc);
     return false;
   }
 
   WiFiClient client;
   HTTPClient http;
 
-  String nomFichier = String(path_c);
+  String nomFichier = String(path_lpc);
   int pos = nomFichier.lastIndexOf('/');
   if (pos >=0) 
   {

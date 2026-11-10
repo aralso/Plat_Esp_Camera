@@ -140,15 +140,15 @@ struct img_data_t
 /// FILE STREAMS
 
 /*#if CONFIG_ESP32
-struct filestream_t : public lpc_stream_out_t
+struct decoder_filestream_t : public lpc_stream_out_t
 {
 	File file;
-	filestream_t(fs::FS &fs, const char *path)
+	decoder_filestream_t(fs::FS &fs, const char *path)
 	{
 		file = fs.open(path, FILE_WRITE);
 		assert(file);
 	}
-	~filestream_t()
+	~decoder_filestream_t()
 	{
 		file.close();
 	}
@@ -158,11 +158,11 @@ struct filestream_t : public lpc_stream_out_t
 	}
 };
 #else*/
-struct filestream_t : public lpc_stream_out_t, lpc_stream_in_t
+struct decoder_filestream_t : public lpc_stream_out_t, lpc_stream_in_t
 {
 	FILE *file;
-	filestream_t(const char *path, const char *mode) { file = fopen(path, mode); }
-	~filestream_t() { fclose(file); }
+	decoder_filestream_t(const char *path, const char *mode) { file = fopen(path, mode); }
+	~decoder_filestream_t() { fclose(file); }
 
 	#if 1
 	size_t read(uint8_t *data, size_t size) override { return fread(data, 1, size, file); }
@@ -194,7 +194,7 @@ bool file_exists(const char *name)
 
 /// MAIN LOOP
 
-void lpc_to_avi(lpc_decoder_t &lpc, const char *path)
+uint8_t lpc_to_avi(lpc_decoder_t &lpc, const char *path)
 {
 	const lpc_settings_t settings = lpc.get_settings();
 
@@ -215,6 +215,7 @@ void lpc_to_avi(lpc_decoder_t &lpc, const char *path)
 	}
 	mjpegw_close(avi);
 
+	return 0;
 }
 
 
@@ -238,7 +239,7 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 
 void get_jpeg_size2(const char *path, uint16_t *width, uint16_t *height)
 {
-	filestream_t stream(path, "rb");
+	decoder_filestream_t stream(path, "rb");
 
     int off = 0;
     while(!stream.empty())
@@ -274,21 +275,23 @@ uint8_t decodeFile()
 	{
 		if (strcmp(get_filename_ext(path_c), "lpc") == 0)
 		{
-			filestream_t stream(path_c, "rb");
+			decoder_filestream_t stream(path_c, "rb");
 			lpc_decoder_t decoder;
 			decoder.open(&stream);
 
 			const lpc_settings_t settings = decoder.get_settings();
 			printf("Decoding %d frames of size (%dx%d)\n", settings.frame_count, settings.width, settings.height);
+			uint8_t res=0;
 			if (settings.frame_count > 1)
-				lpc_to_avi(decoder, path_c);
+				res = lpc_to_avi(decoder, path_c);
 			else	
-				lpc_to_jpeg(decoder, path_c);
+				res = lpc_to_jpeg(decoder, path_c);
 
 			decoder.close();
+			return res;
 		}
 
-		return 0;
+		return 1;
 	}
 
 	return 1;

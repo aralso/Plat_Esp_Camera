@@ -29,6 +29,7 @@
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
+#include <stdint.h>
 
 #ifdef SDCARD
 #include "SDMMC.h"
@@ -674,6 +675,7 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
 {
     // Instead of performing the long AVI capture in the HTTP handler, post a system event
     // that will trigger the background capture task. Return OK immediately to the web client.
+    battery_level = 0;  // permet de ne pas encoder en lpc la photo et de ne pas l'envoyer au serveur
     systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };
     BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
     if (xres != pdTRUE) {
@@ -686,6 +688,7 @@ static void capture_handler_SD(AsyncWebServerRequest *request)
     }
 }
 
+// entrée : battery_level (pour savoir comment on encode la photo en fonction du niveau de batterie)
 uint8_t capture_photo_sd()
 {
     uint8_t resultat=1;
@@ -811,7 +814,7 @@ uint8_t capture_photo_sd()
             framesize_t cam_size = (framesize_t)0;
             // img_width captured earlier
             size_to_code((uint16_t)img_width, cam_size, size_code);
-            //Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n", img_width, (int)cam_size, (int)size_code);
+            if (log_detail>=3) Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n", img_width, (int)cam_size, (int)size_code);
 
             // 3) Compression code: normalize using code_to_compjpg
             // modif : utilisation de current_sensor_quality (qualite camera)
@@ -821,9 +824,9 @@ uint8_t capture_photo_sd()
 
             char global_code = triplet_to_global(1, size_code, code_comp);
 
-            snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-%d%c-1%d%d.jpg",
+            snprintf(file_path, sizeof(file_path), "%s/C%s-%02d%02d%02d-%02d%02d%02d-1%c-1%d%d.jpg",
                      dir_path, ADDRESS, yy, month, day, current_hour, current_min, current_sec,
-                     code_nb_images, global_code,  size_code, code_comp);
+                     global_code,  size_code, code_comp);
             
             if (!fs.exists(file_path)) {
                 break; // Fichier n'existe pas, on peut l'utiliser
@@ -909,7 +912,7 @@ uint8_t capture_photo_sd()
             if (log_detail >= 3) ESP_LOGI(TAG, "JPG: %s  %uB temps: %ums %ums", file_path, (uint32_t)(fb_len), temps_ready, temp_sd);
     #endif
 
-    if (log_detail >= 3) ESP_LOGI(TAG, "encodage photo res:%i batt:%i path=%s ", resultat, battery_level, path_c);
+    if (log_detail >= 3) ESP_LOGI(TAG, "debut encodage photo res:%i batt:%i path=%s ", resultat, battery_level, file_path);
 
     // envoi photo compressee au serveur
     if ((battery_level > 20) && (resultat==0))
@@ -1440,6 +1443,22 @@ static void stream_handler(AsyncWebServerRequest *request)
     #endif
 }
 
+static void log_framesize_after_delay(void *parameter)
+{
+    const int requested = static_cast<int>(reinterpret_cast<intptr_t>(parameter));
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (sensor) {
+        Serial.printf("[CAM] framesize demande=%d, status.framesize apres 1 s=%d\n",
+                      requested, static_cast<int>(sensor->status.framesize));
+    } else {
+        Serial.printf("[CAM] framesize demande=%d, capteur absent apres 1 s\n", requested);
+    }
+
+    vTaskDelete(nullptr);
+}
+
 static void cmd_handler(AsyncWebServerRequest *request)
 {
     char variable[32] = {0};
@@ -1498,6 +1517,13 @@ static void cmd_handler(AsyncWebServerRequest *request)
         if (log_detail >= 3) ESP_LOGI(TAG, "Unknown command: %s", variable);
         request->send(500, "text/plain", "Command failed");
         return;
+    }
+
+    if (!strcmp(variable, "framesize")
+        && xTaskCreate(log_framesize_after_delay, "framesize_check", 3072,
+                       reinterpret_cast<void *>(static_cast<intptr_t>(val)),
+                       1, nullptr) != pdPASS) {
+        ESP_LOGE(TAG, "Could not schedule delayed framesize check");
     }
 
     request->send(200, "text/plain", "OK");
@@ -1695,7 +1721,7 @@ void camera_load_settings(sensor_t *s, camera_config_t *config)
             int outputY = preferences_nvs.getInt("res_raw_outputY", 0);
             int scale = preferences_nvs.getInt("res_raw_scale", 0);
             int binning = preferences_nvs.getInt("res_raw_binning", 0);
-            s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+           // s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning); // TODO a remettre
         }
     }
 }

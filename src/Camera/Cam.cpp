@@ -105,6 +105,60 @@ static const size_entry_t size_table[] = {
 };
 static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]);
 
+// JPEG compression mapping table
+// Entry: code, tc_comp_jpg (percent representative), tx_comp_cam (camera jpeg_quality)
+struct comp_entry_t { uint8_t code; uint8_t tx_comp_jpg; uint8_t tx_comp_cam; };
+
+static const comp_entry_t comp_table[] = {
+    {0, 5,   63},
+    {1, 12,  55},
+    {2, 20,  50},
+    {3, 28,  45},
+    {4, 40,  40},
+    {5, 50,  30},
+    {6, 60,  20},
+    {7, 70,  12},
+    {8, 82,   7},
+    {9, 100,  4}
+};
+static const size_t comp_table_count = sizeof(comp_table) / sizeof(comp_table[0]);
+
+// ---------- Global code mapping ----------
+// Table entry mapping a single-char global code to the triplet (images_code, size_code, comp_code)
+typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_entry_t;
+
+// Unified static table mapping single-char global code to the triplet (images_code, size_code, comp_code)
+// A..Z entries, A fixed to 100 (1,0,0), Z fixed to 789 (7,8,9), intermediates unique.
+static global_entry_t global_table[] = {
+    { 'A', 1, 0, 2 }, // 100 (fixed)
+    { 'B', 1, 0, 4 },
+    { 'C', 1, 0, 7 },
+    { 'D', 1, 1, 2 },
+    { 'E', 1, 1, 4 },
+    { 'F', 1, 1, 7 },
+    { 'G', 1, 2, 3 },
+    { 'H', 1, 3, 5 },
+    { 'I', 1, 4, 6 },
+    { 'J', 1, 5, 7 },
+    { 'K', 1, 6, 7 },
+    { 'L', 1, 7, 7 },
+    { 'M', 2, 6, 8 },
+    { 'N', 2, 7, 8 },
+    { 'O', 3, 4, 2 },
+    { 'P', 3, 7, 9 },
+    { 'Q', 4, 8, 9 },
+    { 'R', 4, 0, 1 },
+    { 'S', 4, 1, 2 },
+    { 'T', 4, 2, 3 },
+    { 'U', 4, 3, 4 },
+    { 'V', 5, 4, 5 },
+    { 'W', 6, 5, 6 },
+    { 'X', 6, 6, 7 },
+    { 'Y', 7, 7, 8 },
+    { 'Z', 7, 8, 9 }  // 789 (fixed)
+};
+static const size_t global_table_count = sizeof(global_table)/sizeof(global_table[0]);
+
 // Return width/height for a framesize_t by looking up size_table[]
 // Sets width and height via reference parameters. If not found, sets both to 0.
 static inline void framesize_to_wh(framesize_t fs, uint16_t &width, uint16_t &height)
@@ -235,7 +289,7 @@ uint8_t configCamera()
         if (type_cam==1)  // OV2640
         {
         //res = s->set_res_raw(s, x_S, y_S, x_E, y_E, 0, 0, width, height, width, height, 0, 0);
-          int res = s->set_res_raw(s, 0,0,0,0, x_S, y_S, x_E-x_S, y_E-y_S, x_E-x_S, y_E-y_S,0, 0);
+        //  int res = s->set_res_raw(s, 0,0,0,0, x_S, y_S, x_E-x_S, y_E-y_S, x_E-x_S, y_E-y_S,0, 0); TODO a remettre
         // ov2640 :
         // setWindow(start_x, 0, 0, 0, offset_x, offset_y, total_x, total_y, output_x, output_y, false, false, function(code, txt){
        //Set Window: Start: 0 0, End: 0 0, Offset: 400 300, Total: 800 600, Output: 320 240, Scale: 0, Binning: 0
@@ -257,7 +311,7 @@ uint8_t configCamera()
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
-    if (log_detail>=3) Serial.printf("Camera Ready! Type:%i Use 'http://cam'\n", type_cam);
+    if (log_detail>=3) Serial.printf("Camera Ready! Type:%s (%i) Use 'http://cam'\n", type_cam == 1 ? "OV2640" : type_cam == 2 ? "OV3660" : "inconnu", type_cam);
   }
   else
   {
@@ -601,23 +655,6 @@ uint8_t code_to_size(uint8_t code, uint16_t &rep_width, framesize_t &cam_code)
     return 1;
 }
 
-// JPEG compression mapping table
-// Entry: code, tc_comp_jpg (percent representative), tx_comp_cam (camera jpeg_quality)
-struct comp_entry_t { uint8_t code; uint8_t tx_comp_jpg; uint8_t tx_comp_cam; };
-
-static const comp_entry_t comp_table[] = {
-    {0, 5,   63},
-    {1, 12,  55},
-    {2, 20,  50},
-    {3, 28,  45},
-    {4, 40,  40},
-    {5, 50,  30},
-    {6, 60,  20},
-    {7, 70,  12},
-    {8, 82,   7},
-    {9, 100,  4}
-};
-static const size_t comp_table_count = sizeof(comp_table) / sizeof(comp_table[0]);
 
 // Convert txJpg (percent, 0..100) to code and txCam (jpeg_quality):
 // - chooses the largest tc_comp_jpg threshold <= txJpg (lower-threshold rule)
@@ -723,41 +760,6 @@ uint8_t code_to_nbIm (uint8_t code)
     return nb_imag;
 }
 
-// ---------- Global code mapping ----------
-// Table entry mapping a single-char global code to the triplet (images_code, size_code, comp_code)
-typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_entry_t;
-
-// Unified static table mapping single-char global code to the triplet (images_code, size_code, comp_code)
-// A..Z entries, A fixed to 100 (1,0,0), Z fixed to 789 (7,8,9), intermediates unique.
-static global_entry_t global_table[] = {
-    { 'A', 1, 0, 2 }, // 100 (fixed)
-    { 'B', 1, 0, 4 },
-    { 'C', 1, 0, 7 },
-    { 'D', 1, 1, 2 },
-    { 'E', 1, 1, 4 },
-    { 'F', 1, 1, 7 },
-    { 'G', 1, 4, 3 },
-    { 'H', 1, 4, 5 },
-    { 'I', 1, 4, 6 },
-    { 'J', 1, 4, 7 },
-    { 'K', 1, 5, 7 },
-    { 'L', 1, 6, 7 },
-    { 'M', 2, 6, 8 },
-    { 'N', 2, 7, 8 },
-    { 'O', 3, 4, 2 },
-    { 'P', 3, 7, 9 },
-    { 'Q', 4, 8, 9 },
-    { 'R', 4, 0, 1 },
-    { 'S', 4, 1, 2 },
-    { 'T', 4, 2, 3 },
-    { 'U', 4, 3, 4 },
-    { 'V', 5, 4, 5 },
-    { 'W', 6, 5, 6 },
-    { 'X', 6, 6, 7 },
-    { 'Y', 7, 7, 8 },
-    { 'Z', 7, 8, 9 }  // 789 (fixed)
-};
-static const size_t global_table_count = sizeof(global_table)/sizeof(global_table[0]);
 
 
 static const global_entry_t* global_to_triplet_det(char gc)
@@ -826,4 +828,3 @@ char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code
     if (best_idx >= 0) return global_table[best_idx].gc;
     return 'Z';
 }
-
