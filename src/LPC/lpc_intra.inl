@@ -33,7 +33,7 @@ void reorder_luma_16x16_as_block(LPC_RESTRICT(luma_block_t*) output, LPC_RESTRIC
 				uint8_t* a = &(block.Y[i * LUMA_BLOCK_SIZE]);
 				const uint8_t* b = &(prediction[src_idx]);
 
-				*((uint32_t*)a) = *((uint32_t*)b);
+				memcpy(a, b, 4);
 			}
 		}
 	}
@@ -71,7 +71,7 @@ void reorder_luma_16x16_linear(LPC_RESTRICT(const luma_block_t*) input, LPC_REST
 				uint8_t* a = &(output[src_idx]);
 				const uint8_t* b = &(block.Y[i * LUMA_BLOCK_SIZE]);
 
-				*((uint32_t*)a) = *((uint32_t*)b);
+				memcpy(a, b, 4);
 			}
 		}
 	}

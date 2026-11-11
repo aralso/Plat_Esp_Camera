@@ -1095,12 +1095,6 @@ uint8_t encodeFile()
 			outFile.close();
 			Serial.println("ZZ");
 		}
-
-		Serial.printf("Encoding size:%lu time prep:%lu ms, encode:%lu ms, close:%lu ms\n",
-					(unsigned long)f_size,
-					(unsigned long)(enc2 - start_enc),
-					(unsigned long)(enc3 - enc2),
-					(unsigned long)(end_enc - enc3));
 	}	
 
 	Serial.printf("Encoding size:%i time prep:%lu ms, encode:%lu ms, close:%lu ms\n", f_size, enc2-start_enc, enc3-enc2, end_enc-enc3);

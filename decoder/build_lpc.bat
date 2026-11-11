@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 echo Compiling lpc project...
 
-gcc -O2 -DDECODER -c ../src/encoder/mjpegw.c -I ../include -o bin/mjpegw.o
+gcc -O2 -DDECODER -c ../src/encoder/mjpegw.cpp -I ../include -o bin/mjpegw.o
 
 g++ -std=c++11 -O2 -DDECODER -Wshadow -c ../src/encoder/jpge.cpp -I ../include -o bin/jpge.o
 g++ -std=c++11 -O2 -DDECODER -Wshadow -c ../src/encoder/yuv.cpp -I ../include -o bin/yuv.o

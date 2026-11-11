@@ -21,6 +21,9 @@
 
 extern char path_c[80];
 
+// 1 = logs de diagnostic du decodage (MB, coefficients, pixels) ; 0 = desactives
+#define LPC_DEBUG_LOGS 0
+
 const char *get_filename_ext(const char *filename);
 
 static inline uint8_t clamp(int v)
@@ -29,6 +32,25 @@ static inline uint8_t clamp(int v)
 	if (v > 255) return 255;
 	return v;
 }
+
+// Writes the JPEG produced by jpge directly to an SD file
+struct sd_jpg_stream_t : public jpge::output_stream
+{
+	File &file;
+	size_t total;
+	sd_jpg_stream_t(File &f) : file(f), total(0) {}
+
+	bool put_buf(const void *buf, int len) override
+	{
+		if (!buf)
+			return true;
+		if (file.write((const uint8_t*)buf, len) != (size_t)len)
+			return false;
+		total += len;
+		return true;
+	}
+	size_t get_size() const override { return total; }
+};
 
 struct img_data_t
 {
@@ -110,17 +132,44 @@ struct img_data_t
 			}
 		}
 
-	void dump_jpg(const char *path, uint8_t quality) // quality is in [1, 100]
+	bool dump_jpg(const char *path, uint8_t quality) // quality is in [1, 100]
 	{
 		if (bytes == NULL)
-			return;
-		uint8_t *jpg;
-		size_t jpg_len;
-		fmt2jpg(bytes, bytes_len, w, h, PIXFORMAT_RGB888, quality, &jpg, &jpg_len);
-		std::ofstream file(path, std::ios_base::binary);
-		for (int i = 0; i < jpg_len; i++)
-			file << jpg[i];
-		free(jpg);
+			return false;
+
+		// Same path as the Windows decoder: project's jpge, RGB order, H2V1
+		File file = SD_MMC.open(path, FILE_WRITE);
+		if (!file) {
+			Serial.printf("Cannot open JPEG output on SD: %s\n", path);
+			return false;
+		}
+
+		sd_jpg_stream_t stream(file);
+		jpge::params comp_params;
+		comp_params.m_quality = quality;
+		comp_params.m_subsampling = jpge::H2V1;
+
+		bool ok;
+		{
+			jpge::jpeg_encoder enc;
+			ok = enc.init(&stream, w, h, 3, comp_params);
+			for (int y = 0; ok && y < h; y++)
+				ok = enc.process_scanline(bytes + (size_t)y * w * 3);
+			if (ok)
+				ok = enc.process_scanline(NULL);
+			enc.deinit();
+		}
+
+		file.flush();
+		file.close();
+
+		if (!ok) {
+			Serial.println("JPEG encoding failed");
+			return false;
+		}
+
+		Serial.printf("JPEG saved to SD: %s (%u bytes)\n", path, (unsigned)stream.total);
+		return true;
 	}
 
 	void dump_bmp(const char *path)
@@ -187,8 +236,7 @@ struct decoder_filestream_t : public lpc_stream_out_t, lpc_stream_in_t
 
 bool file_exists(const char *name)
 {
-    std::ifstream f(name);
-    return f.good();
+	return SD_MMC.exists(name);
 }
 
 
@@ -225,12 +273,38 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 
 	std::string output = path;
 	output.replace(output.find_last_of('.'), std::string::npos, ".jpg");
+	Serial.printf("Encoding to JPEG: %s\n", output.c_str());
 
 	{
 		img_data_t img_rgb(settings.width, settings.height);
 		lpc.decode_frame(img_rgb.bytes);
 
-		img_rgb.dump_jpg(output.c_str(), 60);
+		// Logs de diagnostic : passer LPC_DEBUG_LOGS a 1 (defini en haut du fichier) pour les reactiver
+#if LPC_DEBUG_LOGS
+		const uint8_t *p = img_rgb.bytes;
+		int W = settings.width;
+		Serial.printf("px(0,0)=%d,%d,%d px(0,1)=%d,%d,%d px(5,0)=%d,%d,%d px(5,1)=%d,%d,%d\n",
+			p[0], p[1], p[2], p[W*3], p[W*3+1], p[W*3+2],
+			p[15], p[16], p[17], p[W*3+15], p[W*3+16], p[W*3+17]);
+		Serial.printf("lignes0/1 identiques: %d\n", memcmp(p, p + W*3, W*3) == 0);
+		{
+			int sameAsRow0 = 0, firstDiffX = -1;
+			for (int yy = 1; yy < settings.height; yy++)
+				if (memcmp(p, p + yy*W*3, W*3) == 0) sameAsRow0++;
+			for (int xx = 0; xx < W*3; xx++)
+				if (p[xx] != p[W*3 + xx]) { firstDiffX = xx / 3; break; }
+			Serial.printf("lignes identiques a la ligne 0: %d/%d, 1er x different (ligne1): %d\n",
+				sameAsRow0, (int)settings.height - 1, firstDiffX);
+			int cx = W - 5, cy = settings.height - 3;
+			const uint8_t *c = p + (cy*W + cx) * 3;
+			Serial.printf("bas-droite(%d,%d)=%d,%d,%d y+1=%d,%d,%d y+2=%d,%d,%d x-4=%d,%d,%d\n", cx, cy,
+				c[0], c[1], c[2], c[W*3], c[W*3+1], c[W*3+2],
+				c[2*W*3], c[2*W*3+1], c[2*W*3+2], c[-12], c[-11], c[-10]);
+		}
+#endif
+
+		if (!img_rgb.dump_jpg(output.c_str(), 60))
+			return 1;
 	}
 
 
@@ -270,21 +344,24 @@ uint8_t decodeFile()
 {
 	// le path du fichier a décoder est dans la variable path_c
 
-
 	if (file_exists(path_c))
 	{
 		if (strcmp(get_filename_ext(path_c), "lpc") == 0)
 		{
-			decoder_filestream_t stream(path_c, "rb");
+			String stream_path = String("/sdcard") + path_c;
+			decoder_filestream_t stream(stream_path.c_str(), "rb");
 			lpc_decoder_t decoder;
 			decoder.open(&stream);
+#if LPC_DEBUG_LOGS
+			Serial.printf("fread test, empty=%d\n", (int)stream.empty());
+#endif
 
 			const lpc_settings_t settings = decoder.get_settings();
 			printf("Decoding %d frames of size (%dx%d)\n", settings.frame_count, settings.width, settings.height);
-			uint8_t res=0;
+			uint8_t res=1;
 			if (settings.frame_count > 1)
 				res = lpc_to_avi(decoder, path_c);
-			else	
+			else if (settings.frame_count == 1)
 				res = lpc_to_jpeg(decoder, path_c);
 
 			decoder.close();

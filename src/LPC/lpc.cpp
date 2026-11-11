@@ -1,6 +1,11 @@
 #include "lpc.h"
 
+#include <Arduino.h>
+
 #define LPC_VERSION 0
+
+// 1 = logs de diagnostic du decodage (MB, coefficients, prediction) ; 0 = desactives
+#define LPC_DEBUG_LOGS 0
 #define QP_MAX 51
 #define QP_CHROMA_OFFSET 8
 #define QP_MULT_P_FRAME 1
@@ -370,8 +375,38 @@ void lpc_decoder_t::decode_frame(uint8_t *rgb_bytes)
 
 			// Decode
 			predicted.decode_mb(neighbours, &residuals, &cabac);
+#if defined(ESP32) && LPC_DEBUG_LOGS
+			if (x == 5 && y == 0) {
+				printf("DC luma_dc.val:");
+				for (int k = 0; k < 16; k++) printf(" %d", residuals.luma_dc.val[k]);
+				printf("\nAC luma[0].val:");
+				for (int k = 0; k < 16; k++) printf(" %d", residuals.luma[0].val[k]);
+				printf("\nAC luma[5].val:");
+				for (int k = 0; k < 16; k++) printf(" %d", residuals.luma[5].val[k]);
+				printf("\n");
+			}
+#endif
 			predicted.predict(neighbours);
+#if defined(ESP32) && LPC_DEBUG_LOGS
+			if (x == 5 && y == 0)
+				for (int r = 0; r < 4; r++)
+					printf("PRED blk0 ligne%d: %d %d %d %d\n", r,
+						predicted.mb.luma[0].Y[r*4+0], predicted.mb.luma[0].Y[r*4+1],
+						predicted.mb.luma[0].Y[r*4+2], predicted.mb.luma[0].Y[r*4+3]);
+#endif
 			predicted.add_residuals(residuals);
+
+#if defined(ESP32) && LPC_DEBUG_LOGS  // Ajout log
+			if ((x == 0 && y < 3) || (x == 5 && y == 0))
+				Serial.printf("MB(%d,%d) type=%d modeY=%d modeC=%d cbpL=%d cbpC=%d qp=%d ftype=%d\n\r",
+					x, y, (int)predicted.type, (int)predicted.mode_luma, (int)predicted.mode_chroma,
+					(int)predicted.cbp_luma, (int)predicted.cbp_chroma, (int)predicted.qp, (int)predicted.frame_type);
+			if ((x == 0 && y == 0) || (x == 5 && y == 0))
+				for (int r = 0; r < 4; r++)
+					Serial.printf("Y blk0 (%d,%d) ligne%d: %d %d %d %d\n\r", x, y, r,
+						predicted.mb.luma[0].Y[r*4+0], predicted.mb.luma[0].Y[r*4+1],
+						predicted.mb.luma[0].Y[r*4+2], predicted.mb.luma[0].Y[r*4+3]);
+#endif
 
 			neighbours.update_data(predicted);
 			predicted.restore_qp();

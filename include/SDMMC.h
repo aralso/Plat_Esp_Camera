@@ -9,14 +9,14 @@
 
 uint8_t sd_init();
 uint8_t listDir(fs::FS &fs, const char *dirname, uint8_t levels);
-uint8_t createDir(fs::FS &fs, const char *path);
+bool createDir(fs::FS &fs, const char *path);
 uint8_t removeDir(fs::FS &fs, const char *path);
 uint8_t readFile(fs::FS &fs, const char *path);
 uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len);
 uint8_t appendFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len);
 uint8_t renameFile(fs::FS &fs, const char *path1, const char *path2);
 uint8_t deleteFile(fs::FS &fs, const char *path);
-uint8_t server_routes_SDCARD();
+void server_routes_SDCARD();
 uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jpg_len);
 uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg_len, const char*path1);
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);

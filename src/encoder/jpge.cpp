@@ -8,6 +8,17 @@
 //                       Code tweaks to fix VS2008 static code analysis warnings (all looked harmless).
 //                       Code review revealed method load_block_16_8_8() (used for the non-default H2V1 sampling mode to downsample chroma) somehow didn't get the rounding factor fix from v1.02.
 
+/* Problème identifie avec ce fichier :  la conversion du buffer RGB en JPEG. Elle passait par fmt2jpg de la bibliothèque esp32-camera.
+Les JPEG obtenus avaient des barres verticales identiques sur toute l'image, même en haut à gauche où le buffer est uniforme.
+Leur taille changeait à chaque exécution (51019, 47528, 54137, 52755, 45084 octets).
+Pourquoi : une sortie qui varie à chaque exécution pour une même image indique que l'encodeur lisait des données instables.
+Le projet embarque sa propre copie de jpge (src/encoder/jpge.cpp) avec les mêmes symboles jpge::jpeg_encoder::* que celle d'esp32-camera.
+Le fmt2jpg de la bibliothèque finissait donc par appeler le jpge du projet : deux copies mélangées à l'édition de liens.
+Je n'ai pas isolé la ligne exacte fautive dans ce mélange. Je ne peux donc pas affirmer la cause précise, seulement que c'est cette combinaison.
+Correctif : dump_jpg n'appelle plus fmt2jpg. Il utilise directement jpge::jpeg_encoder du projet, comme le décodeur Windows : 
+RGB lu tel quel, H2V1, qualité 60. Résultat sur ton test : JPEG correct de 13928 octets.
+*/
+
 #include "header.h"
 
 /*
