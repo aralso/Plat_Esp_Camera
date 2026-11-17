@@ -1,4 +1,10 @@
 
+
+/*
+Nov 2026 : 
+Ram : 29.2% (used 95700 bytes from 327680 bytes)
+Flash: [========  ]  84.3% (used 1712295 bytes from 2031616 bytes)
+*/
 #include <Arduino.h>
 #include <ctype.h>
 #include <stdbool.h>
@@ -987,6 +993,7 @@ uint8_t lecture_Tint(float *mesure, float*humid)
     } else {
       Tint_erreur=0;
     }
+    if (log_detail>=3) Serial.printf("lecture Tint : %.2f Humid:%.2f Tint_erreur:%i\n\r", valeur, valeur2, Tint_erreur);
   #endif
 
   #ifdef Temp_int_DS18B20
@@ -996,7 +1003,6 @@ uint8_t lecture_Tint(float *mesure, float*humid)
 
   if (valeur > 50) Tint_erreur = 2;
   if (valeur < -20) Tint_erreur = 3;
-  if (log_detail>=3) Serial.printf("lecture Tint : %.2f Humid:%.2f Tint_erreur:%i\n\r", valeur, valeur2, Tint_erreur);
   if (Tint_erreur) {
     valeur = 20.0;
     valeur2 = 50.0;

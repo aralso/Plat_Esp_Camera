@@ -500,6 +500,107 @@ uint8_t etat_connect_ethernet = 0;
 
 AsyncWebServer server(80);
 
+static portMUX_TYPE httpRequestLogMux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t httpRequestLogSequence = 0;
+static portMUX_TYPE rootAvailabilityEventMux = portMUX_INITIALIZER_UNLOCKED;
+static bool rootAvailabilityEventPending = false;
+static TimerHandle_t rootAvailabilityTimer = NULL;
+
+uint32_t logRootHttpRequest(AsyncWebServerRequest *request)
+{
+  portENTER_CRITICAL(&httpRequestLogMux);
+  uint32_t request_id = ++httpRequestLogSequence;
+  portEXIT_CRITICAL(&httpRequestLogMux);
+
+  String url = request->url();
+  IPAddress client_ip = request->client()->remoteIP();
+  Serial.printf(
+      "[HTTP / #%lu] RX t=%lu url=%s client=%s core=%d heap=%u\n\r",
+      (unsigned long)request_id,
+      (unsigned long)millis(),
+      url.c_str(),
+      client_ip.toString().c_str(),
+      xPortGetCoreID(),
+      (unsigned)ESP.getFreeHeap());
+
+  request->onDisconnect([request_id, url]() {
+    Serial.printf(
+        "[HTTP / #%lu] DISCONNECT t=%lu url=%s heap=%u\n\r",
+        (unsigned long)request_id,
+        (unsigned long)millis(),
+        url.c_str(),
+        (unsigned)ESP.getFreeHeap());
+  });
+  return request_id;
+}
+
+static void rootAvailabilityTimerCallback(TimerHandle_t)
+{
+  portENTER_CRITICAL(&rootAvailabilityEventMux);
+  bool should_send = !rootAvailabilityEventPending;
+  rootAvailabilityEventPending = true;
+  portEXIT_CRITICAL(&rootAvailabilityEventMux);
+  if (!should_send) {
+    return;
+  }
+
+  systeme_eve_t event = { EVENT_HTTP_ROOT_CHECK, 0 };
+  if (eventQueue == NULL || xQueueSend(eventQueue, &event, 0) != pdTRUE) {
+    portENTER_CRITICAL(&rootAvailabilityEventMux);
+    rootAvailabilityEventPending = false;
+    portEXIT_CRITICAL(&rootAvailabilityEventMux);
+    Serial.printf("[HTTP /] ERREUR: impossible d'envoyer le controle au sequenceur\n\r");
+  }
+}
+
+static void checkRootAvailability()
+{
+  // Use lwIP loopback to test the HTTP route without routing through the network.
+  IPAddress root_ip(127, 0, 0, 1);
+
+  String url = "http://" + root_ip.toString() + "/";
+  HTTPClient http;
+  http.setConnectTimeout(1000);
+  http.setTimeout(1500);
+  if (!http.begin(url)) {
+    Serial.printf("[HTTP /] INDISPONIBLE: begin() echoue url=%s t=%lu\n\r",
+                  url.c_str(),
+                  (unsigned long)millis());
+    return;
+  }
+
+  uint32_t check_started = millis();
+  int status = http.GET();
+  uint32_t elapsed = millis() - check_started;
+  if (status == HTTP_CODE_OK) {
+    Serial.printf("[HTTP /] DISPONIBLE code=%d delai=%lu ms ip=%s heap=%u\n\r",
+                  status,
+                  (unsigned long)elapsed,
+                  root_ip.toString().c_str(),
+                  (unsigned)ESP.getFreeHeap());
+  } else {
+    Serial.printf("[HTTP /] INDISPONIBLE code=%d erreur=%s delai=%lu ms ip=%s heap=%u\n\r",
+                  status,
+                  http.errorToString(status).c_str(),
+                  (unsigned long)elapsed,
+                  root_ip.toString().c_str(),
+                  (unsigned)ESP.getFreeHeap());
+  }
+  http.end();
+}
+
+static void startRootAvailabilityTimer()
+{
+  if (rootAvailabilityTimer == NULL) {
+    Serial.printf("[HTTP /] ERREUR: timer de controle non cree\n\r");
+    return;
+  }
+  if (xTimerStart(rootAvailabilityTimer, 0) != pdPASS) {
+    Serial.printf("[HTTP /] ERREUR: impossible de demarrer le timer de controle\n\r");
+  }
+}
+
+
 uint8_t cycle24h;
 RTC_NOINIT_ATTR float  tempI_moy24h=0, tempE_moy24h=0, Hum_24h=0, HA_moy24h=0;
 RTC_NOINIT_ATTR uint16_t cpt24_Tint=0, cpt24_Text=0,  cpt24_Hum=0, cpt24_HA=0;
@@ -1014,6 +1115,13 @@ void taskHandler(void *parameter) {
                 case EVENT_GATEWAY_QUEUE:
                   traitement_queue_data_gateway(1, static_cast<uint8_t>(evt.data));
                   break;
+
+                 case EVENT_HTTP_ROOT_CHECK:
+                  checkRootAvailability();
+                  portENTER_CRITICAL(&rootAvailabilityEventMux);
+                  rootAvailabilityEventPending = false;
+                  portEXIT_CRITICAL(&rootAvailabilityEventMux);
+                  break; 
 
                 case EVENT_GPIO_OFF:  
                     if (log_detail>=3) Serial.printf("GPIO:off:%i\n\r", evt.data);
@@ -1713,6 +1821,16 @@ void setup()
 
     // Création de la queue sequenceur (stocke max 10 événements de type int)
     eventQueue = xQueueCreate(50, sizeof(systeme_eve_t));
+   
+     rootAvailabilityTimer = xTimerCreate(
+        "HttpRoot",
+        pdMS_TO_TICKS(90000),
+        pdTRUE,
+        NULL,
+        rootAvailabilityTimerCallback);
+    if (rootAvailabilityTimer == NULL) {
+      Serial.printf("[HTTP /] ERREUR: impossible de creer le timer de controle\n\r");
+    } 
 
     // création de la queue de reception des message uart
     QueueUart = xQueueCreate(20, sizeof(UartMessage_t));
@@ -2096,9 +2214,18 @@ void setup()
       configTzTime("CET-1CEST,M3.5.0/2,M10.5.0/3", ntpServer);
       //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
+      Serial.printf("[HTTP] initial server.begin t=%lu heap=%u WiFi=%d\n\r",
+                    (unsigned long)millis(),
+                    (unsigned)ESP.getFreeHeap(),
+                    (int)WiFi.status());
       setupRoutes();
 
       server.begin();
+      startRootAvailabilityTimer();
+      Serial.printf("[HTTP] initial server started t=%lu ip=%s heap=%u\n\r",
+                    (unsigned long)millis(),
+                    WiFi.localIP().toString().c_str(),
+                    (unsigned)ESP.getFreeHeap());
 
     if (log_detail>=2) Serial.printf("milli L: %lu\n\r", millis());
 
@@ -4938,9 +5065,16 @@ uint8_t reConnectWifi()
 }
 
 void startWebServer() {
+  Serial.printf("[HTTP] startWebServer t=%lu heap=%u WiFi=%d\n\r",
+                (unsigned long)millis(),
+                (unsigned)ESP.getFreeHeap(),
+                (int)WiFi.status());
   setupRoutes();
   server.begin();
-  Serial.println("[HTTP] Serveur démarré.");
+  Serial.printf("[HTTP] Serveur démarré t=%lu ip=%s heap=%u\n\r",
+                (unsigned long)millis(),
+                WiFi.localIP().toString().c_str(),
+                (unsigned)ESP.getFreeHeap());
 }
 
 void setupRoutes()
@@ -4953,6 +5087,7 @@ void setupRoutes()
   */
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+     logRootHttpRequest(request);
     request->send(200, "text/html", index_html);  // processor);
   });
 

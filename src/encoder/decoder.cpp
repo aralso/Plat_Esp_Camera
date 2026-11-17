@@ -168,7 +168,7 @@ struct img_data_t
 			return false;
 		}
 
-		Serial.printf("JPEG saved to SD: %s (%u bytes)\n", path, (unsigned)stream.total);
+		if (log_detail>=2) Serial.printf("JPEG saved to SD: %s (%u bytes)\n\r", path, (unsigned)stream.total);
 		return true;
 	}
 
@@ -273,7 +273,7 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 
 	std::string output = path;
 	output.replace(output.find_last_of('.'), std::string::npos, ".jpg");
-	Serial.printf("Encoding to JPEG: %s\n", output.c_str());
+	if (log_detail>=4) Serial.printf("Encoding to JPEG: %s\n\r", output.c_str());
 
 	{
 		img_data_t img_rgb(settings.width, settings.height);
@@ -283,21 +283,21 @@ uint8_t lpc_to_jpeg(lpc_decoder_t &lpc, const char *path)
 #if LPC_DEBUG_LOGS
 		const uint8_t *p = img_rgb.bytes;
 		int W = settings.width;
-		Serial.printf("px(0,0)=%d,%d,%d px(0,1)=%d,%d,%d px(5,0)=%d,%d,%d px(5,1)=%d,%d,%d\n",
+		Serial.printf("px(0,0)=%d,%d,%d px(0,1)=%d,%d,%d px(5,0)=%d,%d,%d px(5,1)=%d,%d,%d\n\r",
 			p[0], p[1], p[2], p[W*3], p[W*3+1], p[W*3+2],
 			p[15], p[16], p[17], p[W*3+15], p[W*3+16], p[W*3+17]);
-		Serial.printf("lignes0/1 identiques: %d\n", memcmp(p, p + W*3, W*3) == 0);
+		Serial.printf("lignes0/1 identiques: %d\n\r", memcmp(p, p + W*3, W*3) == 0);
 		{
 			int sameAsRow0 = 0, firstDiffX = -1;
 			for (int yy = 1; yy < settings.height; yy++)
 				if (memcmp(p, p + yy*W*3, W*3) == 0) sameAsRow0++;
 			for (int xx = 0; xx < W*3; xx++)
 				if (p[xx] != p[W*3 + xx]) { firstDiffX = xx / 3; break; }
-			Serial.printf("lignes identiques a la ligne 0: %d/%d, 1er x different (ligne1): %d\n",
+			Serial.printf("lignes identiques a la ligne 0: %d/%d, 1er x different (ligne1): %d\n\r",
 				sameAsRow0, (int)settings.height - 1, firstDiffX);
 			int cx = W - 5, cy = settings.height - 3;
 			const uint8_t *c = p + (cy*W + cx) * 3;
-			Serial.printf("bas-droite(%d,%d)=%d,%d,%d y+1=%d,%d,%d y+2=%d,%d,%d x-4=%d,%d,%d\n", cx, cy,
+			Serial.printf("bas-droite(%d,%d)=%d,%d,%d y+1=%d,%d,%d y+2=%d,%d,%d x-4=%d,%d,%d\n\r", cx, cy,
 				c[0], c[1], c[2], c[W*3], c[W*3+1], c[W*3+2],
 				c[2*W*3], c[2*W*3+1], c[2*W*3+2], c[-12], c[-11], c[-10]);
 		}
@@ -357,7 +357,7 @@ uint8_t decodeFile()
 #endif
 
 			const lpc_settings_t settings = decoder.get_settings();
-			printf("Decoding %d frames of size (%dx%d)\n", settings.frame_count, settings.width, settings.height);
+			if (log_detail>=2) printf("Decoding %d frames of size (%dx%d), LPC quality=%d\n", settings.frame_count, settings.width, settings.height, settings.quality);
 			uint8_t res=1;
 			if (settings.frame_count > 1)
 				res = lpc_to_avi(decoder, path_c);

@@ -506,7 +506,7 @@ uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
   }
   else
   {
-    Serial.printf("Write failed: %u/%u bytes\n", written, len);
+    Serial.printf("Write failed: %u/%u bytes\n\r", written, len);
   }
 
   file.close();
@@ -516,7 +516,7 @@ uint8_t writeFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 
 uint8_t appendFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 {
-  Serial.printf("Appending to file: %s\n", path);
+  Serial.printf("Appending to file: %s\n\r", path);
 
   // Ensure parent directory exists (create if missing)
   {
@@ -542,12 +542,12 @@ uint8_t appendFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 
   if (written == len)
   {
-    Serial.printf("Appended %u bytes\n", written);
+    Serial.printf("Appended %u bytes\n\r", written);
     res = 0;
   }
   else
   {
-    Serial.printf("Append failed: %u/%u bytes\n", written, len);
+    Serial.printf("Append failed: %u/%u bytes\n\r", written, len);
   }
 
   file.close();
@@ -566,7 +566,7 @@ uint8_t renameFile(fs::FS &fs, const char *path1, const char *path2) {
 }
 
 uint8_t deleteFile(fs::FS &fs, const char *path) {
-  Serial.printf("Deleting file: %s\n", path);
+  Serial.printf("Deleting file: %s\n\r", path);
   if (fs.remove(path)) {
     Serial.println("File deleted");
     return 0;
@@ -591,11 +591,9 @@ uint8_t clearDir(fs::FS &fs, const char *path) {
 }
 
 
-//1:fichier non trouve, 2;malloc pas ok, 3:size pas ok, 4:jpeg decode failed, 5:reduction not needed, 6:malloc small failed, 7:jpeg encode failed, 8:fichier non ecrit
+//1:fichier/lecture invalide, 2;malloc pas ok, 3:size pas ok, 4:jpeg decode failed, 5:reduction not needed, 6:malloc small failed, 7:jpeg encode failed, 8:fichier non ecrit
 uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality)
 {
-
-    Serial.printf("Reducing file %s to width %u quality:%u\n", path1, size, quality);
 
     if ((quality>100) || (size>1600)) {
       Serial.println("Invalid parameters");
@@ -609,7 +607,6 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality
     }
 
     size_t fileSize = inFile.size();
-    Serial.printf("File size: %u\n", fileSize);
 
     uint8_t* jpg_buf = (uint8_t*)malloc(fileSize);
 
@@ -619,8 +616,14 @@ uint8_t reducFile(fs::FS &fs, const char *path1, uint16_t size, uint16_t quality
         return 2;
     }
 
-    inFile.read(jpg_buf, fileSize);
+    size_t bytesRead = inFile.read(jpg_buf, fileSize);
     inFile.close();
+    if (bytesRead != fileSize) {
+        Serial.printf("Erreur lecture JPEG: lu %u sur %u octets\n\r",
+                      (unsigned)bytesRead, (unsigned)fileSize);
+        free(jpg_buf);
+        return 1;
+    }
 
     uint8_t res = reduc_image(fs, jpg_buf, fileSize, path1, size, quality);
     return res;
@@ -653,7 +656,7 @@ uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jp
     outFile.close();
     free(jpg_out);
 
-    Serial.printf("File saved: %s\n", newPath);
+    Serial.printf("File saved: %s\n\r", newPath);
 
     return 0;
 }
@@ -677,7 +680,7 @@ uint8_t testFileIO(fs::FS &fs, const char *path) {
       len -= toRead;
     }
     end = millis() - start;
-    Serial.printf("%u bytes read for %u ms\n", flen, end);
+    Serial.printf("%u bytes read for %u ms\n\r", flen, end);
     file.close();
   } else {
     Serial.println("Failed to open file for reading");
@@ -695,7 +698,7 @@ uint8_t testFileIO(fs::FS &fs, const char *path) {
     file.write(buf, 512);
   }
   end = millis() - start;
-  Serial.printf("%u bytes written for %u ms\n", 2048 * 512, end);
+  Serial.printf("%u bytes written for %u ms\n\r", 2048 * 512, end);
   file.close();
   return 0;
 }
@@ -921,32 +924,9 @@ void server_routes_SDCARD()
       result = 0;
     }
     else if (action == 7)
-    { // compresse image
+    { // 
         result = 0;
 
-        int size = 0;
-        int quality = 0;
-
-        if (sscanf(out.c_str(), "%d,%d", &size, &quality) == 2)
-        {
-          // Size 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280)
-          switch (size) {
-              case 1: size = 320; break;
-              case 2: size = 480;  break;
-              case 3: size = 640;  break;
-              case 4: size = 800;  break;
-              case 5: size = 1024; break;
-              case 6: size = 1280; break;
-              default:
-                  Serial.println("Format inconnu");
-                  result = 1;
-          }
-          if (!result)
-          {
-            Serial.printf("Compressing file %s to width %u quality:%u\n", path.c_str(), size, quality);
-            result = reducFile(fs, path.c_str(), size, quality);
-          }
-        }
     }
     else if (action == 9)
     { // decode lpc vers avi/jpg

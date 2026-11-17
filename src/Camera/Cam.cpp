@@ -9,6 +9,7 @@
 
 #include "esp_camera.h"
 #include "camera.h"
+#include "jpge_api.h"
 #include "../lpc/lpc.h"
 
 
@@ -29,7 +30,8 @@
 
 
 // nb images : 1(1) 2(2) 3(4) 4(8) 5(16) 6(32) 7(64)
-// Size 0:160 1:QVGA(320),2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280) 7:1600 8:2048
+// Size 0:96 1:240 2:HVGA(480) 3:VGA(640), 4:SVGA(800), 5:XGA(1024), 6:SXGA(1280) 7:1600 8:2048
+
 // Compress jpg  : moins bon 0(0%-63) 1(5%-55) 2(10%-50) 3(15%-40) 4(20%-30) 5(30%-20) 6(50%-12) 7(60%-8) 8(80%-6) 9(100%-4) meilleur
 // global Nb_im+size+qual : A:1+320+1 C:2+320+2 E:3+480+3 H:640+3 K:640+4 N:800+4 Q:800+5 T:800+6 Z:4+1024+6
 // CA-260618-201223-E-323.jpg  .avi  .lpc
@@ -76,7 +78,7 @@ char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code
 // Parse a global char code into the triplet; returns true if found
 bool global_to_triplet(char global_code, uint8_t &images_code, uint8_t &size_code, uint8_t &comp_code);
 
-
+//0:96, 1:240, 2:480, 3:640, 4:800, 5:1024, 6:1280, 7:1600, 8:2048, 9:2560
 // Size mapping helpers (codes -> widths) with framesize mapping
 typedef struct { uint16_t width; uint16_t height; framesize_t cam_code; uint8_t code; } size_entry_t;
 static const size_entry_t size_table[] = {
@@ -110,14 +112,14 @@ static const size_t size_table_count = sizeof(size_table) / sizeof(size_table[0]
 struct comp_entry_t { uint8_t code; uint8_t tx_comp_jpg; uint8_t tx_comp_cam; };
 
 static const comp_entry_t comp_table[] = {
-    {0, 5,   63},
-    {1, 12,  55},
-    {2, 20,  50},
-    {3, 28,  45},
-    {4, 40,  40},
-    {5, 50,  30},
-    {6, 60,  20},
-    {7, 70,  12},
+    {0, 2,   63},
+    {1, 3,  55},
+    {2, 7,  50},
+    {3, 10,  45},
+    {4, 15,  40},
+    {5, 20,  30},
+    {6, 25,  25},
+    {7, 30,  12},
     {8, 82,   7},
     {9, 100,  4}
 };
@@ -130,32 +132,32 @@ typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_e
 // Unified static table mapping single-char global code to the triplet (images_code, size_code, comp_code)
 // A..Z entries, A fixed to 100 (1,0,0), Z fixed to 789 (7,8,9), intermediates unique.
 static global_entry_t global_table[] = {
-    { 'A', 1, 0, 2 }, // 100 (fixed)
-    { 'B', 1, 0, 4 },
-    { 'C', 1, 0, 7 },
-    { 'D', 1, 1, 2 },
-    { 'E', 1, 1, 4 },
-    { 'F', 1, 1, 7 },
+    { 'A', 1, 0, 1 }, // 100 (fixed)
+    { 'B', 1, 0, 2 },
+    { 'C', 1, 0, 3 },
+    { 'D', 1, 1, 1 },
+    { 'E', 1, 1, 2 },
+    { 'F', 1, 1, 3 },
     { 'G', 1, 2, 3 },
-    { 'H', 1, 3, 5 },
-    { 'I', 1, 4, 6 },
-    { 'J', 1, 5, 7 },
-    { 'K', 1, 6, 7 },
-    { 'L', 1, 7, 7 },
-    { 'M', 2, 6, 8 },
-    { 'N', 2, 7, 8 },
-    { 'O', 3, 4, 2 },
-    { 'P', 3, 7, 9 },
-    { 'Q', 4, 8, 9 },
-    { 'R', 4, 0, 1 },
-    { 'S', 4, 1, 2 },
-    { 'T', 4, 2, 3 },
+    { 'H', 1, 3, 3 },
+    { 'I', 1, 4, 3 },
+    { 'J', 1, 5, 4 },
+    { 'K', 1, 6, 4 },
+    { 'L', 1, 7, 4 },
+    { 'M', 2, 6, 4 },
+    { 'N', 2, 7, 4 },
+    { 'O', 3, 4, 4 },
+    { 'P', 3, 7, 4 },
+    { 'Q', 4, 8, 4 },
+    { 'R', 4, 0, 4 },
+    { 'S', 4, 1, 4 },
+    { 'T', 4, 2, 4 },
     { 'U', 4, 3, 4 },
-    { 'V', 5, 4, 5 },
-    { 'W', 6, 5, 6 },
-    { 'X', 6, 6, 7 },
-    { 'Y', 7, 7, 8 },
-    { 'Z', 7, 8, 9 }  // 789 (fixed)
+    { 'V', 5, 4, 4 },
+    { 'W', 6, 5, 4 },
+    { 'X', 6, 6, 4 },
+    { 'Y', 7, 7, 4 },
+    { 'Z', 7, 8, 4 }  // 789 (fixed)
 };
 static const size_t global_table_count = sizeof(global_table)/sizeof(global_table[0]);
 
@@ -311,7 +313,7 @@ uint8_t configCamera()
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
-    if (log_detail>=3) Serial.printf("Camera Ready! Type:%s (%i) Use 'http://cam'\n", type_cam == 1 ? "OV2640" : type_cam == 2 ? "OV3660" : "inconnu", type_cam);
+    if (log_detail>=3) Serial.printf("Camera Ready! Type:%s (%i) Use 'http://cam'\n\r", type_cam == 1 ? "OV2640" : type_cam == 2 ? "OV3660" : "inconnu", type_cam);
   }
   else
   {
@@ -321,19 +323,172 @@ uint8_t setup_camera() {
   return configCamera();
 }
 
-
+// extrait d'un jpeg, la width et la height (largeur et hauteur)
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h) {
-    for (size_t i = 0; i < len - 9; i++) {
-        if (buf[i] == 0xFF && buf[i+1] == 0xC0) {
-            h = (buf[i+5] << 8) + buf[i+6];
-            w = (buf[i+7] << 8) + buf[i+8];
-            if ((w>100) && (w<2000) && (h>50) && (h<2000)) 
-              return true;
-            else
-              return false;
+    w = 0;
+    h = 0;
+    if (buf == nullptr || len < 4 || buf[0] != 0xFF || buf[1] != 0xD8) {
+        return false;
+    }
+
+    size_t pos = 2;
+    while (pos < len) {
+        if (buf[pos] != 0xFF) {
+            return false;
         }
+        while (pos < len && buf[pos] == 0xFF) {
+            ++pos;
+        }
+        if (pos >= len) {
+            return false;
+        }
+
+        const uint8_t marker = buf[pos++];
+        if (marker == 0xDA || marker == 0xD9 || marker == 0x00) {
+            return false;
+        }
+        if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+            continue;
+        }
+
+        if (len - pos < 2) {
+            return false;
+        }
+        const size_t segment_length = ((size_t)buf[pos] << 8) | buf[pos + 1];
+        if (segment_length < 2 || segment_length > len - pos) {
+            return false;
+        }
+
+        const bool is_sof =
+            (marker >= 0xC0 && marker <= 0xC3) ||
+            (marker >= 0xC5 && marker <= 0xC7) ||
+            (marker >= 0xC9 && marker <= 0xCB) ||
+            (marker >= 0xCD && marker <= 0xCF);
+        if (is_sof) {
+            if (segment_length < 8) {
+                return false;
+            }
+            const uint8_t component_count = buf[pos + 7];
+            if (component_count == 0 || segment_length != 8 + 3 * component_count) {
+                return false;
+            }
+
+            const uint16_t height = ((uint16_t)buf[pos + 3] << 8) | buf[pos + 4];
+            const uint16_t width = ((uint16_t)buf[pos + 5] << 8) | buf[pos + 6];
+            if (width == 0 || height == 0) {
+                return false;
+            }
+
+            w = width;
+            h = height;
+            return true;
+        }
+
+        pos += segment_length;
     }
     return false;
+}
+
+class jpg_memory_stream_t : public jpge::output_stream {
+public:
+    jpg_memory_stream_t() : data_(NULL), size_(0), capacity_(0), failed_(false) {}
+    ~jpg_memory_stream_t() override { free(data_); }
+
+    bool put_buf(const void *buf, int len) override
+    {
+        if (!buf || len <= 0) return !failed_;
+        if (failed_ || (size_t)len > (size_t)-1 - size_) {
+            failed_ = true;
+            return false;
+        }
+
+        size_t required = size_ + (size_t)len;
+        if (required > capacity_) {
+            size_t new_capacity = capacity_ ? capacity_ : 1024;
+            while (new_capacity < required) {
+                if (new_capacity > (size_t)-1 / 2) {
+                    new_capacity = required;
+                    break;
+                }
+                new_capacity *= 2;
+            }
+
+            void *new_data = realloc(data_, new_capacity);
+            if (!new_data) {
+                failed_ = true;
+                return false;
+            }
+            data_ = (uint8_t *)new_data;
+            capacity_ = new_capacity;
+        }
+
+        memcpy(data_ + size_, buf, (size_t)len);
+        size_ = required;
+        return true;
+    }
+
+    size_t get_size() const override { return size_; }
+
+    uint8_t *release()
+    {
+        uint8_t *data = data_;
+        data_ = NULL;
+        size_ = 0;
+        capacity_ = 0;
+        return data;
+    }
+
+private:
+    uint8_t *data_;
+    size_t size_;
+    size_t capacity_;
+    bool failed_;
+};
+
+static int getJpegQualityMarker(const uint8_t *buf, size_t len)
+{
+    if (!buf || len < 4 || buf[0] != 0xFF || buf[1] != 0xD8) return -1;
+
+    size_t pos = 2;
+    while (pos + 1 < len) {
+        if (buf[pos] != 0xFF) {
+            ++pos;
+            continue;
+        }
+
+        while (pos < len && buf[pos] == 0xFF) ++pos;
+        if (pos >= len) break;
+
+        uint8_t marker = buf[pos++];
+        if (marker == 0xDA || marker == 0xD9) break;
+        if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+        if (pos + 2 > len) break;
+
+        uint16_t segmentLength = ((uint16_t)buf[pos] << 8) | buf[pos + 1];
+        if (segmentLength < 2 || segmentLength > len - pos) break;
+
+        const uint8_t *payload = buf + pos + 2;
+        size_t payloadLength = segmentLength - 2;
+        if (marker == 0xFE && payloadLength >= 3 &&
+            (payload[0] == 'Q' || payload[0] == 'q') && payload[1] == '=') {
+            size_t i = 2;
+            int quality = 0;
+            while (i < payloadLength && payload[i] >= '0' && payload[i] <= '9') {
+                quality = quality * 10 + payload[i++] - '0';
+                if (quality > 100) break;
+            }
+            if (i > 2 && quality <= 100) return quality;
+        }
+
+        if (marker >= 0xE0 && marker <= 0xEF && payloadLength >= 5 &&
+            memcmp(payload, "QVAL", 4) == 0 && payload[4] <= 100) {
+            return payload[4];
+        }
+
+        pos += segmentLength;
+    }
+
+    return -1;
 }
 
 uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize, uint16_t quality)
@@ -342,13 +497,14 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     // 1 recuperation de l w et h de l'image source.
     uint16_t w = 0, h = 0;
 
-    if (!getJpegSize(jpg_buf, fileSize, w, h)) {
+    if (!getJpegSize(jpg_buf, fileSize, w, h) ||
+        w <= 100 || w >= 2000 || h <= 50 || h >= 2000) {
         Serial.println("Failed to read JPEG size");
         free(jpg_buf);
         return 3;
     }
 
-    Serial.printf("Image size: %i x %i\n", w, h);
+    int sourceQuality = getJpegQualityMarker(jpg_buf, fileSize);
 
     // --- 2. décoder JPEG → RGB ---
     uint8_t* rgb_buf = NULL;
@@ -401,7 +557,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         for (int x = 0; x < new_w; x++) {
 
             int src_x = x * w / new_w;
-            int src_y = (h - 1) - (y * h / new_h);  // 🔥 inversion ici
+            int src_y = y * h / new_h;
 
             memcpy(
                 &rgb_small[(y * new_w + x) * 3],
@@ -413,21 +569,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
 
     free(rgb_buf);
 
-    // --- 6. encoder JPEG ---
-    uint8_t* jpg_out = NULL;
-    size_t jpg_len = 0;
-
-    if (!fmt2jpg(rgb_small, new_w * new_h * 3, new_w, new_h,
-                 PIXFORMAT_RGB888, quality, &jpg_out, &jpg_len)) {
-
-        Serial.println("JPEG encode failed");
-        free(rgb_small);
-        return 7;
-    }
-
-    free(rgb_small);
-
-    // --- 7. créer nom sortie ---
+    // --- 6. créer nom sortie ---
     String newPath = String(path1);
     int dot = newPath.lastIndexOf('.');
 
@@ -437,7 +579,51 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         newPath += "_" + String(newsize) + ".jpg";
     }
 
+    jpg_memory_stream_t stream;
+    jpge::params params;
+    const uint8_t outputQuality = quality == 0 ? 1 : (quality > 100 ? 100 : quality);
+    params.m_quality = outputQuality;
+    params.m_subsampling = jpge::H2V1;
+
+    jpge::jpeg_encoder encoder;
+    bool encoded = encoder.init(&stream, new_w, new_h, 3, params);
+    for (int y = 0; encoded && y < new_h; y++) {
+        encoded = encoder.process_scanline(rgb_small + (size_t)y * new_w * 3);
+    }
+    if (encoded) {
+        encoded = encoder.process_scanline(NULL);
+    }
+    encoder.deinit();
+    free(rgb_small);
+
+    size_t jpg_len = stream.get_size();
+    if (!encoded || jpg_len == 0) {
+        Serial.println("JPEG encode failed");
+        return 7;
+    }
+
+    uint8_t *jpg_out = stream.release();
     uint8_t res = sauve_image(fs, newPath.c_str(), jpg_out, jpg_len);
+
+    if (res == 0 && log_detail >= 3) {
+        size_t outputSize = 0;
+        File savedFile = fs.open(newPath.c_str(), FILE_READ);
+        if (savedFile) {
+            outputSize = savedFile.size();
+            savedFile.close();
+            if (sourceQuality >= 0) {
+                Serial.printf("JPEG depart : %ux%u, qualite=%d, taille=%lu octets\n\r",
+                              (unsigned)w, (unsigned)h, sourceQuality, (unsigned long)fileSize);
+            } else {
+                Serial.printf("JPEG depart : %ux%u, qualite=inconnue, taille=%lu octets\n\r",
+                              (unsigned)w, (unsigned)h, (unsigned long)fileSize);
+            }
+            Serial.printf("JPEG arrivee : %dx%d, qualite=%u, taille=%lu octets\n\r",
+                          new_w, new_h, (unsigned)outputQuality, (unsigned long)outputSize);
+        } else {
+            Serial.printf("Impossible de relire la taille du JPEG resultat: %s\n\r", newPath.c_str());
+        }
+    }
 
     return res;
 }
@@ -782,13 +968,13 @@ bool global_to_triplet(char global_code, uint8_t &images_code, uint8_t &size_cod
 
 char triplet_to_global(uint8_t images_code, uint8_t size_code, uint8_t comp_code)
 {
-    Serial.printf("triplet_to_global: searching for images_code=%d, size_code=%d, comp_code=%d\n", images_code, size_code, comp_code);
+    if (log_detail>=4) Serial.printf("triplet_to_global: searching for images_code=%d, size_code=%d, comp_code=%d\n\r", images_code, size_code, comp_code);
     // Exact match first
     for (size_t i = 0; i < global_table_count; ++i)
     {
         if (global_table[i].images == images_code && global_table[i].size == size_code && global_table[i].comp == comp_code)
         {
-            Serial.printf("triplet_to_global: exact match found at index %d, global_code=%c\n", (int)i, global_table[i].gc);
+            if (log_detail>=4) Serial.printf("triplet_to_global: exact match found at index %d, global_code=%c\n\r", (int)i, global_table[i].gc);
             return global_table[i].gc;
         }
     }

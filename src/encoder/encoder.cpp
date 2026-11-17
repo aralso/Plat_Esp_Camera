@@ -439,7 +439,14 @@ struct encoder_filestream_t : public lpc_stream_out_t, public lpc_stream_in_t
 
     ~encoder_filestream_t()
     {
-        file.close();
+        close();
+    }
+
+    void close()
+    {
+        if (file) {
+            file.close();
+        }
     }
 
     // OUT
@@ -558,7 +565,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 	const char *output_path = "/test/test.lpc";
 	//Serial.printf("1. Run encoder  quality=%d, frame_count=%d\n", settings.quality, settings.frame_count);
 	if (SD_MMC.exists(output_path)) {
-			Serial.println("suppression du fichier de sortie existant");
+			if (log_detail>=3) Serial.println("suppression du fichier de sortie existant");
 			SD_MMC.remove(output_path);
 	}			
 	encoder_filestream_t stream(SD_MMC, output_path, FILE_APPEND);
@@ -572,27 +579,14 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
     size_t rgb_len;
 
 	// --- Lightweight probe to extract JPEG dimensions before decoding ---
-	int Jwidth = 0, Jheight = 0;
-	auto getJpegSizeFromBuffer = [](const uint8_t *buf, size_t len, int &out_w, int &out_h)->bool {
-		for (size_t i = 0; i + 9 < len; i++) {
-			if (buf[i] == 0xFF && buf[i+1] == 0xC0) {
-				out_h = (buf[i+5] << 8) + buf[i+6];
-				out_w = (buf[i+7] << 8) + buf[i+8];
-				if ((out_w>100) && (out_w<2000) && (out_h>50) && (out_h<2000)) 
-					return true;
-				else
-					return false;
-			}
-		}
-		return false;
-	};
-
-	if (!getJpegSizeFromBuffer(jpg_bu, jpg_len, Jwidth, Jheight)) {
+	uint16_t jpeg_width = 0, jpeg_height = 0;
+	if (!getJpegSize(jpg_bu, jpg_len, jpeg_width, jpeg_height)) {
 		Serial.println("Failed to read JPEG size");
 		free(jpg_bu);
 		encoder.close();
 		return 3;
 	}
+	int Jwidth = jpeg_width, Jheight = jpeg_height;
 
 	// alloc memoire RGB888 based on source JPEG size (safe allocation)
 	rgb_len = (size_t)Jwidth * (size_t)Jheight * 3 * sizeof(uint8_t);
@@ -726,7 +720,7 @@ uint8_t encodeFile()
 	uint8_t code_images, code_width, code_compression;
 
 	global_to_triplet(code_encod, code_images, code_width, code_compression);  // G -> 2-4-3
-	Serial.printf("code_encod=%c code_images=%i code_width=%i code_compression=%i\n", code_encod, code_images, code_width, code_compression);
+	if (log_detail>=2) Serial.printf("code_Global=%c code_images=%i code_size=%i code_compression=%i\n\r", code_encod, code_images, code_width, code_compression);
 
 	nb_images = code_to_nbIm(code_images); // Code 2 -> nb_images=2
 
@@ -783,7 +777,7 @@ uint8_t encodeFile()
 			width_orig = parsed_width;
 			height_orig = parsed_height;
 			qualite_orig = parsed_quality;
-			Serial.printf("probe: res:%i nb_image:%i\n %i*%i qual:%i\n", probe_result, nb_images_orig, width_orig, height_orig, qualite_orig);
+			Serial.printf("probe: res:%i nb_image:%i\n %i*%i qual:%i\n\r", probe_result, nb_images_orig, width_orig, height_orig, qualite_orig);
 		}
 		else
 		{
@@ -809,7 +803,7 @@ uint8_t encodeFile()
 						nb_images_orig = 1; // at least one frame
 						width_orig = w;
 						height_orig = h;
-						Serial.printf("frame_buf total:%i wi:%i he:%i\n", total, w, h);
+						Serial.printf("frame_buf total:%i wi:%i he:%i\n\r", total, w, h);
 						// Try to extract quality from COM/APP markers inside the JPEG frame
 						auto extract_quality = [](const uint8_t *buf, size_t len)->int {
 							if (!buf || len < 4) return -1;
@@ -911,18 +905,27 @@ uint8_t encodeFile()
 			return 2;
 		}
 
-		inFile.read(jpg_bu, fileSize);
+		size_t bytesRead = inFile.read(jpg_bu, fileSize);
 		inFile.close();
+		if (bytesRead != fileSize) {
+			Serial.printf("Erreur lecture JPEG : lu %u sur %u octets\n\r",
+			              (unsigned)bytesRead,
+			              (unsigned)fileSize);
+			free(jpg_bu);
+			return 3;
+		}
 
 		// recuperation de l w et h de l'image source.
 		uint16_t w = 0, h = 0;
 
 		if ((!getJpegSize(jpg_bu, fileSize, w, h)) || (w<50) || (h<50) || (w>2500) || (h>2000)) {
-			Serial.println("Failed to read JPEG size");
+			Serial.printf("Erreur JPEG size : S:%u w:%u h:%u\n\r",
+			              (unsigned)fileSize,
+			              (unsigned)w,
+			              (unsigned)h);
 			free(jpg_bu);
 			return 3;
 		}
-		free(jpg_bu);
 		width_orig = w;
 		height_orig = h;
 
@@ -959,7 +962,7 @@ uint8_t encodeFile()
 							memcpy(tmp, payload+2, copy_len);
 							tmp[copy_len] = '\0';
 							int q = atoi(tmp);
-							Serial.printf("Found COM marker quality: %d\n", q);
+							//Serial.printf("Found COM marker quality: %d\n", q);
 							if (q >= 0 && q <= 100) return q;
 						}
 					}
@@ -978,14 +981,15 @@ uint8_t encodeFile()
 			int q = extract_quality(jpg_bu, fileSize);
 			if (q >= 0) {
 				qualite_orig = (uint8_t)q;
-				Serial.printf("Extracted quality from JPEG marker: %d\n", qualite_orig);
+				if (log_detail>=3) Serial.printf("Extracted quality from JPEG marker: %d\n\r", qualite_orig);
 			} else {
 				float bpp = (float)fileSize * 8.0f / (w * h);
 				float qual = 1.0f - expf(-3.0f * bpp);
 				qualite_orig = (uint8_t)(qual * 100.0f);
-				Serial.printf("Estimated quality from bpp: %d\n", qualite_orig);
+				Serial.printf("Estimated quality from bpp: %d\n\r", qualite_orig);
 			}
 		}
+		free(jpg_bu);
 	}
 	// les nouvelles valeurs doivent être plus petites que les anciennes
 	if (nb_images > nb_images_orig) nb_images = nb_images_orig;
@@ -993,9 +997,9 @@ uint8_t encodeFile()
 	//if (qualite > qualite_orig) qualite = qualite_orig;
     height = (float)height_orig * ((float)width / (float)width_orig);  // calcul de la nouvelle hauteur pour garder le ratio
 
-	Serial.printf("Encoding %s Nb_images: %i -> %i\n", path_c, nb_images_orig, nb_images);
-	Serial.printf("Encoding type:%i  Format : %u x %u -> %u x %u\n", type_fichier, width_orig, height_orig, width, height);
-	Serial.printf("Encoding  Qualite : %i -> %i\n", qualite_orig, qualite);
+	if (log_detail>=2) Serial.printf("Encoding %s Nb_images: %i -> %i\n\r", path_c, nb_images_orig, nb_images);
+	if (log_detail>=2) Serial.printf("Encoding size:%i  Format : %u x %u -> %u x %u\n\r", type_fichier, width_orig, height_orig, width, height);
+	if (log_detail>=2) Serial.printf("Encoding  Qualite : %i -> %i\n\r", qualite_orig, qualite);
 
 	lpc_settings_t settings = {
 		width,    // width
@@ -1022,11 +1026,11 @@ uint8_t encodeFile()
 	path_lpc[sizeof(path_lpc) - 1] = '\0';
 
 	if (SD_MMC.exists(output_path)) {
-			Serial.println("suppression du fichier de sortie existant");
+			if (log_detail>=3) Serial.println("suppression du fichier de sortie existant");
 			SD_MMC.remove(output_path);
 	}
 
-	Serial.printf("Encodage vers %s width=%d height=%d quality=%d\n", output_path.c_str(), settings.width, settings.height, settings.quality);
+	if (log_detail>=4) Serial.printf("Encodage vers %s width=%d height=%d quality=%d\n\r", output_path.c_str(), settings.width, settings.height, settings.quality);
 
 	encoder_filestream_t stream_out(SD_MMC, output_path.c_str(), FILE_APPEND);
 	lpc_encoder_t encoder;
@@ -1050,9 +1054,9 @@ uint8_t encodeFile()
 		#ifdef LPC_DEBUG
 		float num_mb = (float)max(encoder.stats.num_macroblocks, 1);
 		float pblocks = 100.0f*encoder.stats.num_block_match_pred / num_mb;
-		Serial.printf("Encoding image:%i time:%lu ms p-blocks:%.1f%%\n", i, enc3-encprec, pblocks);
+		if (log_detail>=4) Serial.printf("Encoding image:%i time:%lu ms p-blocks:%.1f%%\n\r", i, enc3-encprec, pblocks);
 		#else
-		Serial.printf("Encoding image:%i time:%lu ms\n", i, enc3-encprec);
+		if (log_detail>=4) Serial.printf("Encoding image:%i time:%lu ms\n\r", i, enc3-encprec);
 		#endif
 
 		encprec = enc3;
@@ -1064,12 +1068,13 @@ uint8_t encodeFile()
 			if (s.count != 0)
 			{
 				for (int i = 0; i < s.nesting; i++) printf("  ");
-				printf("- %-16s %10.3f\n", to_string((LPC_MARKER)i), (double)s.total / 1e3);
+				printf("- %-16s %10.3f\n\r", to_string((LPC_MARKER)i), (double)s.total / 1e3);
 			}
 		}
 		#endif
 	}
 	encoder.close();
+	stream_out.close();
 	unsigned long end_enc = millis();
 
 	// determination de la taille du fichier écrit
@@ -1077,26 +1082,23 @@ uint8_t encodeFile()
 	uint32_t f_size = 0;
 	{
 		// Diagnostic prints to verify file path and size reporting
-		Serial.printf("Checking output_path='%s'\n", output_path.c_str());
-		Serial.printf("SD_MMC.exists=%d\n", SD_MMC.exists(output_path.c_str()) ? 1 : 0);
+		if (log_detail>=4) Serial.printf("Checking output_path='%s'\n\r", output_path.c_str());
+		if (log_detail>=4) Serial.printf("SD_MMC.exists=%d\n\r", SD_MMC.exists(output_path.c_str()) ? 1 : 0);
 
-		// small delay to allow filesystem metadata to settle after writer close
-		delay(100);
 		File outFile = SD_MMC.open(output_path.c_str(), FILE_READ);
 		if (!outFile) {
 			Serial.println("outFile open failed");
 		} else {
-			// Some FS implementations update size() only after flush/close. Seek to end and read position for a reliable value.
-			size_t s1 = outFile.size();
-			outFile.seek(0, SeekEnd);
-			size_t s2 = outFile.position();
-			Serial.printf("outFile.size()=%lu, position(end)=%lu\n", (unsigned long)s1, (unsigned long)s2);
-			f_size = s2;
+			f_size = outFile.size();
+			if (log_detail>=4) Serial.printf("outFile.size()=%lu\n\r", (unsigned long)f_size);
 			outFile.close();
-			Serial.println("ZZ");
 		}
 	}	
 
-	Serial.printf("Encoding size:%i time prep:%lu ms, encode:%lu ms, close:%lu ms\n", f_size, enc2-start_enc, enc3-enc2, end_enc-enc3);
+	if (log_detail>=2) Serial.printf("Encoding size:%lu  time prep:%lu ms, encode:%lu ms, close:%lu ms\n\r",
+	              (unsigned long)f_size,
+	              enc2-start_enc,
+	              enc3-enc2,
+	              end_enc-enc3);
 	return 0;
 }

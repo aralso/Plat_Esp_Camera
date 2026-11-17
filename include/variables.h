@@ -6,6 +6,11 @@
 
 #ifdef __cplusplus
   #include <Arduino.h>  // for IPAddress, String types
+  // TODO surv web: decommenter ces déclarations lors de la réactivation du contrôle HTTP.
+  
+  class AsyncWebServerRequest;
+  uint32_t logRootHttpRequest(AsyncWebServerRequest *request);
+  
   // Forward-declare C++ LPC types/functions so C files including this header don't
   // try to parse C++-only declarations or include C++ headers like <cassert>.
   struct lpc_settings_t;
@@ -410,7 +415,8 @@ typedef enum {
   EVENT_ENVOI_FICHIER,
   EVENT_ENCODE_LPC,
   EVENT_DECODE_LPC,
-  EVENT_UART1
+  EVENT_UART1,
+   EVENT_HTTP_ROOT_CHECK
 } systeme_eve_type_t;
 
 // Structure d'un événement tache sequenceur

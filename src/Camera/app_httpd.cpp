@@ -64,6 +64,126 @@ extern char path_c[80];
 static const char *TAG = "camera_httpd";
 #endif
 
+static portMUX_TYPE camera_recovery_mux = portMUX_INITIALIZER_UNLOCKED;
+static TaskHandle_t camera_recovery_task_handle = NULL;
+static uint32_t camera_frames_in_use = 0;
+static uint8_t camera_consecutive_failures = 0;
+static bool camera_recovery_pending = false;
+
+static void camera_note_capture_failure()
+{
+    TaskHandle_t task_to_notify = NULL;
+
+    portENTER_CRITICAL(&camera_recovery_mux);
+    if (!camera_recovery_pending) {
+        ++camera_consecutive_failures;
+        if (camera_consecutive_failures >= 3 && camera_recovery_task_handle != NULL) {
+            camera_recovery_pending = true;
+            task_to_notify = camera_recovery_task_handle;
+        }
+    }
+    portEXIT_CRITICAL(&camera_recovery_mux);
+
+    if (task_to_notify != NULL) {
+        ESP_LOGW(TAG, "Three consecutive camera capture failures; recovery scheduled");
+        xTaskNotifyGive(task_to_notify);
+    }
+}
+
+static camera_fb_t *camera_fb_get_tracked()
+{
+    portENTER_CRITICAL(&camera_recovery_mux);
+    if (camera_recovery_pending) {
+        portEXIT_CRITICAL(&camera_recovery_mux);
+        return NULL;
+    }
+    ++camera_frames_in_use;
+    portEXIT_CRITICAL(&camera_recovery_mux);
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb == NULL) {
+        portENTER_CRITICAL(&camera_recovery_mux);
+        --camera_frames_in_use;
+        portEXIT_CRITICAL(&camera_recovery_mux);
+        camera_note_capture_failure();
+        return NULL;
+    }
+
+    portENTER_CRITICAL(&camera_recovery_mux);
+    camera_consecutive_failures = 0;
+    portEXIT_CRITICAL(&camera_recovery_mux);
+    return fb;
+}
+
+static void camera_fb_return_tracked(camera_fb_t *fb)
+{
+    if (fb == NULL) {
+        return;
+    }
+
+    esp_camera_fb_return(fb);
+    portENTER_CRITICAL(&camera_recovery_mux);
+    if (camera_frames_in_use > 0) {
+        --camera_frames_in_use;
+    }
+    portEXIT_CRITICAL(&camera_recovery_mux);
+}
+
+static void camera_recovery_task(void *)
+{
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+
+        uint32_t wait_ms = 0;
+        for (;;) {
+            portENTER_CRITICAL(&camera_recovery_mux);
+            bool no_frames_in_use = (camera_frames_in_use == 0);
+            portEXIT_CRITICAL(&camera_recovery_mux);
+            if (no_frames_in_use) {
+                break;
+            }
+            if (wait_ms >= 10000) {
+                ESP_LOGE(TAG, "Camera recovery cancelled: frames are still in use");
+                portENTER_CRITICAL(&camera_recovery_mux);
+                camera_recovery_pending = false;
+                camera_consecutive_failures = 0;
+                portEXIT_CRITICAL(&camera_recovery_mux);
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+            wait_ms += 100;
+        }
+
+        portENTER_CRITICAL(&camera_recovery_mux);
+        bool recovery_pending = camera_recovery_pending;
+        bool no_frames_in_use = (camera_frames_in_use == 0);
+        portEXIT_CRITICAL(&camera_recovery_mux);
+        if (!recovery_pending || !no_frames_in_use) {
+            continue;
+        }
+
+        ESP_LOGW(TAG, "Restarting camera driver");
+        esp_err_t deinit_result = esp_camera_deinit();
+        if (deinit_result != ESP_OK) {
+            ESP_LOGW(TAG, "esp_camera_deinit failed: %d", (int)deinit_result);
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        uint8_t init_result = setup_camera();
+        if (init_result != 0) {
+            ESP_LOGE(TAG, "Camera recovery failed (setup_camera=%u)", (unsigned)init_result);
+        } else {
+            ESP_LOGI(TAG, "Camera recovery completed");
+        }
+
+        portENTER_CRITICAL(&camera_recovery_mux);
+        camera_consecutive_failures = 0;
+        camera_recovery_pending = false;
+        portEXIT_CRITICAL(&camera_recovery_mux);
+    }
+}
+
 // Face Detection will not work on boards without (or with disabled) PSRAM
 #ifdef BOARD_HAS_PSRAM
 //#define CONFIG_ESP_FACE_DETECT_ENABLED 1
@@ -389,12 +509,13 @@ static void bmp_handler(AsyncWebServerRequest *request)
     // Guard: ensure camera sensor initialized before calling fb_get
     sensor_t *s = esp_camera_sensor_get();
     if (!s) {
+        camera_note_capture_failure();
         if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (bmp_handler)");
         request->send(500, "text/plain", "Camera not initialized");
         return;
     }
 
-    fb = esp_camera_fb_get();
+    fb = camera_fb_get_tracked();
     if (!fb)
     {
         if (log_detail >= 1) ESP_LOGE(TAG, "Camera capture failed");
@@ -405,7 +526,7 @@ static void bmp_handler(AsyncWebServerRequest *request)
     uint8_t * buf = NULL;
     size_t buf_len = 0;
     bool converted = frame2bmp(fb, &buf, &buf_len);
-    esp_camera_fb_return(fb);
+    camera_fb_return_tracked(fb);
     if(!converted){
         if (log_detail >= 1) ESP_LOGE(TAG, "BMP Conversion failed");
         request->send(500, "text/plain", "BMP Conversion failed");
@@ -456,6 +577,7 @@ static void capture_handler(AsyncWebServerRequest *request)
     // Guard: ensure camera sensor initialized before calling fb_get
     sensor_t *s = esp_camera_sensor_get();
     if (!s) {
+        camera_note_capture_failure();
         if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (capture_handler)");
         request->send(500, "text/plain", "Camera not initialized");
         return;
@@ -465,11 +587,11 @@ static void capture_handler(AsyncWebServerRequest *request)
     if (log_detail >= 3) ESP_LOGI(TAG, "capture_handler(): enabling LED and capturing");
     enable_led(true);
     vTaskDelay(150 / portTICK_PERIOD_MS);
-    fb = esp_camera_fb_get();
+    fb = camera_fb_get_tracked();
     enable_led(false);
 #else
-    if (log_detail >= 3) ESP_LOGI(TAG, "capture : capturing (no LED)");
-    fb = esp_camera_fb_get();
+    if (log_detail >= 3) ESP_LOGI(TAG, "capturing");
+    fb = camera_fb_get_tracked();
 #endif
 
     if (!fb)
@@ -502,10 +624,10 @@ static void capture_handler(AsyncWebServerRequest *request)
             #endif
             // Copy JPEG buffer because fb->buf will be returned to the driver
             buf_len = fb->len;
-            Serial.printf("capture_handler(): Taille JPEG %u\n", (unsigned)buf_len);
+            Serial.printf("capture_handler(): Taille JPEG %u\n\r", (unsigned)buf_len);
             buf = (uint8_t*)malloc(buf_len);
             if (!buf) {
-                esp_camera_fb_return(fb);
+                camera_fb_return_tracked(fb);
                 if (log_detail >= 1) ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
                 request->send(500, "text/plain", "Memory allocation failed");
                 return;
@@ -521,9 +643,9 @@ static void capture_handler(AsyncWebServerRequest *request)
         }
 
         int64_t t_ready = esp_timer_get_time();
-        if (log_detail >= 3) ESP_LOGI(TAG, "capture : buffer ready %uB %ums", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
+        if (log_detail >= 3) ESP_LOGI(TAG, "buffer ok %uB %ums", (unsigned)buf_len, (unsigned)((t_ready - fr_start) / 1000));
 
-        esp_camera_fb_return(fb);
+        camera_fb_return_tracked(fb);
         
         //ESP_LOGI(TAG, "capture_handler(): sending response (elapsed %ums)", (unsigned)((esp_timer_get_time() - fr_start) / 1000));
         AsyncWebServerResponse *response = request->beginResponse(200, "image/jpeg", buf, buf_len);
@@ -557,7 +679,7 @@ static void capture_handler(AsyncWebServerRequest *request)
         }
         #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
                 int64_t fr_end = esp_timer_get_time();
-                if (log_detail >= 3) ESP_LOGI(TAG, "capture complete: JPG: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+                if (log_detail >= 3) ESP_LOGI(TAG, "Fin: %uB total %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
         #endif
         return;
         #if CONFIG_ESP_FACE_DETECT_ENABLED
@@ -590,7 +712,7 @@ static void capture_handler(AsyncWebServerRequest *request)
                     draw_face_boxes(&rfb, &results, face_id);
                 }
                 s = fmt2jpg(fb->buf, fb->len, fb->width, fb->height, PIXFORMAT_RGB565, 90, &buf, &buf_len);
-                esp_camera_fb_return(fb);
+                camera_fb_return_tracked(fb);
             } else
             {
                 out_len = fb->width * fb->height * 3;
@@ -599,12 +721,12 @@ static void capture_handler(AsyncWebServerRequest *request)
                 out_buf = (uint8_t*)malloc(out_len);
                 if (!out_buf) {
                     if (log_detail >= 1) ESP_LOGE(TAG, "out_buf malloc failed");
-                    esp_camera_fb_return(fb);
+                    camera_fb_return_tracked(fb);
                     request->send(500, "text/plain", "Memory allocation failed");
                     return;
                 }
                 s = fmt2rgb888(fb->buf, fb->len, fb->format, out_buf);
-                esp_camera_fb_return(fb);
+                camera_fb_return_tracked(fb);
                 if (!s) {
                     free(out_buf);
                     if (log_detail >= 1) ESP_LOGE(TAG, "to rgb888 failed");
@@ -705,6 +827,7 @@ uint8_t capture_photo_sd()
     // Guard: ensure camera sensor initialized before calling fb_get
     sensor_t *s = esp_camera_sensor_get();
     if (!s) {
+        camera_note_capture_failure();
         if (log_detail >= 1) ESP_LOGE(TAG, "Camera not initialized (capture_handler_SD)");
         return 1;
     }
@@ -713,11 +836,11 @@ uint8_t capture_photo_sd()
         if (log_detail >= 3) ESP_LOGI(TAG, "capture_handler_SD(): enabling LED and capturing");
         enable_led(true);
         vTaskDelay(150 / portTICK_PERIOD_MS);
-        fb = esp_camera_fb_get();
+        fb = camera_fb_get_tracked();
         enable_led(false);
     #else
         if (log_detail >= 4) ESP_LOGD(TAG, "capture_SD(): capturing (no LED)");
-        fb = esp_camera_fb_get();
+        fb = camera_fb_get_tracked();
     #endif
 
     if (!fb)
@@ -752,7 +875,7 @@ uint8_t capture_photo_sd()
         buf_len = fb->len;
         buf = (uint8_t*)malloc(buf_len);
         if (!buf) {
-            esp_camera_fb_return(fb);
+            camera_fb_return_tracked(fb);
             if (log_detail >= 1) ESP_LOGE(TAG, "Malloc failed for JPEG buffer copy");
             return 1;
         }
@@ -775,7 +898,7 @@ uint8_t capture_photo_sd()
     int img_width = fb->width;
     //int img_height = fb->height;   // unused
 
-    esp_camera_fb_return(fb);
+    camera_fb_return_tracked(fb);
     
     // Sauvegarde sur carte SD
     #ifdef SDCARD
@@ -969,6 +1092,7 @@ uint8_t capture_avi_b()
     // Ensure sensor initialized
     sensor_t *s_avi = esp_camera_sensor_get();
     if (!s_avi) {
+        camera_note_capture_failure();
         if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Camera not initialized");
         return 1;
     }
@@ -1006,11 +1130,11 @@ uint8_t capture_avi_b()
                 enable_led(true);
                 vTaskDelay(150 / portTICK_PERIOD_MS);
                 t_capture_start = millis();
-                fb = esp_camera_fb_get();
+                fb = camera_fb_get_tracked();
                 t_capture_end = millis();
                 enable_led(false);
         #else
-                fb = esp_camera_fb_get();
+                fb = camera_fb_get_tracked();
                 t_capture_end = millis();
         #endif
 
@@ -1116,13 +1240,13 @@ uint8_t capture_avi_b()
 
             unsigned long t_add_end = millis();
             temps_add = (unsigned)(t_add_end - t_open_end);
-            esp_camera_fb_return(fb);
+            camera_fb_return_tracked(fb);
         } else {
             // Fallback: convert to RGB and add frame as before
             size_t rgb_len = (size_t)width * (size_t)height * 3;
             uint8_t *rgb_buf = (uint8_t*)malloc(rgb_len);
             if (!rgb_buf) {
-                esp_camera_fb_return(fb);
+                camera_fb_return_tracked(fb);
                 if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Memory allocation failed");
                 mjpegw_close(avi_session.avi);
                 avi_session.avi = NULL;
@@ -1130,7 +1254,7 @@ uint8_t capture_avi_b()
             }
             if (!fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf)) {
                 free(rgb_buf);
-                esp_camera_fb_return(fb);
+                camera_fb_return_tracked(fb);
                 if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Format conversion failed");
                 mjpegw_close(avi_session.avi);
                 avi_session.avi = NULL;
@@ -1140,7 +1264,7 @@ uint8_t capture_avi_b()
             unsigned long t_add_end = millis();
             temps_add = (unsigned)(t_add_end - t_open_end);
             free(rgb_buf);
-            esp_camera_fb_return(fb);
+            camera_fb_return_tracked(fb);
         }
 
         // Single combined log for this frame: capture time and add (SD write) time
@@ -1193,11 +1317,11 @@ uint8_t capture_avi_b()
             #endif
             unsigned long t_capture_end = 0;
             #ifdef CONFIG_LED_ILLUMINATOR_ENABLED
-                    camera_fb_t *fbi = esp_camera_fb_get();
+                    camera_fb_t *fbi = camera_fb_get_tracked();
                     t_capture_end = millis();
                     enable_led(false);
             #else
-                    camera_fb_t *fbi = esp_camera_fb_get();
+                    camera_fb_t *fbi = camera_fb_get_tracked();
                     t_capture_end = millis();   
             #endif
 
@@ -1216,21 +1340,21 @@ uint8_t capture_avi_b()
                     mjpegw_add_frame_jpg(avi_session.avi, fbi->buf, fbi->len);
                     t_add_end = millis();
                     temps_add = (unsigned)(t_add_end - t_capture_end);
-                    esp_camera_fb_return(fbi);
+                    camera_fb_return_tracked(fbi);
                 }
                 else  // cas qui ne doit pas arriver
                 {
                     Serial.printf("capture_avi: unexpected format %d, converting to RGB\n", fbi->format);
                     uint8_t *rgb2 = (uint8_t*)malloc((size_t)avi_session.width * (size_t)avi_session.height * 3);
                     if (!rgb2) {
-                        esp_camera_fb_return(fbi);
+                        camera_fb_return_tracked(fbi);
                         if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: malloc failed for frame");
                         if (avi_session.timer) xTimerStart(avi_session.timer, 0);
                         return 1;
                     }
                     if (!fmt2rgb888(fbi->buf, fbi->len, fbi->format, rgb2)) {
                         free(rgb2);
-                        esp_camera_fb_return(fbi);
+                        camera_fb_return_tracked(fbi);
                         if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: fmt2rgb888 failed");
                         if (avi_session.timer) xTimerStart(avi_session.timer, 0);
                         return 1;
@@ -1240,7 +1364,7 @@ uint8_t capture_avi_b()
                     t_add_end = millis();
                     temps_add = (unsigned)(t_add_end - t_capture_end);
                     free(rgb2);
-                    esp_camera_fb_return(fbi);
+                    camera_fb_return_tracked(fbi);
                 }
 
                 // Single combined log for this frame: capture time and add (SD write) time
@@ -1321,17 +1445,18 @@ static void stream_handler(AsyncWebServerRequest *request)
             vTaskDelay(300 / portTICK_PERIOD_MS);
 
             // Clean previous resources if any (shouldn't normally exist)
-            if (state.fb) { esp_camera_fb_return(state.fb); state.fb = NULL; }
+            if (state.fb) { camera_fb_return_tracked(state.fb); state.fb = NULL; }
             if (state.jpg_buf) { free(state.jpg_buf); state.jpg_buf = NULL; state.jpg_len = 0; }
 
             // Ensure sensor initialized
             sensor_t *s2 = esp_camera_sensor_get();
             if (!s2) {
+                camera_note_capture_failure();
                 if (log_detail >= 1) ESP_LOGE(TAG, "stream_generator(): Camera not initialized");
                 return 0;
             }
 
-            camera_fb_t *fb = esp_camera_fb_get();
+            camera_fb_t *fb = camera_fb_get_tracked();
             if (!fb) {
                 if (log_detail >= 1) ESP_LOGE(TAG, "stream_generator(): Camera capture failed");
                 return 0; // terminate stream
@@ -1347,12 +1472,12 @@ static void stream_handler(AsyncWebServerRequest *request)
             } else {
                 // Convert to JPEG (allocates jpg_buf)
                 if (!frame2jpg(fb, 80, &jpg_buf, &jpg_len)) {
-                    esp_camera_fb_return(fb);
+                    camera_fb_return_tracked(fb);
                     if (log_detail >= 1) ESP_LOGE(TAG, "stream_generator(): JPEG compression failed");
                     return 0;
                 }
                 // Returned the fb immediately since we have jpg_buf
-                esp_camera_fb_return(fb);
+                camera_fb_return_tracked(fb);
                 fb = NULL;
                 state.jpg_buf = jpg_buf;
                 state.jpg_len = jpg_len;
@@ -1418,7 +1543,7 @@ static void stream_handler(AsyncWebServerRequest *request)
             // free jpg_buf if used
             if (state.jpg_buf) { free(state.jpg_buf); state.jpg_buf = NULL; state.jpg_len = 0; }
             // return fb if used
-            if (state.fb) { esp_camera_fb_return(state.fb); state.fb = NULL; }
+            if (state.fb) { camera_fb_return_tracked(state.fb); state.fb = NULL; }
             state.frame_size = 0;
             state.hlen = 0;
         }
@@ -1933,7 +2058,7 @@ static void win_handler(AsyncWebServerRequest *request)
     if (log_detail >= 3) ESP_LOGI(TAG, "Set Window: Start: %d %d, End: %d %d, Offset: %d %d, Total: %d %d, Output: %d %d, Scale: %u, Binning: %u", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
-    Serial.printf("set_res_raw : startX: %i startY: %i endX: %i endY: %i offsetX: %i offsetY: %i totalX: %i totalY: %i outputX: %i outputY: %i scale: %u binning: %u\n", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+    Serial.printf("set_res_raw : startX: %i startY: %i endX: %i endY: %i offsetX: %i offsetY: %i totalX: %i totalY: %i outputX: %i outputY: %i scale: %u binning: %u\n\r", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
     if (res) {
         request->send(500);
         return;
@@ -1975,6 +2100,20 @@ static void index_handler(AsyncWebServerRequest *request)
 void server_routes_camera()
 {
     ra_filter_init(&ra_filter, 20);
+
+     if (camera_recovery_task_handle == NULL) {
+        BaseType_t task_result = xTaskCreate(
+            camera_recovery_task,
+            "cam_recover",
+            8192,
+            NULL,
+            2,
+            &camera_recovery_task_handle);
+        if (task_result != pdPASS) {
+            camera_recovery_task_handle = NULL;
+            ESP_LOGE(TAG, "Failed to create camera recovery task");
+        }
+    }
 
 #if CONFIG_ESP_FACE_RECOGNITION_ENABLED
     recognizer.set_partition(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "fr");
