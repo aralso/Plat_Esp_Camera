@@ -417,18 +417,19 @@ const char index_ov2640_html[] = R"rawliteral(
                             <label for="framesize">Resolution</label>
                             <select id="framesize" class="default-action">
                                 <!-- 2MP -->
-                                <option value="13">UXGA(1600x1200)</option>
-                                <option value="12">SXGA(1280x1024)</option>
-                                <option value="11">HD(1280x720)</option>
-                                <option value="10">XGA(1024x768)</option>
-                                <option value="9">SVGA(800x600)</option>
-                                <option value="8">VGA(640x480)</option>
-                                <option value="7">HVGA(480x320)</option>
-                                <option value="6">CIF(400x296)</option>
-                                <option value="5">QVGA(320x240)</option>
-                                <option value="4">240x240</option>
-                                <option value="3">HQVGA(240x176)</option>
-                                <option value="2">QCIF(176x144)</option>
+                                <option value="15">UXGA(1600x1200)</option>
+                                <option value="14">SXGA(1280x1024)</option>
+                                <option value="13">HD(1280x720)</option>
+                                <option value="12">XGA(1024x768)</option>
+                                <option value="11">SVGA(800x600)</option>
+                                <option value="10">VGA(640x480)</option>
+                                <option value="9">HVGA(480x320)</option>
+                                <option value="8">CIF(400x296)</option>
+                                <option value="6">QVGA(320x240)</option>
+                                <option value="5">240x240</option>
+                                <option value="4">HQVGA(240x176)</option>
+                                <option value="3">QCIF(176x144)</option>
+                                <option value="2">128x128</option>
                                 <option value="1">QQVGA(160x120)</option>
                                 <option value="0">96x96</option>
                             </select>
@@ -678,28 +679,28 @@ const char index_ov2640_html[] = R"rawliteral(
                             <div class="input-group" id="set-offset-res-group">
                                 <label for="offset-x">Offset</label>
                                 <div class="text">
-                                    X:<input id="offset-x" type="text" minlength="1" maxlength="3" size="6" value="400">
+                                    X:<input id="offset-x" type="text" minlength="1" maxlength="3" size="6" value="0">
                                 </div>
                                 <div class="text">
-                                    Y:<input id="offset-y" type="text" minlength="1" maxlength="3" size="6" value="300">
+                                    Y:<input id="offset-y" type="text" minlength="1" maxlength="3" size="6" value="0">
                                 </div>
                             </div>
                             <div class="input-group" id="set-total-res-group">
                                 <label for="total-x">Window Size</label>
                                 <div class="text">
-                                    X:<input id="total-x" type="text" minlength="1" maxlength="4" size="6" value="800">
+                                    X:<input id="total-x" type="text" minlength="1" maxlength="4" size="6" value="1600">
                                 </div>
                                 <div class="text">
-                                    Y:<input id="total-y" type="text" minlength="1" maxlength="4" size="6" value="600">
+                                    Y:<input id="total-y" type="text" minlength="1" maxlength="4" size="6" value="1200">
                                 </div>
                             </div>
                             <div class="input-group" id="set-output-res-group">
                                 <label for="output-x">Output Size</label>
                                 <div class="text">
-                                    X:<input id="output-x" type="text" minlength="1" maxlength="4" size="6" value="320">
+                                    X:<input id="output-x" type="text" minlength="1" maxlength="4" size="6" value="1600">
                                 </div>
                                 <div class="text">
-                                    Y:<input id="output-y" type="text" minlength="1" maxlength="4" size="6" value="240">
+                                    Y:<input id="output-y" type="text" minlength="1" maxlength="4" size="6" value="1200">
                                 </div>
                             </div>
                             <button id="set-resolution">Set Resolution</button>

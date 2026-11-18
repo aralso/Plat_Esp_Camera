@@ -618,7 +618,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 	encoder.close();
 	Serial.println("Encoding done");
 	free(rgb_buf);
-	printMemoryStatus();
+	if (log_detail >= 3) printMemoryStatus();
 
 	return 0;
 }

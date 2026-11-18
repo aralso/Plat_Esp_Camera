@@ -77,7 +77,7 @@
 #endif
 
 //#define ENVOI_TEMP_HYGRO // Activer l'envoi des valeurs de température et d'humidité
-#define BTN_COUNT 2  // Nombre de boutons
+#define BTN_COUNT 1  // Nombre de boutons
 #define NB_CAPT 1
 
 
@@ -165,7 +165,7 @@ typedef struct Param {
   uint32_t max16;   // numeric upper bound
  
   uint32_t def_u16; // default numeric value (fits U8/U16/U32)
-  uint8_t rtc_valid;  // 0: not valid, 1: valid
+  uint8_t rtc_vali;  // 0: not valid, 1: valid
   const char* def_str;
   void* var;
   uint8_t size;      // taille du buffer (0 pour U8/U16)
@@ -277,7 +277,7 @@ extern int8_t last_rssi;
   #define PIN_REVEIL 34  // Pin de réveil (Bouton externe)
 #endif
 #ifdef ESP32_S3
-  #define PIN_REVEIL 12  // Pin de réveil (Bouton externe)
+  #define PIN_REVEIL 14  // Pin de réveil (Bouton externe)
   #define PIN_Vbatt 10        // Pin Surveillance Batterie (LiPo/2)
   #define PIN_REVEIL2 11  // Pin d'entrée pour interruption (ex: detecteur)
   #define PIN_OUT0 4     // Power pour alimenter le capteur PIR : 10uA
@@ -416,7 +416,9 @@ typedef enum {
   EVENT_ENCODE_LPC,
   EVENT_DECODE_LPC,
   EVENT_UART1,
-   EVENT_HTTP_ROOT_CHECK
+   EVENT_HTTP_ROOT_CHECK,
+   EVENT_NETWORK_INIT_DONE,
+   EVENT_TIME_SYNC
 } systeme_eve_type_t;
 
 // Structure d'un événement tache sequenceur
@@ -480,7 +482,7 @@ extern volatile uint8_t ackReceived;  // global pour indiquer que le peer a ack�
 extern volatile int ackChannel;       // canal où ça a marché
 extern uint8_t num_sequentiel;  // pour Ack
 
-extern uint8_t init_time;
+extern volatile uint8_t init_time;
 extern float heure;
 
 extern unsigned long last_remote_Tint_time, last_remote_Text_time,

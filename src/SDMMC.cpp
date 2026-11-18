@@ -656,7 +656,7 @@ uint8_t sauve_image(fs::FS &fs, const char *newPath, uint8_t *jpg_out, size_t jp
     outFile.close();
     free(jpg_out);
 
-    Serial.printf("File saved: %s\n\r", newPath);
+    if (log_detail >= 3) Serial.printf("File saved: %s\n\r", newPath);
 
     return 0;
 }

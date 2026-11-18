@@ -37,15 +37,15 @@
 // CA-260618-201223-E-323.jpg  .avi  .lpc
 
 
- uint8_t cap_nb_images;
- uint8_t cap_interval_dsec;
- uint8_t cap_size;
- uint8_t cap_jpg_comp;
- uint8_t im_x_debut;
- uint8_t im_x_fin;
- uint8_t im_y_debut;
- uint8_t im_y_fin;
- uint8_t type_cam;   // 0:non def, 1:OV3660  2:0V2640
+RTC_NOINIT_ATTR uint8_t cap_nb_images;
+RTC_NOINIT_ATTR uint8_t cap_interval_dsec;
+RTC_NOINIT_ATTR uint8_t cap_size;
+RTC_NOINIT_ATTR uint8_t cap_jpg_comp;
+RTC_NOINIT_ATTR uint8_t im_x_debut;
+RTC_NOINIT_ATTR uint8_t im_x_fin;
+RTC_NOINIT_ATTR uint8_t im_y_debut;
+RTC_NOINIT_ATTR uint8_t im_y_fin;
+uint8_t type_cam;   // 0:non def, 1:OV3660  2:0V2640
 
  // Current camera JPEG quality (camera sensor 'quality' value). Initialized to a conservative default (4)
 uint8_t current_sensor_quality = 4;
@@ -84,19 +84,21 @@ typedef struct { uint16_t width; uint16_t height; framesize_t cam_code; uint8_t 
 static const size_entry_t size_table[] = {
     {96,   96,   FRAMESIZE_96X96,  0},
     {160,  120,  FRAMESIZE_QQVGA,  0},
-    {176,  144,  FRAMESIZE_QCIF,   0},
-    {240,  176,  FRAMESIZE_HQVGA,  1},
-    {240,  240,  FRAMESIZE_240X240,1},
-    {320,  240,  FRAMESIZE_QVGA,   1},
-    {400,  296,  FRAMESIZE_CIF,    1},
-    {480,  320,  FRAMESIZE_HVGA,   2},
-    {640,  480,  FRAMESIZE_VGA,    3},
-    {720,  480,  FRAMESIZE_P_HD,   3},
-    {800,  600,  FRAMESIZE_SVGA,   4},
-    {864,  648,  FRAMESIZE_P_3MP,  4},
-    {1024, 768,  FRAMESIZE_XGA,    5},
-    {1080, 720,  FRAMESIZE_P_FHD,  5},
-    {1280, 720,  FRAMESIZE_HD,     5},
+    {128,  128,  FRAMESIZE_128X128, 1},
+    {176,  144,  FRAMESIZE_QCIF,   2},
+    {240,  176,  FRAMESIZE_HQVGA,  3},
+    {240,  240,  FRAMESIZE_240X240,3},
+    {320,  240,  FRAMESIZE_QVGA,   3},
+    {320,  320,  FRAMESIZE_320X320, 3},
+    {400,  296,  FRAMESIZE_CIF,    3},
+    {480,  320,  FRAMESIZE_HVGA,   4},
+    {640,  480,  FRAMESIZE_VGA,    5},
+    {720,  480,  FRAMESIZE_P_HD,   5},
+    {800,  600,  FRAMESIZE_SVGA,   5},
+    {864,  648,  FRAMESIZE_P_3MP,  5},
+    {1024, 768,  FRAMESIZE_XGA,    6},
+    {1080, 720,  FRAMESIZE_P_FHD,  6},
+    {1280, 720,  FRAMESIZE_HD,     6},
     {1280, 1024, FRAMESIZE_SXGA,   6},
     {1600, 1200, FRAMESIZE_UXGA,   7},
     {1920, 1080, FRAMESIZE_FHD,    7},
@@ -113,14 +115,14 @@ struct comp_entry_t { uint8_t code; uint8_t tx_comp_jpg; uint8_t tx_comp_cam; };
 
 static const comp_entry_t comp_table[] = {
     {0, 2,   63},
-    {1, 3,  55},
-    {2, 7,  50},
-    {3, 10,  45},
-    {4, 15,  40},
-    {5, 20,  30},
-    {6, 25,  25},
-    {7, 30,  12},
-    {8, 82,   7},
+    {1, 5,  55},
+    {2, 10,  50},
+    {3, 15,  45},
+    {4, 20,  40},
+    {5, 30,  30},
+    {6, 50,  25},
+    {7, 75,  12},
+    {8, 85,   7},
     {9, 100,  4}
 };
 static const size_t comp_table_count = sizeof(comp_table) / sizeof(comp_table[0]);
@@ -132,18 +134,18 @@ typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_e
 // Unified static table mapping single-char global code to the triplet (images_code, size_code, comp_code)
 // A..Z entries, A fixed to 100 (1,0,0), Z fixed to 789 (7,8,9), intermediates unique.
 static global_entry_t global_table[] = {
-    { 'A', 1, 0, 1 }, // 100 (fixed)
-    { 'B', 1, 0, 2 },
-    { 'C', 1, 0, 3 },
-    { 'D', 1, 1, 1 },
-    { 'E', 1, 1, 2 },
-    { 'F', 1, 1, 3 },
-    { 'G', 1, 2, 3 },
-    { 'H', 1, 3, 3 },
-    { 'I', 1, 4, 3 },
-    { 'J', 1, 5, 4 },
-    { 'K', 1, 6, 4 },
-    { 'L', 1, 7, 4 },
+    { 'A', 1, 0, 5 }, // 96-30 : 1,5
+    { 'B', 1, 1, 5 }, // 128-30 : 1,9
+    { 'C', 1, 2, 5 }, // 160-30 : 2,5
+    { 'D', 1, 3, 5 }, // 240-30 : 4,3
+    { 'E', 1, 3, 7 }, // 240-60 : 6
+    { 'F', 1, 4, 3 }, // 480-15 : 8
+    { 'G', 1, 5, 3 }, // 640-15 : 12
+    { 'H', 1, 6, 3 }, // 800-15 : 
+    { 'I', 1, 7, 3 }, // 1024-15 : 
+    { 'J', 1, 7, 6 }, // 640-15 : 
+    { 'K', 1, 7, 8 }, // 1024-15 : pb malloc
+    { 'L', 1, 7, 9 }, // 1600-15 : pb malloc
     { 'M', 2, 6, 4 },
     { 'N', 2, 7, 4 },
     { 'O', 3, 4, 4 },
@@ -243,7 +245,7 @@ uint8_t inline initCamera() {
   }
 
   //camera_set_parameter(s, "framesize", fs, false);
-  s->set_framesize(s, (framesize_t)9);
+  s->set_framesize(s, (framesize_t) FRAMESIZE_SVGA);
 
   //s->set_vflip(s, 1);      // flip it back
   //s->set_brightness(s, 1); // up the brightness just a bit
@@ -493,12 +495,12 @@ static int getJpegQualityMarker(const uint8_t *buf, size_t len)
 
 uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *path1, uint16_t newsize, uint16_t quality)
 {
-    printMemoryStatus();
+    if (log_detail >= 3) printMemoryStatus();
     // 1 recuperation de l w et h de l'image source.
     uint16_t w = 0, h = 0;
 
     if (!getJpegSize(jpg_buf, fileSize, w, h) ||
-        w <= 100 || w >= 2000 || h <= 50 || h >= 2000) {
+        w <= 90 || w >= 2600 || h <= 50 || h >= 2000) {
         Serial.println("Failed to read JPEG size");
         free(jpg_buf);
         return 3;
@@ -519,7 +521,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
       free(jpg_buf);
       return 9;
     }
-    printMemoryStatus();
+    if (log_detail >= 3) printMemoryStatus();
 
     if (!fmt2rgb888(jpg_buf, fileSize, PIXFORMAT_JPEG, rgb_buf)) {
         Serial.println("JPEG decode failed");
@@ -549,7 +551,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
         free(rgb_buf);
         return 6;
     }
-    printMemoryStatus();
+    if (log_detail >= 3) printMemoryStatus();
 
       // --- 5. resize simple (nearest neighbor) ---
     for (int y = 0; y < new_h; y++) {
@@ -605,7 +607,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
     uint8_t *jpg_out = stream.release();
     uint8_t res = sauve_image(fs, newPath.c_str(), jpg_out, jpg_len);
 
-    if (res == 0 && log_detail >= 3) {
+    if (res == 0 && log_detail >= 2) {
         size_t outputSize = 0;
         File savedFile = fs.open(newPath.c_str(), FILE_READ);
         if (savedFile) {

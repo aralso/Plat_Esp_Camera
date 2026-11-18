@@ -1,6 +1,22 @@
 
 
 /*
+16/11/2026:ajout surveillance capteur camera et site web
+18/11/2026:boot rapide, décalage init reseau, tables codes camera, Aj décalage framesize,
+TODO : 
+test taille lpc, 
+bouton et PIR : schéma
+boot plus rapide : ok
+prise de photo au boot: simple
+envoi wifi fichier vers serveur : implémenter serveur
+envoi crunch uart vers serveur : faire stm32
+rechercher esp32_s3_cam
+message uart avec date et ordre
+test conso veille
+
+PIN ESP32 : Ecriture à l'endroit ESP32 S3 CAM (de haut en bas)
+gauche : reset, TX(43), Rx(44), 19(usb), 20(usb), 0, GND, 3V3
+droite 41, 40(sd), 39(sd), 38(sd), 47, 14, gnd, 5V
 Nov 2026 : 
 Ram : 29.2% (used 95700 bytes from 327680 bytes)
 Flash: [========  ]  84.3% (used 1712295 bytes from 2031616 bytes)
@@ -165,6 +181,9 @@ void init_10_secondes()
 void setup_0()
 {
 
+   BTN_PIN[0] = PIN_REVEIL;
+   BTN_PIN[1] = PIN_REVEIL2;  // Detecteur PIR
+
   /*if (NB_Graphique==6)
   {
     graphique[0][0] = 180;  //Tint - vert
@@ -260,7 +279,9 @@ void setup_2()
 {
 
   // lecture des données sauvegardées dans la partition log_flashG
+  #ifdef PARTITION_G
   readLastLogsG(99);
+  #endif
 
   #ifndef ESP_VEILLE  // Toujours actif
 
@@ -510,7 +531,9 @@ void enreg_24h( uint8_t veille)
   graphique[0][5] = selec_graph(GRAPH3, HA, Hum, PIR);  
 
   if (log_detail>=1) Serial.printf("Graphique 24h : Tint:%i Text:%i Hum:%i HA:%i\n\r", tempI, tempE, Hum, HA);
-  writeLogG('G', tempI, HA, Hum); // Enregistrment en Flash des 3 valeurs du graphique
+  #ifdef PARTITION_G
+    writeLogG('G', tempI, HA, Hum); // Enregistrment en Flash des 3 valeurs du graphique
+  #endif
 
   // Tick, Temp, Hum, Vbatt
   if (action_envoi && esp_now_actif)
