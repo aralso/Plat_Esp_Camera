@@ -95,7 +95,7 @@ esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jp
     uint16_t output_height = decoder.height / (1 << (uint8_t)(jpeg.scale));
 
 #if JPGE_VERBOSE
-    printf("Header has %ld bytes\nJPEG is %d by %d\n", jpeg.index, decoder.width, decoder.height);
+    printf("Header has %ld bytes\nJPEG is %d by %d\n\r", jpeg.index, decoder.width, decoder.height);
 #endif
 
     //output start

@@ -372,15 +372,15 @@ String getContentType(const String& filename) {
 }
 
 uint8_t listDir(fs::FS &fs, const char *dirname, uint8_t levels) {
-  Serial.printf("Listing directory: %s\n", dirname);
+  Serial.printf("Listing directory: %s\n\r", dirname);
 
   File root = fs.open(dirname);
   if (!root) {
-    Serial.println("Failed to open directory");
+    Serial.println("Failed to open directory\n\r");
     return 1;
   }
   if (!root.isDirectory()) {
-    Serial.println("Not a directory");
+    Serial.println("Not a directory\n\r");
     return 2;
   }
 
@@ -447,7 +447,7 @@ bool createDir(fs::FS &fs, const char *path) {
 }*/
 
 uint8_t removeDir(fs::FS &fs, const char *path) {
-  Serial.printf("Removing Dir: %s\n", path);
+  Serial.printf("Removing Dir: %s\n\r", path);
   if (fs.rmdir(path)) {
     Serial.println("Dir removed");
     return 0;
@@ -458,7 +458,7 @@ uint8_t removeDir(fs::FS &fs, const char *path) {
 }
 
 uint8_t readFile(fs::FS &fs, const char *path) {
-  Serial.printf("Reading file: %s\n", path);
+  Serial.printf("Reading file: %s\n\r", path);
 
   File file = fs.open(path);
   if (!file) {
@@ -555,7 +555,7 @@ uint8_t appendFile(fs::FS &fs, const char *path, const uint8_t *buf, size_t len)
 }
 
 uint8_t renameFile(fs::FS &fs, const char *path1, const char *path2) {
-  Serial.printf("Renaming file %s to %s\n", path1, path2);
+  Serial.printf("Renaming file %s to %s\n\r", path1, path2);
   if (fs.rename(path1, path2)) {
     Serial.println("File renamed");
     return 0;
@@ -1011,7 +1011,7 @@ uint8_t sd_init()
     }
 
     uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
-    Serial.printf("SD_MMC Card Size: %lluMB\n", cardSize);
+    Serial.printf("SD_MMC Card Size: %lluMB\n\r", cardSize);
 
     const char* mountPoint = "/";
     listDir(SD_MMC, mountPoint, 0);
@@ -1027,8 +1027,8 @@ uint8_t sd_init()
     //renameFile(SD_MMC, "/hello.txt", "/sdcard/foo.txt");
     //readFile(SD_MMC, "/foo.txt");
     //testFileIO(SD_MMC, "/test.txt");
-    Serial.printf("Total space: %lluMB\n", SD_MMC.totalBytes() / (1024 * 1024));
-    Serial.printf("Used space: %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024));
+    Serial.printf("Total space: %lluMB\n\r", SD_MMC.totalBytes() / (1024 * 1024));
+    Serial.printf("Used space: %lluMB\n\r", SD_MMC.usedBytes() / (1024 * 1024));
  }
   return 0;
 }
@@ -1043,7 +1043,7 @@ bool envoyer_fichier ()
   File fichier = SD_MMC.open(path_lpc, FILE_READ);
 
   if (!fichier) {
-    Serial.printf("Fichier LPC introuvable : %s\n", path_lpc);
+    Serial.printf("Fichier LPC introuvable : %s\n\r", path_lpc);
     return false;
   }
 
@@ -1076,7 +1076,7 @@ bool envoyer_fichier ()
 
   if (log_detail>=2)
   {
-    Serial.printf("HTTP : %d\n", code);
+    Serial.printf("HTTP : %d\n\r", code);
     Serial.println(reponse);
   }
   

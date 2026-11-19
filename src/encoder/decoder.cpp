@@ -86,11 +86,11 @@ struct img_data_t
 	img_data_t(const char *_name):
 		name(_name), w(800), h(600), bytes(NULL)
 	{
-		printf(">>>> %s\n", name);
+		printf(">>>> %s\n\r", name);
 		std::ifstream file(name, std::ios_base::binary);
 		if (!file)
 		{
-			printf("File not found\n");
+			Serial.printf("File not found\n\r");
 			return;
 		}
 
@@ -116,7 +116,7 @@ struct img_data_t
 			int iw = 0, ih = 0;
 			uint8_t *jpg_cast = (uint8_t*)jpeg.c_str();
 			if (!getJpegSizeFromBuffer(jpg_cast, jpeg.size(), iw, ih)) {
-				printf("Failed to read JPEG size\n");
+				Serial.printf("Failed to read JPEG size\n\r");
 				return;
 			}
 
@@ -126,7 +126,7 @@ struct img_data_t
 			// Decode using SDK-style fmt2rgb888 (4-arg). We pre-read the dimensions to
 			// allocate the RGB buffer correctly and avoid a separate heavy decode for dims.
 			if (!fmt2rgb888(jpg_cast, jpeg.size(), PIXFORMAT_JPEG, bytes)) {
-				printf("JPEG decode failed\n");
+				Serial.printf("JPEG decode failed\n\r");
 				if (bytes) { free(bytes); bytes = NULL; }
 				return;
 			}
@@ -140,7 +140,7 @@ struct img_data_t
 		// Same path as the Windows decoder: project's jpge, RGB order, H2V1
 		File file = SD_MMC.open(path, FILE_WRITE);
 		if (!file) {
-			Serial.printf("Cannot open JPEG output on SD: %s\n", path);
+			Serial.printf("Cannot open JPEG output on SD: %s\n\r", path);
 			return false;
 		}
 
@@ -164,7 +164,7 @@ struct img_data_t
 		file.close();
 
 		if (!ok) {
-			Serial.println("JPEG encoding failed");
+			Serial.println("JPEG encoding failed\n\r");
 			return false;
 		}
 
@@ -357,7 +357,7 @@ uint8_t decodeFile()
 #endif
 
 			const lpc_settings_t settings = decoder.get_settings();
-			if (log_detail>=2) printf("Decoding %d frames of size (%dx%d), LPC quality=%d\n", settings.frame_count, settings.width, settings.height, settings.quality);
+			if (log_detail>=2) printf("Decoding %d frames of size (%dx%d), LPC quality=%d\n\r", settings.frame_count, settings.width, settings.height, settings.quality);
 			uint8_t res=1;
 			if (settings.frame_count > 1)
 				res = lpc_to_avi(decoder, path_c);

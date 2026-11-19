@@ -301,8 +301,8 @@ static void avi_timer_cb(TimerHandle_t xTimer)
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\n\r\n";
+static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\n\r";
+static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\n\rX-Timestamp: %d.%06d\n\r";
 
 #if CONFIG_ESP_FACE_DETECT_ENABLED
 
@@ -845,7 +845,8 @@ uint8_t capture_photo_sd()
 
     if (!fb)
     {
-        if (log_detail >= 1) ESP_LOGE(TAG, "Camera capture failed: fb==NULL. freeHeap=%u psramFound=%d", (unsigned)ESP.getFreeHeap(), (int)psramFound());
+        if (log_detail >= 1) ESP_LOGE(TAG, "Camera failed. freeHeap=%u psramFound=%d pend:%i in_use:%i nb_fail:%i",
+             (unsigned)ESP.getFreeHeap(), (int)psramFound(), camera_recovery_pending, camera_frames_in_use, camera_consecutive_failures);
         return 1;
     }
 
@@ -916,7 +917,7 @@ uint8_t capture_photo_sd()
         snprintf(dir_path, sizeof(dir_path), "/%04d/%02d", year, month);
         //Serial.printf("testinf directory: %s\n", dir_path);
         if (!fs.exists(dir_path)) {
-            Serial.printf("Creating directory: %s\n", dir_path);
+            if (log_detail >= 3) Serial.printf("Creating directory: %s\n\r", dir_path);
             createDir(fs, dir_path);
         }
 
@@ -937,7 +938,7 @@ uint8_t capture_photo_sd()
             framesize_t cam_size = (framesize_t)0;
             // img_width captured earlier
             size_to_code((uint16_t)img_width, cam_size, size_code);
-            if (log_detail>=3) Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n", img_width, (int)cam_size, (int)size_code);
+            if (log_detail>=2) Serial.printf("Size: img_width=%d, -> cam_size=%d, code=%d\n\r", img_width, (int)cam_size, (int)size_code);
 
             // 3) Compression code: normalize using code_to_compjpg
             // modif : utilisation de current_sensor_quality (qualite camera)
@@ -1001,7 +1002,7 @@ uint8_t capture_photo_sd()
                     memcpy(&tmp_buf[6 + plen], &buf[2], save_len - 2);
                     save_buf = tmp_buf;
                     save_len = new_len;
-                    Serial.printf("COM marker : qual jpeg:%i, txcam:%i, payload:%s, new_len=%u\n", jpeg_quality_percent, cam_q_for_file, payload, (unsigned)new_len);
+                    if (log_detail>=2) Serial.printf("COM marker : qual jpeg:%i, txcam:%i, payload:%s, new_len=%u\n\r", jpeg_quality_percent, cam_q_for_file, payload, (unsigned)new_len);
                 }
             }
         }
@@ -1035,7 +1036,7 @@ uint8_t capture_photo_sd()
             if (log_detail >= 3) ESP_LOGI(TAG, "JPG: %s  %uB temps: %ums %ums", file_path, (uint32_t)(fb_len), temps_ready, temp_sd);
     #endif
 
-    if (log_detail >= 3) ESP_LOGI(TAG, "debut encodage photo res:%i batt:%i path=%s ", resultat, battery_level, file_path);
+    if (log_detail >= 3) ESP_LOGI(TAG, "encodage photo ? res:%i batt:%i path=%s ", resultat, battery_level, file_path);
 
     // envoi photo compressee au serveur
     if ((battery_level > 20) && (resultat==0))
@@ -1117,7 +1118,7 @@ uint8_t capture_avi_b()
         snprintf(dir_path, sizeof(dir_path), "/%04d/%02d", year, month);
         if (!fs.exists(dir_path))
         {
-            Serial.printf("Creating directory: %s\n", dir_path);
+            if (log_detail >= 3) Serial.printf("Creating directory: %s\n\r", dir_path);
             createDir(fs, dir_path);
         }
 
@@ -1139,7 +1140,7 @@ uint8_t capture_avi_b()
         #endif
 
         if (!fb) {
-            if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Camera capture failed (first frame)");
+            if (log_detail >= 1) ESP_LOGE(TAG, "capture_avi: Camera capture failed (first frame)\n\r");
             return 1;
         }
 
@@ -1344,7 +1345,7 @@ uint8_t capture_avi_b()
                 }
                 else  // cas qui ne doit pas arriver
                 {
-                    Serial.printf("capture_avi: unexpected format %d, converting to RGB\n", fbi->format);
+                    Serial.printf("capture_avi: unexpected format %d, converting to RGB\n\r", fbi->format);
                     uint8_t *rgb2 = (uint8_t*)malloc((size_t)avi_session.width * (size_t)avi_session.height * 3);
                     if (!rgb2) {
                         camera_fb_return_tracked(fbi);
@@ -1381,7 +1382,7 @@ uint8_t capture_avi_b()
                     if (log_detail >= 4) ESP_LOGD(TAG, "capture_avi: captured %d/%d - scheduled next in %ums", avi_session.frames_captured, avi_session.frames_total, (unsigned)(cap_interval_dsec*100));
                 } else {
                     // If no timer available, fallback to immediate re-post (not ideal)
-                    Serial.printf("capture_avi: no timer available, re-posting event for next frame\n");
+                    Serial.printf("capture_avi: no timer available, re-posting event for next frame\n\r");
                     systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };
                     xQueueSend(eventQueue, &evt, 0);
                 }
@@ -1575,10 +1576,10 @@ static void log_framesize_after_delay(void *parameter)
 
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor) {
-        Serial.printf("[CAM] framesize demande=%d, status.framesize apres 1 s=%d\n",
+        Serial.printf("[CAM] framesize demande=%d, status.framesize apres 1 s=%d\n\r",
                       requested, static_cast<int>(sensor->status.framesize));
     } else {
-        Serial.printf("[CAM] framesize demande=%d, capteur absent apres 1 s\n", requested);
+        Serial.printf("[CAM] framesize demande=%d, capteur absent apres 1 s\n\r", requested);
     }
 
     vTaskDelete(nullptr);

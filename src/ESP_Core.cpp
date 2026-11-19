@@ -66,11 +66,13 @@ Nota : Avantages Platformio : Ifdef, intellisense, temps compil, backtrace
 
 #define temps_boucle_loop  2   // secondes
 #define attente_init     10     // 10 secondes avant de demasquer les entrées
-#define attente_mise_heure  30  // 30 secondes apres le temps d'init ci-dessus pour verifier/maj l'heure
+#define attente_mise_heure  40  // 40 secondes apres le temps d'init ci-dessus pour verifier/maj l'heure
 
 static bool eth_connected = false;
 
 #include <Arduino.h>
+#include <stdlib.h>
+#include <time.h>
 #include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -314,6 +316,7 @@ RTC_NOINIT_ATTR uint8_t boot_rapide;  // 0:lent 1:normal 2:rapide 3:très rapide
 
 
 const char *ntpServer = "pool.ntp.org";
+static const char *timeZone = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 const long gmtOffset_sec = 3600 * 1;      // fuseau horaire GMT+1h
 const int daylightOffset_sec = 3600 * 1;  // heure d'été
 struct tm timeinfo;
@@ -494,6 +497,7 @@ typedef struct __attribute__((packed)) {  // padding 16 : pour éviter  mauvaise
 #endif
 
 TimerHandle_t xTimer_Init;
+TimerHandle_t xTimer_Masq;
 TimerHandle_t xTimer_Websocket;
 TimerHandle_t xTimer_Watchdog;
 TimerHandle_t xTimer_3min;
@@ -796,11 +800,24 @@ void onEvent(arduino_event_t event) {
 void vTimerInitCallback(TimerHandle_t xTimer)
 {
   systeme_eve_t evt = { EVENT_INIT, 0 };
-  if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+  if (log_detail >= 4) Serial.println("[INIT] expiration timer");
+  if (eventQueue == NULL || xQueueSend(eventQueue, &evt, 0) != pdTRUE) 
   {
       if (erreur_queue<5) num_err_queue[erreur_queue]=1;
       erreur_queue++;
+      Serial.println("[INIT] erreur envoi EVENT_INIT");
   }
+  else if (log_detail >= 3)
+  {
+      //Serial.println("[INIT] EVENT_INIT ");
+  }
+}
+
+// timeout 5sec apres l'initialisation pour fin masquage entrees
+void vTimerMasqCallback(TimerHandle_t xTimer)
+{
+  if (log_detail >= 3) Serial.println("fin masq entrees");
+  init_masquage=0;
 }
 
 // timeout pour fin de securite modif
@@ -1042,28 +1059,27 @@ void taskHandler(void *parameter) {
             // Gestion des événements
             //Serial.println(evt.type);
             switch (evt.type) {
- 
+
                 case EVENT_INIT: {
-                  Serial.println("AAAinit");
+                  if (log_detail>=4) Serial.println("Event_init");
                   if (!cpt_init)
                   {
-                    // 10 secondes apres l'initialisation : fin masquage entrees
                     init_10_secondes();
-                    init_masquage=0;
-                    if (log_detail>=3) Serial.println("fin masquage des entrees");
                     if (init_time != 4) init_time_ps();
-                    if (init_time >= 3)  xTimerStop(xTimer_Init,100); // arrêt si UART ou Wi-Fi a fourni l'heure
+                    if (init_time >= 3)  
+                      xTimerStop(xTimer_Init,100); // arrêt si UART ou Wi-Fi a fourni l'heure
                     else
                     {
-                      xTimerChangePeriod(xTimer_Init,attente_mise_heure*(1000/portTICK_PERIOD_MS),100);  // passage à 30 secondes
+                      xTimerChangePeriod(xTimer_Init,attente_mise_heure*(1000/portTICK_PERIOD_MS),100);  // passage à 40 secondes
                       xTimerStart(xTimer_Init,100);
                       cpt_init++;
                     }
                   }
                   else
                   {
-                    // 10sec+30secondes apres init : vérif heure
-                    // au bout de 2 minutes : vérif chaque 30 minutes
+                    // 10sec+40secondes apres init : vérif heure
+                    // au bout de 4 minutes : vérif chaque 30 minutes
+                    if (cpt_init<100) cpt_init++;
                     if (mode_reseau == 11)
                       xTimerStop(xTimer_Init,100); // arret
                     else
@@ -1787,6 +1803,10 @@ void setup()
   // Cause reset :
   resetReason0 = (uint8_t) esp_reset_reason();
   Serial.begin(115200);
+  if (setenv("TZ", timeZone, 1) != 0)
+    Serial.println("[TIME] erreur configuration fuseau horaire");
+  else
+    tzset();
   #ifdef TEMPORARY_GPIO_PINOUT_TEST
     testBoardGpioPins();
   #endif
@@ -1975,6 +1995,7 @@ void setup()
 
     // Création de la queue sequenceur (stocke max 10 événements de type int)
     eventQueue = xQueueCreate(50, sizeof(systeme_eve_t));
+    if (eventQueue == NULL) Serial.println("[INIT] erreur creation eventQueue");
    
      rootAvailabilityTimer = xTimerCreate(
         "HttpRoot",
@@ -1998,7 +2019,7 @@ void setup()
     for (uint8_t node = 0; node < NB_CAPT; ++node)
     {
       gatewayQueueTimer[node] = xTimerCreate(
-          "GatewayQueue", pdMS_TO_TICKS(val_test), pdFALSE,
+          "GatewayQueue", pdMS_TO_TICKS(100), pdFALSE,
           reinterpret_cast<void *>(static_cast<uintptr_t>(node)),
           vTimerGatewayQueueCallback);
       if (gatewayQueueTimer[node] == NULL)
@@ -2007,7 +2028,8 @@ void setup()
 
     // Création de la tâche FreeRTOS
     //xTaskCreatePinnedToCore (taskHandler, "TaskHandler", 4096, NULL, 1, &taskHandle,0);
-    xTaskCreate (taskHandler, "TaskHandler", 8192, NULL, 1, &taskHandle);
+    if (xTaskCreate (taskHandler, "TaskHandler", 8192, NULL, 1, &taskHandle) != pdPASS)
+      Serial.println("[INIT] erreur creation TaskHandler");
 
     xTaskCreate(uartTask, "UARTTask", 8192, NULL, 3, NULL);  // priorité 3 plus élevée pour éviter les interruptions WiFi
   
@@ -2139,7 +2161,7 @@ void setup()
 
   setup_1();  // --------------   initialisation sonde temperature--10ms----------
 
-  if (log_detail>=4) Serial.printf("milli G: %lu\n\r", millis());
+  if (log_detail>=3) Serial.printf("milli G: %lu\n\r", millis());
 
   if (setup_appli())  // la suite n'est faite que si setup_appli renvoie 1
   {  
@@ -2199,6 +2221,10 @@ void setup()
     xTimer_Init= xTimerCreate ("Init", (uint32_t)attente_init*(1000/portTICK_PERIOD_MS), pdTRUE, (void *) 0, vTimerInitCallback);
     if (xTimer_Init == NULL)  Serial.println("Erreur : timer xTimer_Init non cree !");
 
+    // Timer à l'initialisation pour masquer 5 secondes  les entrees
+    xTimer_Masq= xTimerCreate ("Masq", (uint32_t)5*(1000/portTICK_PERIOD_MS), pdFALSE, (void *) 0, vTimerMasqCallback);
+    if (xTimer_Masq == NULL)  Serial.println("Erreur : timer xTimer_Masq non cree !");
+
     // Timer chaque 3 minutes pour test wifi
     xTimer_3min= xTimerCreate ("3min", (uint32_t)3*60*(1000/portTICK_PERIOD_MS), pdTRUE, (void *) 0, vTimer3minCallback);
     if (xTimer_3min == NULL)  Serial.println("Erreur : timer xTimer_3min non cree !");
@@ -2243,8 +2269,10 @@ void setup()
 
     if (log_detail>=2) Serial.printf("milli I: %lu\n\r", millis());
 
-    xTimerStart(xTimer_Init,100);  // 0ms
+    if (xTimerStart(xTimer_Init,100) != pdPASS)
+      Serial.println("[INIT] erreur demarrage xTimer_Init");
     xTimerStart(xTimer_24H,100);
+    xTimerStart(xTimer_Masq,100); // 5 sec pour fin masquage entrees
     xTimerStart(xTimer_Cycle,100); // 20ms
 
     if (!reveil_periodique>=10 && reveil_periodique <=600)  // periode entre 10 secondes et 10 minutes
@@ -2277,6 +2305,7 @@ void setup()
     if (log_detail>=2) Serial.printf("milli J1: %lu\n\r", millis());
 
     #ifdef CAMERA
+    //vTaskDelay(val_test / portTICK_PERIOD_MS); // Attente 100ms avant setup camera
     if (!setup_camera()) camera_ok=1;  //480ms
     #endif    
 
@@ -2290,6 +2319,7 @@ void setup()
     if (networkEventGroup == NULL)
       Serial.println("[RESEAU] ERREUR: impossible de créer le groupe d'événements réseau.");
 
+    //lancement tâche parallèle pour initialisation réseau
     TaskHandle_t networkTaskHandle = NULL;
     BaseType_t networkTaskResult = xTaskCreate(
         networkInitTask, "NetworkInit", 8192, NULL, 1, &networkTaskHandle);
@@ -2305,6 +2335,8 @@ void setup()
   #ifdef WATCHDOG
     esp_task_wdt_delete(NULL); // desinscription de la tache setup/loop de la surveillance watchdog : permet d'éviter le reset_wdt dans la tache loop
   #endif
+
+  debut_appli();
 
 }
 
@@ -2336,7 +2368,7 @@ static void initializeNetworkAndServices()
         mode_reseau=13;
       #endif
 
-      Serial.printf("reseau:%i\n\r", mode_reseau);
+      if (log_detail>=3) Serial.printf("reseau:%i\n\r", mode_reseau);
 
       if ((mode_reseau==11) || (mode_reseau==12))
       {
@@ -2364,7 +2396,7 @@ static void initializeNetworkAndServices()
           mdp_routeur[sizeof(mdp_routeur) - 1] = '\0';
         #endif
 
-        Serial.printf("milli J3: %lu\n\r", millis());
+        if (log_detail>=2) Serial.printf("milli J3: %lu\n\r", millis());
         uint8_t wifiResult = boot_rapide > 2
             ? connectWiFiRapide()
             : connectWiFiWithDiagnostic();
@@ -2413,17 +2445,17 @@ static void initializeNetworkAndServices()
     if (networkAvailable && init_time != 4)
     {
       sntp_set_time_sync_notification_cb(sntpTimeSyncCallback);
-      configTzTime("CET-1CEST,M3.5.0/2,M10.5.0/3", ntpServer);
+      configTzTime(timeZone, ntpServer);
     }
 
-    Serial.printf("[HTTP] initial server.begin t=%lu heap=%u WiFi=%d\n\r",
+    if (log_detail>=3)Serial.printf("[HTTP] initial server.begin t=%lu heap=%u WiFi=%d\n\r",
                   (unsigned long)millis(),
                   (unsigned)ESP.getFreeHeap(),
                   (int)WiFi.status());
     setupRoutes();
     server.begin();
     startRootAvailabilityTimer();
-    Serial.printf("[HTTP] initial server started t=%lu ip=%s heap=%u\n\r",
+    if (log_detail>=3) Serial.printf("[HTTP] initial server started t=%lu ip=%s heap=%u\n\r",
                   (unsigned long)millis(),
                   WiFi.localIP().toString().c_str(),
                   (unsigned)ESP.getFreeHeap());
@@ -2539,10 +2571,10 @@ void heartBeatPrint()
 
 
 //************ lecture de l'heure sur ESP32 ************************************
-void lectureHeure() {
+uint8_t lectureHeure() {
   if (!getLocalTime(&timeinfo,2000)) {
     Serial.println("erreur lecture date_heure");
-    return; // ou gestion d'erreur
+    return 1; // ou gestion d'erreur
   }
 
   //time_t now = time(nullptr);
@@ -2556,6 +2588,7 @@ void lectureHeure() {
   date_ac = timeinfo.tm_yday + 365 * nb_annees + (nb_annees + 3) / 4;  // Nombre de jours depuis le 1/1/2020
   //Serial.println(heure_string);
   last_remote_heure_time = millis();
+  return 0;
 }
 
 
@@ -4473,10 +4506,9 @@ void debounceCallback(TimerHandle_t xTimer)
 {
     bool needRestart = false;
     //debounceFlag = true;
-    Serial.println("ABCD");
     for (int i = 0; i < BTN_COUNT; i++) {
         int buttonState = digitalRead(BTN_PIN[i]);  // Lire la pin actuelle
-        Serial.printf("bout:%i etat:%i\n\r", i, buttonState);
+        Serial.printf("bout:%i etat:%i masq:%i\n\r", i, buttonState, init_masquage);
         // Incrémenter/décrémenter le compteur en fonction de l'état lu
         if (buttonState == LOW) {
             if (pressCounter[i] < VALIDATION_COUNT) pressCounter[i]++;
@@ -4928,10 +4960,10 @@ void init_time_ps()
 
   if (!wifi_time_synced || !getLocalTime(&timeinfo, 100))
   {  // toujours pas initialisé
-    Serial.println("Failed to obtain time : init=0");
-    // au bout de 6 minutes : initialisation quand meme avec heure par défaut
+    if (log_detail>=3) Serial.printf("Failed to obtain time : init=%i cpt=%i\n\r", init_time, cpt_init);
+    // au bout de 4 minutes : initialisation quand meme avec heure par défaut
     unsigned long currentMillis = millis();
-    if ((currentMillis - previousMillis_inittime >= (6*60 * 1000)) && (!init_time))
+    if ((currentMillis - previousMillis_inittime >= (4*60 * 1000)) && (!init_time))
     {
       Serial.println("Failed to obtain time : initialisation quand meme à 20h");
       init_time = 1;
@@ -5039,9 +5071,9 @@ void passage_deep_sleep(uint64_t temps, uint8_t index)
 
   if (log_detail>=3) Serial.printf("PIN_REVEIL state = %d %d\n\r", digitalRead(PIN_REVEIL), gpio_get_level((gpio_num_t)PIN_REVEIL));
 
-  if (log_detail>=1) Serial.printf("Passage deep sleep pour %llu milis:%lu index:%i\n\r", (unsigned long long)sleep_us, millis(), index);
+  if (log_detail>=1) Serial.printf("Passage deep sleep pour %llusec (%i min) milis:%lu index:%i\n\r", (unsigned long long)sleep_us/1000000, sleep_us/60000000, millis(), index);
 
-  esp_sleep_enable_timer_wakeup(temps);
+  esp_sleep_enable_timer_wakeup(sleep_us);
 
   #ifdef ESP32_v1
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_REVEIL, 0); // Réveil par bouton (0 = bas)
@@ -5248,6 +5280,7 @@ void startWebServer() {
                 WiFi.localIP().toString().c_str(),
                 (unsigned)ESP.getFreeHeap());
 }
+
 
 void setupRoutes()
 {
@@ -5799,7 +5832,7 @@ uint8_t connectWiFiRapide()
     return 1;
   }
   
-  if (log_detail>=3) Serial.printf("Connexion au reseau: %s\n\r", nom_routeur);
+  if (log_detail>=3) Serial.printf("Connexion rapide au reseau: %s\n\r", nom_routeur);
     // Configuration WiFi en mode Station pour ESP-NOW
     WiFi.setAutoReconnect(false);
     WiFi.mode(WIFI_STA); 
@@ -6238,7 +6271,7 @@ uint8_t envoi_now(uint8_t channel, esp_now_peer_info_t * peerInfo, Message_Struc
   }
   if (peer_err != ESP_OK)
   {
-    Serial.printf("Erreur configuration peer: %s\n", esp_err_to_name(peer_err));
+    Serial.printf("Erreur configuration peer: %s\n\r", esp_err_to_name(peer_err));
     return false;
   }
 

@@ -5,14 +5,13 @@
 18/11/2026:boot rapide, décalage init reseau, tables codes camera, Aj décalage framesize,
 TODO : 
 test taille lpc, 
-bouton et PIR : schéma
-boot plus rapide : ok
+bouton et PIR : faire fonctionner pin 14
+test conso veille
 prise de photo au boot: simple
 envoi wifi fichier vers serveur : implémenter serveur
 envoi crunch uart vers serveur : faire stm32
 rechercher esp32_s3_cam
 message uart avec date et ordre
-test conso veille
 
 PIN ESP32 : Ecriture à l'endroit ESP32 S3 CAM (de haut en bas)
 gauche : reset, TX(43), Rx(44), 19(usb), 20(usb), 0, GND, 3V3
@@ -97,6 +96,8 @@ uint8_t code_nb_images=0;
 uint8_t photo_video_en_cours=0;
 uint8_t battery_level=0;
 
+// fonctions internes
+uint8_t eval_action_batt_frequence();
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len);
 
 //#if defined(ARDUINO_ARCH_ESP32) && defined(WIFI_TX_INFO_T)
@@ -182,7 +183,7 @@ void setup_0()
 {
 
    BTN_PIN[0] = PIN_REVEIL;
-   BTN_PIN[1] = PIN_REVEIL2;  // Detecteur PIR
+   //BTN_PIN[1] = PIN_REVEIL2;  // Detecteur PIR
 
   /*if (NB_Graphique==6)
   {
@@ -294,7 +295,7 @@ void setup_2()
     uint8_t current_channel;
     wifi_second_chan_t second;
     esp_wifi_get_channel(&current_channel, &second);
-    Serial.printf("Canal WiFi AVANT config ESP-NOW: %d\n\r", current_channel);
+    if (log_detail>=2) Serial.printf("Canal WiFi AVANT config ESP-NOW: %d\n\r", current_channel);
     
     // Forcer le canal si nécessaire (doit correspondre au routeur)
     // esp_wifi_set_promiscuous(true);
@@ -308,19 +309,22 @@ void setup_2()
     //if ((mode_reseau==13) )
     //else
     //  Serial.println(WiFi.softAPmacAddress());
-    Serial.println(WiFi.macAddress());
+    if (log_detail>=2)
+    {
+      Serial.println(WiFi.macAddress());
 
-    // Stockage de l'adresse MAC dans le tableau mac_gw[6]
-    Serial.printf("   MAC dest : %02X:%02X:%02X:%02X:%02X:%02X\n\r",
-            mac_gw[0], mac_gw[1], mac_gw[2],
-            mac_gw[3], mac_gw[4], mac_gw[5]);
+      // Stockage de l'adresse MAC dans le tableau mac_gw[6]
+      Serial.printf("   MAC dest : %02X:%02X:%02X:%02X:%02X:%02X\n\r",
+              mac_gw[0], mac_gw[1], mac_gw[2],
+              mac_gw[3], mac_gw[4], mac_gw[5]);
 
 
-    Serial.printf("   Canal WiFi: %d\n\r", current_channel);
-    Serial.println("   En attente de messages...");
-    Serial.println("======================================\n\r");
-    delay(2000); // 2 secondes de pause pour lire
-
+      Serial.printf("   Canal WiFi: %d\n\r", current_channel);
+      Serial.println("   En attente de messages...");
+      Serial.println("======================================\n\r");
+      
+      delay(2000); // 2 secondes de pause pour lire
+    }
   #endif
 }
 
@@ -328,6 +332,20 @@ void setup_2()
 
 void appli_event_on(systeme_eve_t evt)
 {
+  if (evt.data ==0)  // BTN0
+  {
+    // Action à effectuer lorsque BTN0 est activé
+    code_nb_images = eval_action_batt_frequence();
+    if (log_detail>=3) Serial.printf("BTN0:code_nb_images: %i  battery_level: %i  cpt_detection_PIR_fenetre: %i\n\r", code_nb_images, battery_level, cpt_detection_PIR_fenetre);
+    
+    systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
+    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+    {
+      if (erreur_queue<5) num_err_queue[erreur_queue]=7;
+      erreur_queue++;
+    }
+
+  }
 }
 
 void appli_event_off(systeme_eve_t evt)
@@ -357,6 +375,7 @@ void init_ram_variables_appli()  // initialisation à chaque démarrage/reset/r�
 }
 
 
+//Setup appli, avant SD card et camera
 uint8_t setup_appli()
 {
   uint8_t continue_setup=1;  // continue le setup après return sauf si 0
@@ -364,7 +383,7 @@ uint8_t setup_appli()
   if (!rtc_valid)  // initialisation si perte d'alim
   {
     last_wifi_channel = WIFI_CHANNEL;  // prochain canal WiFi à utiliser après perte d'alim
-    Serial.printf("Prochain canal WiFi a utiliser apres perte d'alim: %d\n\r", last_wifi_channel);
+    if (log_detail>=3) Serial.printf("Prochain canal WiFi a utiliser apres perte d'alim: %d\n\r", last_wifi_channel);
   }
   
   // -------------  Capteur/Detecteur : stockage ou envoie infos à la gateway -------------------
@@ -429,6 +448,22 @@ uint8_t setup_appli()
     }
   }
   return continue_setup;
+}
+
+//Setup appli,à la fin du setpup (avant réseau)
+void debut_appli()
+{
+  //  battery_level = 0;  // permet de ne pas encoder en lpc la photo et de ne pas l'envoyer au serveur
+  // determination action photo/video suite à detection_pir, mesure batterylevel
+    code_nb_images = eval_action_batt_frequence();
+    if (log_detail>=3) Serial.printf("code_nb_images: %i  battery_level: %i  cpt_detection_PIR_fenetre: %i\n\r", code_nb_images, battery_level, cpt_detection_PIR_fenetre);
+    
+    systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
+    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+    {
+      if (erreur_queue<5) num_err_queue[erreur_queue]=7;
+      erreur_queue++;
+    }
 }
 
 void setup_3()
@@ -720,13 +755,13 @@ uint8_t eval_action_batt_frequence()
     if (batt < 0) batt = 0;
     if (batt > 100) batt = 100;
     battery_level = batt;
-
+    
     // cpt_detection_PIR_fenetre inclut déjà la détection courante (fenêtre 1h)
     uint16_t recent = (cpt_detection_PIR_fenetre > 0) ? cpt_detection_PIR_fenetre - 1 : 0;
 
     // 1. Niveau de base selon la batterie
     int level;
-    if      (batt < 10) return 0;   // protection batterie
+    if      (batt < 10) level = 0;   // protection batterie
     else if (batt < 25) level = 1;
     else if (batt < 40) level = 3;
     else if (batt < 55) level = 5;
@@ -735,7 +770,7 @@ uint8_t eval_action_batt_frequence()
     else                level = 9;
 
     // 2. Pénalité selon les détections récentes
-    if (recent >= 11) return 0;     // rafale : on laisse passer
+    if (recent >= 11) level = 0;     // rafale : on laisse passer
     int penalty;
     if      (recent <= 1)  penalty = 0;
     else if (recent <= 3)  penalty = 1;
@@ -746,6 +781,7 @@ uint8_t eval_action_batt_frequence()
 
     // 3. Résultat : si la pénalité épuise le niveau, aucune action
     level -= penalty;
+    if (log_detail >= 3) Serial.printf("batt=%0.2fV %i%%, recent=%i, level=%i, penalty=%i\n\r", vbatt, batt, recent, level, penalty);
     if (level < 1) return 1;
     return (uint8_t)level;
 }
@@ -1115,10 +1151,10 @@ uint8_t fetch_internet_temp() {
           tempE_moy24h += Text;
         }
       } else {
-        Serial.printf("Erreur parsing JSON Météo : %s\n", error.c_str());
+        Serial.printf("Erreur parsing JSON Météo : %s\n\r", error.c_str());
       }
     } else {
-      Serial.printf("Erreur HTTP Météo (%d) : %s\n", httpCode, http.errorToString(httpCode).c_str());
+      Serial.printf("Erreur HTTP Météo (%d) : %s\n\r", httpCode, http.errorToString(httpCode).c_str());
     }
     http.end();
   }
@@ -1157,12 +1193,12 @@ void event_mesure_temp()  // toutes les 15 minutes
 float readBatteryVoltage() {
   // Lecture ADC (0-4095) sur PIN_Vbatt
   // Sur ESP32 DevKit V1, l'ADC est calibré par défaut
-  int raw = analogRead(PIN_Vbatt);
   
+  /*int raw = analogRead(PIN_Vbatt);
   // Conversion:
   // raw / 4095.0 * 3.3V (tension ref approx) * 2 (pont diviseur) * 1.1 (facteur corection empirique souvent nécessaire sur ESP32)
-  // On commence sans facteur 1.1 pour tester
-  float voltage = (raw / 4095.0) * 3.3 * 2.5; 
+  float voltage = (raw / 4095.0) * 3.3 * 2.5; */
+  float voltage = 4.1; // Tension en dur pour les CPU qui n'ont pas de pin batterie
   return voltage;
 }
 

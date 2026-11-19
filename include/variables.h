@@ -298,7 +298,7 @@ typedef struct {
 } UartMessage_t;
 
 float readBatteryVoltage();
-void lectureHeure();
+uint8_t lectureHeure();
 void requete_status(char* json_response, uint8_t socket, uint8_t type);
 void recep_message1(UartMessage_t* messa);  // recept_uart1
 void maj_etat_chaudiere_delai(uint8_t delai);
@@ -329,6 +329,7 @@ int encode_lpc(const lpc_settings_t &settings);
 void  activation_writelog();
 void setup_nvs_rtc();
 uint8_t setup_appli();
+void debut_appli();
 void enreg_24h( uint8_t veille);
 void printMemoryStatus();
 void resetI2C();

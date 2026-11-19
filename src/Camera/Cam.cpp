@@ -136,9 +136,9 @@ typedef struct { char gc; uint8_t images; uint8_t size; uint8_t comp; } global_e
 static global_entry_t global_table[] = {
     { 'A', 1, 0, 5 }, // 96-30 : 1,5
     { 'B', 1, 1, 5 }, // 128-30 : 1,9
-    { 'C', 1, 2, 5 }, // 160-30 : 2,5
+    { 'C', 1, 2, 6 }, // 176-30 : 3,2
     { 'D', 1, 3, 5 }, // 240-30 : 4,3
-    { 'E', 1, 3, 7 }, // 240-60 : 6
+    { 'E', 1, 3, 7 }, // 240-75 : 6
     { 'F', 1, 4, 3 }, // 480-15 : 8
     { 'G', 1, 5, 3 }, // 640-15 : 12
     { 'H', 1, 6, 3 }, // 800-15 : 
@@ -217,7 +217,7 @@ uint8_t inline initCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
-    if (log_detail>=4) Serial.printf("PS RAM Found [%d]\n", ESP.getPsramSize());
+    if (log_detail>=4) Serial.printf("PS RAM Found [%d]\n\r", ESP.getPsramSize());
     config.jpeg_quality = 4;
     // Use more frame buffers when PSRAM is available to avoid contention between stream and captures
     config.fb_count = 4; // increase for robustness (was 3)
@@ -226,7 +226,7 @@ uint8_t inline initCamera() {
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 12;
     config.fb_location = CAMERA_FB_IN_DRAM;
-    Serial.printf("PS RAM not Found \n");
+    Serial.printf("PS RAM not Found \n\r");
 
   }
 
@@ -245,7 +245,7 @@ uint8_t inline initCamera() {
   }
 
   //camera_set_parameter(s, "framesize", fs, false);
-  s->set_framesize(s, (framesize_t) FRAMESIZE_SVGA);
+  s->set_framesize(s, (framesize_t) FRAMESIZE_SVGA);  // ne sert à rien car est ensuite écrasé par configCamera()
 
   //s->set_vflip(s, 1);      // flip it back
   //s->set_brightness(s, 1); // up the brightness just a bit
@@ -297,15 +297,15 @@ uint8_t configCamera()
         // ov2640 :
         // setWindow(start_x, 0, 0, 0, offset_x, offset_y, total_x, total_y, output_x, output_y, false, false, function(code, txt){
        //Set Window: Start: 0 0, End: 0 0, Offset: 400 300, Total: 800 600, Output: 320 240, Scale: 0, Binning: 0
-            Serial.printf("Camera OV2640 windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
+            Serial.printf("Camera OV2640 windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n\r", x_S, x_E, y_S, y_E);
         }
         if (type_cam==2) // OV3660
         {
        // ov3660 : 
        //     setWindow(start_x, start_y, end_x, end_y, offset_x, offset_y, total_x, total_y, output_x, output_y, scaling, binning, function(code, txt){
           //int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
-            Serial.printf("Camera OV3660windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n", x_S, x_E, y_S, y_E);
-            Serial.printf("Camera OV3660 windowing applied %d\n", res);
+            Serial.printf("Camera OV3660windowing set to: x_S=%d, x_E=%d, y_S=%d, y_E=%d\n\r", x_S, x_E, y_S, y_E);
+            Serial.printf("Camera OV3660 windowing applied %d\n\r", res);
         }
     }
   }
@@ -315,14 +315,30 @@ uint8_t configCamera()
 uint8_t setup_camera() {
   uint8_t res = initCamera();
   if (res == 0) {
-    if (log_detail>=3) Serial.printf("Camera Ready! Type:%s (%i) Use 'http://cam'\n\r", type_cam == 1 ? "OV2640" : type_cam == 2 ? "OV3660" : "inconnu", type_cam);
+    if (log_detail>=3) Serial.printf("Camera Ready! Type:%s (%i) Use 'http://ip/cam'\n\r", type_cam == 1 ? "OV2640" : type_cam == 2 ? "OV3660" : "inconnu", type_cam);
   }
   else
   {
     Serial.println("Camera initialization failed");
     return 1;
   }
-  return configCamera();
+  res = configCamera();
+  if (res != 0)
+    return res;
+
+  // Let auto-exposure settle, then discard startup frames before the first capture.
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  for (uint8_t i = 0; i < 3; ++i)
+  {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb == nullptr)
+    {
+      Serial.println("[CAM] Image de prechauffage indisponible");
+      break;
+    }
+    esp_camera_fb_return(fb);
+  }
+  return 0;
 }
 
 // extrait d'un jpeg, la width et la height (largeur et hauteur)
@@ -539,7 +555,7 @@ uint8_t reduc_image(fs::FS &fs, uint8_t* jpg_buf, size_t fileSize, const char *p
 
     if (new_w > w)
     {
-        Serial.printf("ce n'est pas une reduction: actuel:%d new: %d\n", w, new_w);
+        Serial.printf("ce n'est pas une reduction: actuel:%d new: %d\n\r", w, new_w);
         free(rgb_buf);
         return 5;
     }
