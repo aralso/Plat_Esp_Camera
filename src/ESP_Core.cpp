@@ -1,12 +1,12 @@
-/* 
+/*
 
-TODO : 
+TODO :
 
 v1.1 08/2026 nouveau core
 v1.2 11/2026 Core avec reception message en veille
 
-Interrogation des données par la liaison série uart (recep_message()) : 2-1 (type=2, reg=1)
-Données minimales à configurer pour avec un ESP32 fonctionnel en réseau wifi: 
+Interrogation des données par la liaison série uart0 (recep_message()) : 2-1 (type=2, reg=1)
+Données minimales à configurer pour un ESP32 fonctionnel en réseau wifi:
    (Modification adresse IP : Message type 2 ou 4 (à envoyer sur port série 115200 bauds))
 2-2:13              // 13 : mode wifi station   (AP:192.168.254.1)
 4-50:192.168.251.31  // adresse IP du module  (et .30 pour Caméra ou Sonde thermometre)
@@ -16,6 +16,8 @@ Données minimales à configurer pour avec un ESP32 fonctionnel en réseau wifi:
 4-54:8.8.4.4         // DNS secondaire
 4-55:garches        // nom routeur
 4-56:xxxx           // mot de passe du routeur
+
+liaison serie Uart1 pour STM32
 
 A compiler pour :
 Caméra : sur esp32-s3
@@ -28,23 +30,23 @@ Graphique 2 : par 24h :   G1:Temp int(vert) G2:temp_ext(bleu) G3:Nb detect/24h
 
 Conso sonde : 37uA en veille, 17mA pdt 1sec => 19uA. Avec 2000mAh => 4 Années
 
-Configuration des options de programmation : 
+Configuration des options de programmation :
 - usb CDC on boot :  enable (pour permettre les serial.print)
-- cpu frequency : 
-- code debug level : non ou info  
--usb dfu on boot : 
--usb firmware msc on boot : 
+- cpu frequency :
+- code debug level : non ou info
+-usb dfu on boot :
+-usb firmware msc on boot :
 - Events run on Core 1
 - Arduino run on Core 0
 - Flash mode : QIO 80MHz
-- jtag adaptater : 
+- jtag adaptater :
 - upload mode: Uart0
 - usb mode : hardware cdc & jtag (usage basique)
 - partition : custom (pour permettre code>1,5MOctets)
 
-Messages recus : 
+Messages recus :
 A:action
-V0/1x : pour node : reveil periodique chaque x secondes 
+V0/1x : pour node : reveil periodique chaque x secondes
 V2 : pour gateway : message periodique suite a reveil
 K:accusé reception
 1à5 : valeurs eeprom
@@ -72,6 +74,7 @@ static bool eth_connected = false;
 
 #include <Arduino.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <time.h>
 #include <ctype.h>
 #include <stdbool.h>
@@ -213,11 +216,11 @@ uint8_t esp_initialise=0;  // flag pour indiquer si ESP-NOW a été initialisé
   const char *ssid_AP = "ESP32";  // Enter SSID here pour l'AP
   const char *password_AP = "";   //Enter Password here
   /* Put IP Address details */
-  IPAddress local_ip_AP(192, 168, 254, 1);  
+  IPAddress local_ip_AP(192, 168, 254, 1);
   IPAddress gateway_AP(192, 168, 254, 1);
   IPAddress subnet_AP(255, 255, 255, 0);
 
-  
+
   // Adresse IP pour le wifi_station (en mode debug)
   const char *ssid = "garches";               // Enter SSID du Routeur Wifi : garches:garches  kerners:kerners catalane:catalane  Theoule:SFR_EFF0
   const char *password = "196492380";    //Enter Password here
@@ -267,7 +270,7 @@ volatile bool debounceFlag = false;
 // etat d'un system externe commandable par Pin_on et pin_off  : 0 éteint, 1:allumé
 uint8_t systeme_marche=0;
 
-RTC_NOINIT_ATTR uint8_t mode_reseau=13;  //  0:pas de reseau 11:wifi_AP_usine  12:wifi_AP   13:wifi_routeur  14:Ethernet filaire 
+RTC_NOINIT_ATTR uint8_t mode_reseau=13;  //  0:pas de reseau 11:wifi_AP_usine  12:wifi_AP   13:wifi_routeur  14:Ethernet filaire
 #ifdef NO_RESEAU
   mode_reseau=0;
 #endif
@@ -308,7 +311,7 @@ bool force_stay_awake = false; // Flag pour rester éveillé après appui bouton
 uint8_t type_reveil;  //0:power on 1: réveil par timer, 2: réveil par PIR 3:inconnu 4:reveil par BTN 10:actif
 unsigned long wake_up_time = 0; // Temps de réveil
 
-//x seconds Watchdog 
+//x seconds Watchdog
 #define WDT_TIMEOUT 80  // reset watchdog dividé par 3 => 24 secondes
 uint16_t param_wdt_delay = 1;
 
@@ -425,7 +428,7 @@ static uint16_t gateway_buffer_message_count(uint8_t node)
     offset += 1 + messageSize;
     ++count;
   }
-  if (offset != used) 
+  if (offset != used)
   {
     reset_node_buffer(node);
     count=0;
@@ -633,7 +636,7 @@ unsigned long otaStartTime = 0;
 
 #define DEBOUNCE_INTERVAL 30  // Temps anti-rebond en ms
 #define VALIDATION_COUNT 2  // Nombre de lectures consécutives pour valider un changement
-volatile unsigned long lastInterruptTime = 0; 
+volatile unsigned long lastInterruptTime = 0;
 
 TimerHandle_t debounceTimer;
 volatile int lastButtonState[BTN_COUNT];  // États précédents
@@ -747,7 +750,7 @@ const char* verbose_reset_reason(int reason) {
     case 18: return "reset CPU1";
     case 19: return "reset CPU2";
     case 20: return "reset CPU3";
-    default: 
+    default:
       snprintf(resetREAS, sizeof(resetREAS), "reset (code: %d)", reason);
     return resetREAS;
   }
@@ -801,7 +804,7 @@ void vTimerInitCallback(TimerHandle_t xTimer)
 {
   systeme_eve_t evt = { EVENT_INIT, 0 };
   if (log_detail >= 4) Serial.println("[INIT] expiration timer");
-  if (eventQueue == NULL || xQueueSend(eventQueue, &evt, 0) != pdTRUE) 
+  if (eventQueue == NULL || xQueueSend(eventQueue, &evt, 0) != pdTRUE)
   {
       if (erreur_queue<5) num_err_queue[erreur_queue]=1;
       erreur_queue++;
@@ -829,8 +832,8 @@ void vTimerSecuriteCallback(TimerHandle_t xTimer)
 // timeout chaque 3 minute : (test wifi)
 void vTimer3minCallback(TimerHandle_t xTimer)
 {
-    systeme_eve_t evt = { EVENT_3min, 0 }; 
-    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+    systeme_eve_t evt = { EVENT_3min, 0 };
+    if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
     {
       if (erreur_queue<5) num_err_queue[erreur_queue]=2;
       erreur_queue++;
@@ -842,7 +845,7 @@ void vTimer24HCallback(TimerHandle_t xTimer)
 {
   Serial.println("BBB24h");
     systeme_eve_t evt = { EVENT_24H, 0 };  // Exemple : donnée = 123
-    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+    if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
     {
       if (erreur_queue<5) num_err_queue[erreur_queue]=3;
       erreur_queue++;
@@ -854,7 +857,7 @@ void vTimerCycleCallback(TimerHandle_t xTimer)
 {
   Serial.println("AAAcycle");
     systeme_eve_t evt = { EVENT_CYCLE, 0 };  // Exemple : donnée = 123
-    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+    if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
     {
       if (erreur_queue<5) num_err_queue[erreur_queue]=3;
       erreur_queue++;
@@ -866,7 +869,7 @@ void vTimerCycleCallback(TimerHandle_t xTimer)
 void vTimerWebsocketCallback(TimerHandle_t xTimer)
 {
   systeme_eve_t evt = { EVENT_ECOUTE_WebSock, 0 };
-  if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+  if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
     {
       if (erreur_queue<5) num_err_queue[erreur_queue]=4;
       erreur_queue++;
@@ -882,7 +885,7 @@ void vTimerWatchdogCallback(TimerHandle_t xTimer)
       if (erreur_queue<5) num_err_queue[erreur_queue]=5;
       erreur_queue++;
    }
-}    
+}
 }
 
 void vTimerGatewayQueueCallback(TimerHandle_t xTimer)
@@ -901,7 +904,7 @@ void vTimerRevPerCallback(TimerHandle_t xTimer)
 {
   Serial.println("AAAReveilper");
   systeme_eve_t evt = { EVENT_REVEIL_PERIODIQUE, 0};
-  if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+  if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
     {
       if (erreur_queue<5) num_err_queue[erreur_queue]=5;
       erreur_queue++;
@@ -931,7 +934,7 @@ void uartTask(void * parameter) {
     } else {
       vTaskDelay(10 / portTICK_PERIOD_MS);
     }
-    
+
     while (Serial.available()) {
       char c = Serial.read();
       //Serial.print("recu");
@@ -944,10 +947,10 @@ void uartTask(void * parameter) {
 
           UartMessage_t mess;
           strncpy(mess.msg, uartInput, uartLong+1);  // Copie sécurisée
-          mess.msg[MSG_SIZE - 1] = '\0';  // Assurer la terminaison          
+          mess.msg[MSG_SIZE - 1] = '\0';  // Assurer la terminaison
           mess.longueur = uartLong+1;
           uint8_t status = xQueueSend(QueueUart, &mess, 0);
-          if (!status) 
+          if (!status)
           {
             if (erreur_queue<5) num_err_queue[erreur_queue]=6;
             erreur_queue++;
@@ -969,7 +972,7 @@ void uartTask(void * parameter) {
       } else
       {
         // Filtre : On ne garde que les caractères imprimables pour éviter les parasites
-        if (c >= 32 && c <= 126) 
+        if (c >= 32 && c <= 126)
         {
           if (uartLong < MSG_SIZE-1)
           {
@@ -981,56 +984,155 @@ void uartTask(void * parameter) {
   }
 }
 
+static void queueUart1Frame(const uint8_t *data, uint16_t length)
+{
+  if ((data == NULL) || (length == 0) || (length >= MSG_SIZE) || (QueueUart1 == NULL))
+  {
+    Serial.println("[UART1] Trame invalide ou file non initialisee");
+    return;
+  }
+
+  UartMessage_t mess;
+  memcpy(mess.msg, data, length);
+  mess.msg[length] = '\0';
+  mess.longueur = length + 1;
+
+  if (xQueueSend(QueueUart1, &mess, 0) != pdPASS)
+  {
+    if (erreur_queue < 5) num_err_queue[erreur_queue] = 8;
+    erreur_queue++;
+    log_erreur(Code_erreur_queue_full, 8, 1);
+    return;
+  }
+
+  systeme_eve_t evt;
+  evt.type = EVENT_UART1;
+  evt.data = mess.longueur;
+  if (xQueueSend(eventQueue, &evt, 0) != pdPASS)
+  {
+    if (erreur_queue < 5) num_err_queue[erreur_queue] = 9;
+    erreur_queue++;
+    log_erreur(Code_erreur_queue_full, 9, 1);
+  }
+}
+
+static uint8_t protocolLocalAddress()
+{
+#if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
+  return UART_ADDRESS_ESP;
+#elif !defined(END_NODE)
+  return ADDRESS;  // gateway : my_adresse
+#else
+  return My_Address & 0x7F;
+#endif
+}
+
+static bool isDebugProtocolLine(const char *data, uint16_t length)
+{
+  if ((data == NULL) || (length < 4) || (((uint8_t)data[0] & 0x80) != 0))
+    return false;
+
+  const uint8_t sender = (uint8_t)data[1];
+  if (!((sender >= 'A' && sender <= 'Z') ||
+        (sender >= 'a' && sender <= 'z') ||
+        (sender >= '0' && sender <= '9')))
+    return false;
+
+  const uint8_t destination = (uint8_t)data[0] & 0x7F;
+  if (destination == protocolLocalAddress())
+    return true;
+
+  for (uint8_t i = 0; i < uartRouteTableCount; ++i)
+  {
+    if ((destination >= uartRouteTable[i].first) &&
+        (destination <= uartRouteTable[i].last))
+      return true;
+  }
+  return false;
+}
+
+
 void uart1Task(void * parameter) {
-  char uartInput[MSG_SIZE];
-  uartInput[0] = '\0';
-  uint16_t uartLong=0;
+  uint8_t uartInput[MSG_SIZE];
+  uint16_t uartLong = 0;
+  uint16_t binaryExpected = 0;
+  uint8_t binaryFrame = 0;
+  (void)parameter;
 
   for (;;) {
     while (Serial1.available()) {
-      char c = Serial1.read();
-      //Serial.print("recu");
-      if (c == '\n' || c == '\r')
-      { // Fin de ligne
-        if (uartLong > 0) {
-          if (uartLong > MSG_SIZE-1)
-            uartLong = MSG_SIZE-1;
-          uartInput[uartLong]=0; // terminaison
+      uint8_t c = (uint8_t)Serial1.read();
 
-          UartMessage_t mess;
-          strncpy(mess.msg, uartInput, uartLong+1);  // Copie sécurisée
-          mess.msg[MSG_SIZE - 1] = '\0';  // Assurer la terminaison          
-          mess.longueur = uartLong+1;
-          uint8_t status = xQueueSend(QueueUart1, &mess, 0);
-          if (!status) 
-          {
-            if (erreur_queue<5) num_err_queue[erreur_queue]=8;
-            erreur_queue++;
-          }
+      if (uartLong == 0) {
+        if ((c == '\r') || (c == '\n'))
+          continue;
+        binaryFrame = (c & 0x80) != 0;
+      }
 
-          systeme_eve_t evt;
-          evt.type = EVENT_UART1;
-          evt.data = uartLong+1;
-          status = xQueueSend(eventQueue, &evt, 0);
-          if (!status)
-          {
-            if (erreur_queue<5) num_err_queue[erreur_queue]=9;
-            erreur_queue++;
-          }
+      if (!binaryFrame && ((c == '\r') || (c == '\n'))) {
+        if (uartLong > 0)
+          queueUart1Frame(uartInput, uartLong);
+        uartLong = 0;
+        binaryExpected = 0;
+        continue;
+      }
 
-          if (status!=pdPASS) log_erreur(Code_erreur_queue_full, status, 1);
-          uartInput[0]=0;
-          uartLong=0;
-        }
-      } else
-      {
-        if (uartLong < MSG_SIZE-1)
-        {
-          uartInput[uartLong++] = c;
+#if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
+      const bool flaggedAsciiEmitter =
+          (uartLong == 1) && ((c & 0x80) != 0) &&
+          ((c & 0x7F) >= 32) && ((c & 0x7F) <= 126);
+#else
+      const bool flaggedAsciiEmitter = false;
+#endif
+      if (!binaryFrame && !flaggedAsciiEmitter && ((c < 32) || (c > 126))) {
+        Serial.println("[UART1] Caractere non ASCII, trame abandonnee");
+        uartLong = 0;
+        binaryExpected = 0;
+        continue;
+      }
+
+      if (uartLong >= MSG_SIZE - 1) {
+        Serial.println("[UART1] Trame trop longue, trame abandonnee");
+        uartLong = 0;
+        binaryExpected = 0;
+        binaryFrame = 0;
+        continue;
+      }
+
+      uartInput[uartLong++] = c;
+
+      if (binaryFrame && (uartLong == 3)) {
+        uint8_t payloadLength = uartInput[2];
+        binaryExpected = (uint16_t)payloadLength + 3;  // D,E,L,payload
+        if ((payloadLength < 2) || (binaryExpected > MSG_SIZE - 1)) {
+          Serial.println("[UART1] Longueur binaire invalide");
+          uartLong = 0;
+          binaryExpected = 0;
+          binaryFrame = 0;
+          continue;
         }
       }
+
+      if (binaryFrame && (uartLong == 4) && (uartInput[3] & 0x80)) {
+        binaryExpected++;
+        if (binaryExpected > MSG_SIZE - 1) {
+          Serial.println("[UART1] Longueur binaire invalide");
+          uartLong = 0;
+          binaryExpected = 0;
+          binaryFrame = 0;
+          continue;
+        }
+      }
+
+      if (binaryFrame && (binaryExpected != 0) && (uartLong == binaryExpected)) {
+        queueUart1Frame(uartInput, uartLong);
+        uartLong = 0;
+        binaryExpected = 0;
+        binaryFrame = 0;
+      }
     }
-    vTaskDelay(10 / portTICK_PERIOD_MS); // Petite pause
+
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
@@ -1054,7 +1156,7 @@ void taskHandler(void *parameter) {
 
     while (true) {
         // Attendre un 2 événement (bloque tant qu'il n'y a rien)
-        if (xQueueReceive(eventQueue, &evt, portMAX_DELAY) == pdTRUE) 
+        if (xQueueReceive(eventQueue, &evt, portMAX_DELAY) == pdTRUE)
         {
             // Gestion des événements
             //Serial.println(evt.type);
@@ -1066,7 +1168,7 @@ void taskHandler(void *parameter) {
                   {
                     init_10_secondes();
                     if (init_time != 4) init_time_ps();
-                    if (init_time >= 3)  
+                    if (init_time >= 3)
                       xTimerStop(xTimer_Init,100); // arrêt si UART ou Wi-Fi a fourni l'heure
                     else
                     {
@@ -1101,43 +1203,54 @@ void taskHandler(void *parameter) {
                     #ifdef ESP_VEILLE
                         // Si une commande UART arrive, on force le réveil si ce n'est pas déjà fait
                         if (!force_stay_awake) {
-                            force_stay_awake = true; 
+                            force_stay_awake = true;
                             Serial.println("INTERCEPTION UART: Activation du délai de 30s !");
                         }
                     #endif
 
                     if (force_stay_awake) {
                         wake_up_time = millis() + prolong_veille*1000; // Prolonger sur réception  message UART
-                        Serial.printf("Activite UART detectee : prolongation du delai de %is.\n\r", prolong_veille);
+                        if (log_detail>=3) Serial.printf("Activite UART detectee : prolongation du delai de %is.\n\r", prolong_veille);
                     }
-                    
+
                     UartMessage_t uartMsg;
                     while (xQueueReceive(QueueUart, &uartMsg, 0) == pdTRUE) {
-                        Serial.printf("Message UART (%d octets) : ", uartMsg.longueur);
-                        for (uint16_t i = 0; i < uartMsg.longueur-1 && i < MSG_SIZE; i++) {
+                        if (log_detail>=3) 
+                        {
+                          Serial.printf("Message UART (%d octets) : ", uartMsg.longueur);
+                          for (uint16_t i = 0; i < uartMsg.longueur-1 && i < MSG_SIZE; i++) {
                             Serial.print(uartMsg.msg[i]);
+                          }
+                          Serial.println();
                         }
-                        Serial.println();
-                        recep_message(uartMsg.msg);
-                    }                  
+                        const uint16_t messageLength = uartMsg.longueur - 1;
+                        if (isDebugProtocolLine(uartMsg.msg, messageLength))
+                          traitement_rx(&uartMsg);
+                        else
+                          recep_message(uartMsg.msg);
+                    }
                     break;
                 }
 
-                case EVENT_UART1: {
-                  //Serial.printf(">> Événement UART reçu: byte = %s\n\r", evt.msg); 
+                case EVENT_UART1: {  // du STM32
+                  //Serial.printf(">> Événement UART reçu: byte = %s\n\r", evt.msg);
                   // 1-12  1-12:48
                   UartMessage_t uartMsg1;
                   while (xQueueReceive(QueueUart1, &uartMsg1, 0) == pdTRUE) {
                     Serial.printf("Message UART1 (%d octets) : ", uartMsg1.longueur);
-                    for (uint16_t i = 0; i < uartMsg1.longueur-1 && i < MSG_SIZE; i++) {
-                      Serial.print(uartMsg1.msg[i]);
+                    uint16_t messageLength = uartMsg1.longueur ? uartMsg1.longueur - 1 : 0;
+                    for (uint16_t i = 0; i < messageLength && i < MSG_SIZE; i++) {
+                      if (((uint8_t)uartMsg1.msg[0] & 0x80) != 0)
+                        Serial.printf("%02X ", (uint8_t)uartMsg1.msg[i]);
+                      else
+                        Serial.print(uartMsg1.msg[i]);
                     }
                     Serial.println();
                     recep_message1(&uartMsg1);
-                  }                  
+                  }
                   break;
                 }
- 
+
                 case EVENT_ESP_RECV: {
                   EspNowRecvMsg_t espRecv;
                   while (xQueueReceive(QueueEspNow, &espRecv, 0) == pdTRUE) {
@@ -1157,14 +1270,22 @@ void taskHandler(void *parameter) {
                   traitement_queue_data_gateway(1, static_cast<uint8_t>(evt.data));
                   break;
 
+                case EVENT_ENVOI_FICHIER_LORA:
+                  demarrer_envoi_fichier_lora();
+                  break;
+
+                case EVENT_RECEPTION_FICHIER:
+                  traiter_reception_fichier_lora_event(evt.path);
+                  break;
+
                  case EVENT_HTTP_ROOT_CHECK:
                   checkRootAvailability();
                   portENTER_CRITICAL(&rootAvailabilityEventMux);
                   rootAvailabilityEventPending = false;
                   portEXIT_CRITICAL(&rootAvailabilityEventMux);
-                  break; 
+                  break;
 
-                case EVENT_GPIO_OFF:  
+                case EVENT_GPIO_OFF:
                     if (log_detail>=3) Serial.printf("GPIO:off:%i\n\r", evt.data);
                     appli_event_off(evt);
                     break;
@@ -1205,7 +1326,7 @@ void taskHandler(void *parameter) {
                     else
                     {
                       systeme_eve_t evt = { EVENT_ENVOI_FICHIER, 0 };  // Exemple : donnée = 123
-                      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+                      if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
                       {
                       if (erreur_queue<5) num_err_queue[erreur_queue]=9;
                       erreur_queue++;
@@ -1259,7 +1380,7 @@ void taskHandler(void *parameter) {
                     if (cpt_ws_timeout> (DELAI_PING * 2.1))   // Vérifier si la connexion WebSocket est active : chaque 126 secondes
                     {
                       cpt_ws_timeout=0;
-                      if (!isWebSocketConnected) 
+                      if (!isWebSocketConnected)
                       {
                         Serial.println("⏳ Timeout WebSocket ! Déconnexion détectée.");
                         connectWebSocket();
@@ -1296,7 +1417,7 @@ void taskHandler(void *parameter) {
                       delay(100);
                       nb_err_reseau++;
                       if (mode_reseau!=14)
-                      { 
+                      {
                         //server.end();  // sécuriser l'état précédent
                         reConnectWifi();
                         //startWebServer();
@@ -1313,7 +1434,7 @@ void taskHandler(void *parameter) {
                   #ifdef WatchDog
                     esp_task_wdt_reset();
                   #endif
-                  uint8_t test_goog=0, test_wifi=3;                  
+                  uint8_t test_goog=0, test_wifi=3;
                   getLocalTime(&timeinfo);  // déclenche resynchro réseau à chaque appel. 5s si pb reseau
 
                   // faire un ping pour vérifier que la liaison IP fonctionne
@@ -1364,7 +1485,7 @@ void taskHandler(void *parameter) {
                   event_cycle();
                   break;
 
-                  
+
                 case EVENT_ERREUR:
 
 
@@ -1412,13 +1533,13 @@ void init_rtc_variables()
   Hum_24h=0;
   HA_moy24h=0;
   cpt24_Tint=0;
-  cpt24_Text=0; 
+  cpt24_Text=0;
   cpt24_Hum=0;
   cpt24_HA=0;
   TextV=0;
   TintV=0;
   HumV=0;
-  HAV=0; 
+  HAV=0;
   vit_cpu = 240;
   reveil_periodique=0;
   init_rtc_variables_appli();
@@ -1538,7 +1659,7 @@ uint8_t verif_read(Param &p)
     }
 
     default:
-      break; 
+      break;
   }
 
   return 1; // Type inconnu
@@ -1646,10 +1767,10 @@ uint8_t nvs_read(Param &p) {
 
         if (log_detail>=3) Serial.printf("parametre %s : valeur %s\n\r", p.key, ptr);
         return 0;
-      }   
+      }
 
       default:
-        break; 
+        break;
   }
 
   return 1;
@@ -1810,7 +1931,7 @@ void setup()
   #ifdef TEMPORARY_GPIO_PINOUT_TEST
     testBoardGpioPins();
   #endif
-  
+
   if (log_detail>=2) Serial.printf("milli A: %lu  boot_rapide:%i log_detail:%i\n\r", t, boot_rapide, log_detail);  // 39ms
 
 
@@ -1868,7 +1989,7 @@ void setup()
 
   // determination si la RTC reste valide (apres un reveil deepsleep)
   //Serial.printf("rtc_magic: %08X\n\r", rtc_magic);
-  if (rtc_magic != 0x05343211 )  
+  if (rtc_magic != 0x05343211 )
   {
     // RTC non valide = cold reset
     rtc_valid = 0;
@@ -1891,7 +2012,7 @@ void setup()
       rtc & type_reveil=3(inconnu) => lecture_temp
       type_reveil=10; tj_actif
       */
-  type_reveil=0;       // power_on 
+  type_reveil=0;       // power_on
   if (reveil==4)  type_reveil=4;  //BTN
   else if (rtc_valid)
   {
@@ -1996,7 +2117,7 @@ void setup()
     // Création de la queue sequenceur (stocke max 10 événements de type int)
     eventQueue = xQueueCreate(50, sizeof(systeme_eve_t));
     if (eventQueue == NULL) Serial.println("[INIT] erreur creation eventQueue");
-   
+
      rootAvailabilityTimer = xTimerCreate(
         "HttpRoot",
         pdMS_TO_TICKS(90000),
@@ -2005,10 +2126,17 @@ void setup()
         rootAvailabilityTimerCallback);
     if (rootAvailabilityTimer == NULL) {
       Serial.printf("[HTTP /] ERREUR: impossible de creer le timer de controle\n\r");
-    } 
+    }
 
     // création de la queue de reception des message uart
     QueueUart = xQueueCreate(20, sizeof(UartMessage_t));
+
+#ifdef STM32
+    Serial1.begin(115200, SERIAL_8N1, PIN_RXSTM, PIN_TXSTM);
+    QueueUart1 = xQueueCreate(20, sizeof(UartMessage_t));
+    if (QueueUart1 == NULL)
+      Serial.println("[INIT] erreur creation QueueUart1");
+#endif
 
     // création de la queue de reception des messages ESP-NOW
     QueueEspNow = xQueueCreate(4, sizeof(EspNowRecvMsg_t));
@@ -2032,10 +2160,11 @@ void setup()
       Serial.println("[INIT] erreur creation TaskHandler");
 
     xTaskCreate(uartTask, "UARTTask", 8192, NULL, 3, NULL);  // priorité 3 plus élevée pour éviter les interruptions WiFi
-  
+
     #ifdef STM32
-      QueueUart1 = xQueueCreate(20, sizeof(UartMessage_t));
-      xTaskCreate(uart1Task, "UART1Task", 8192, NULL, 3, NULL);  // priorité 3 plus élevée
+      if ((QueueUart1 != NULL) &&
+          (xTaskCreate(uart1Task, "UART1Task", 8192, NULL, 3, NULL) != pdPASS))
+        Serial.println("[INIT] erreur creation UART1Task");
     #endif
 
 
@@ -2061,12 +2190,6 @@ void setup()
       node.postTransmission(postTransmission);
     #endif  // MODBUS
 
-    // ----- init port Serial 1  ------------
-
-    #ifdef STM32
-      Serial1.begin(115200, SERIAL_8N1, PIN_RXSTM, PIN_TXSTM); // UART1 = liaison avec l'autre ESP32
-      //esp_sleep_enable_uart_wakeup(UART_NUM_1);  
-    #endif
   }
 
   // ------  NVS Eeprom  ---------------------
@@ -2098,7 +2221,7 @@ void setup()
         {
           Serial.println("MAC Serveur invalide");
         }
-        else 
+        else
         {
           if (log_detail>=3) Serial.printf("MAC Serveur valide : %X:%X:%X:%X:%X:%X\n\r", mac_gw[0], mac_gw[1], mac_gw[2], mac_gw[3], mac_gw[4], mac_gw[5]);
         }
@@ -2110,7 +2233,7 @@ void setup()
   else  // vérification de cohérence des parametres nvs
   {
     for (size_t i = 0; i < PARAMS_COUNT; ++i) {
-      verif_read(PARAMS[i]);      
+      verif_read(PARAMS[i]);
     }
   }
 
@@ -2128,7 +2251,7 @@ void setup()
   if ((!local_ip[0]) || (!gateway[0]))  err_ip=1;
   if ((!subnet[0]) || (!primaryDNS[0]) || (!secondaryDNS[0]))  err_ip=1;
 
-  if (err_ip) { 
+  if (err_ip) {
     mode_reseau=11;  // si une info manquante => activation en Access_point
     Serial.printf("Err=>activ access point %d %d %d %d %d\n\r", local_ip[0], gateway[0], subnet[0], primaryDNS[0], secondaryDNS[0]);
   }
@@ -2164,7 +2287,7 @@ void setup()
   if (log_detail>=3) Serial.printf("milli G: %lu\n\r", millis());
 
   if (setup_appli())  // la suite n'est faite que si setup_appli renvoie 1
-  {  
+  {
 
     if (log_detail>=4) Serial.printf("milli G2: %lu\n\r", millis());
 
@@ -2180,7 +2303,7 @@ void setup()
     else
     {
       log_err=0; // ok
-      if (log_detail>=4) 
+      if (log_detail>=4)
       {
         Serial.println("Partition 'log_flash' trouvee.");
         delay(500 + random(1, 1001) );
@@ -2190,9 +2313,9 @@ void setup()
 
       if (boot_rapide < 2) delay(500);
 
-      if (log_detail>=4) 
+      if (log_detail>=4)
       {
-        readLastLogsBinary((uint8_t*)buffer_dmp, 10);  
+        readLastLogsBinary((uint8_t*)buffer_dmp, 10);
         delay(200);
       }
     }
@@ -2277,7 +2400,7 @@ void setup()
 
     if (!reveil_periodique>=10 && reveil_periodique <=600)  // periode entre 10 secondes et 10 minutes
     {
-        xTimerChangePeriod(xTimer_ReveilPeriodique, reveil_periodique*(1000/portTICK_PERIOD_MS),100); 
+        xTimerChangePeriod(xTimer_ReveilPeriodique, reveil_periodique*(1000/portTICK_PERIOD_MS),100);
         xTimerStart(xTimer_ReveilPeriodique,100); // 20ms
     }
 
@@ -2295,7 +2418,7 @@ void setup()
 
     if (websocket_on==2)
     {
-      xTimerStart(xTimer_Websocket,100);    
+      xTimerStart(xTimer_Websocket,100);
     }
 
     #ifdef SDCARD
@@ -2307,7 +2430,7 @@ void setup()
     #ifdef CAMERA
     //vTaskDelay(val_test / portTICK_PERIOD_MS); // Attente 100ms avant setup camera
     if (!setup_camera()) camera_ok=1;  //480ms
-    #endif    
+    #endif
 
     if (log_detail>=2) Serial.printf("milli J2: %lu\n\r", millis());
 
@@ -2701,7 +2824,7 @@ void log_erreur(uint8_t code, uint8_t valeur, uint8_t val2)  // Code:1:Tint, 2:T
 
   Serial.printf("date de l'erreur:%i:%i:%i\n\r", timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min);
   delay(100);
-  
+
   if (code >3)  writeLog('E', code, valeur, val2, "Err"); // pas de write pour Tint, Text, Heure
 
 }
@@ -2714,7 +2837,7 @@ void printHexByte(byte b) {
 
 uint8_t read_modbus(uint8_t param, int16_t *valeur)  // lecture des input register - commence à 0x3000 - 2 octets
 {
-  
+
   uint8_t result = 0;  // ok
   *valeur=12;
 
@@ -2744,7 +2867,7 @@ uint8_t read_modbus(uint8_t param, int16_t *valeur)  // lecture des input regist
   return result;
 }
 
-/* Format réponse : 
+/* Format réponse :
   B0 : adresse node
   B1 : code fonction
   B2 : longueur en octets
@@ -2857,7 +2980,7 @@ void onMessageCallback(WebsocketsMessage message) {
     if (doc["count"]) {
     //if (doc["count"].is<int>()) {
         count = doc["count"].as<int>();
-    }    
+    }
     int maxLogs = MAX_DUMP / LOG_ENTRY_SIZE -3;
     if (count <= 0 || count > maxLogs) count = maxLogs;
     int nbLogs = readLastLogsBinary((uint8_t*)buffer_dmp, count);
@@ -2976,7 +3099,7 @@ void onMessageCallback(WebsocketsMessage message) {
 void connectWebSocket()
 {
   uint8_t internet_available=0;
-  #ifdef MODE_Wifi 
+  #ifdef MODE_Wifi
     if (WiFi.status() == WL_CONNECTED)  internet_available=1;
   #else
     if (ETH.linkUp()) internet_available=1;
@@ -3016,11 +3139,11 @@ uint8_t requete_Set(uint8_t type, const char* param, const char* valStr)
   }
   if (type==4)  // set registre texte
   {
-    res = requete_Set_String(paramV, valStr);     
+    res = requete_Set_String(paramV, valStr);
   }
   if (type==5)  // Action
   {
-    res = requete_Set_Action(param, valStr);     
+    res = requete_Set_Action(param, valStr);
   }
   // type 1 SET
   if (type==1)  // set variable
@@ -3120,7 +3243,7 @@ uint8_t requete_Get(uint8_t type, const char* var, float *valeur)
 }
 
 // type 4
-uint8_t requete_Get_String (uint8_t type, String var, char *valeur) 
+uint8_t requete_Get_String (uint8_t type, String var, char *valeur)
 {
   int paramV = var.toInt();
 
@@ -3224,7 +3347,7 @@ uint8_t conversion_node(uint8_t emetteur, uint8_t *node)
       Node[i].tail = 0;
       return 2; // Succès
     }
-  } 
+  }
   return 1; // Échec
 }
 
@@ -3309,13 +3432,13 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
   }
 
     // affichage des log
-    if (strcmp(reg, "LOG") == 0) 
-    {  
+    if (strcmp(reg, "LOG") == 0)
+    {
       res = 0;
       uint16_t nb_log=10;
       nb_log = strtoul(data, NULL, 10);
       if (nb_log>(MAX_DUMP/LOG_ENTRY_SIZE-3)) nb_log=MAX_DUMP/LOG_ENTRY_SIZE-3;
-      readLastLogsBinary((uint8_t*)buffer_dmp, nb_log);  
+      readLastLogsBinary((uint8_t*)buffer_dmp, nb_log);
     }
 
   if (cpt_securite)
@@ -3329,23 +3452,23 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
     }
 
     // Test : log une erreur fictive
-    if (strcmp(reg, "LOG_E") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "LOG_E") == 0)
+    {
+      res=0;
       log_erreur(Code_erreur_depass_tab_status, 9, 0);
     }
 
     // affichage de la mémoire dispo
-    if (strcmp(reg, "MEM") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "MEM") == 0)
+    {
+      res=0;
       printMemoryStatus();
     }
 
     // efface la memoire NVS
-    if (strcmp(reg, "RAZ_NVS") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "RAZ_NVS") == 0)
+    {
+      res=0;
       esp_err_t err = nvs_flash_erase();
       nvs_flash_init();
       if (err == ESP_OK) {
@@ -3356,9 +3479,9 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
     }
 
     // affichage de la charge CPU
-    if (strcmp(reg, "CPU") == 0) 
-    { 
-     /* res=0; 
+    if (strcmp(reg, "CPU") == 0)
+    {
+     /* res=0;
       idleTaskHandle = xTaskGetIdleTaskHandleForCPU(0);  // CPU 0 (ESP32 est dual core)
       vTaskDelay(pdMS_TO_TICKS(1000)); // Attendre 1 seconde
 
@@ -3391,11 +3514,11 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
       }*/
     }
 
-    
+
     // redémarrage soft avec rtc=0
-    if (strcmp(reg, "RST0") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "RST0") == 0)
+    {
+      res=0;
       writeLog('S', 9, 0, 0, "Boot S");
       delay(1000);
       rtc_magic = 0x08843211;
@@ -3403,18 +3526,18 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
     }
 
     // redémarrage soft avec rtc=1
-    if (strcmp(reg, "RST1") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "RST1") == 0)
+    {
+      res=0;
       writeLog('S', 9, 0, 0, "Boot S");
       delay(1000);
       esp_restart();  // Redémarrage logiciel sans effacer la RTC RAM
     }
 
     // plantage CPU
-    if (strcmp(reg, "RST2") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "RST2") == 0)
+    {
+      res=0;
       uint8_t var1=0;
       int *ptr = nullptr;
       writeLog('S', 9, 0, 0, "Boot P");
@@ -3426,67 +3549,67 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
     }
 
     // passage veille profonde deepsleep
-    if (strcmp(reg, "VEI") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "VEI") == 0)
+    {
+      res=0;
       uint64_t sleep_time = (uint64_t)periode_cycle * 60 * 1000000;
       if (mode_rapide==12)
       sleep_time = (uint64_t)periode_cycle * 1000000;
       passage_deep_sleep(sleep_time, 1);  // commande mise en veille VEI
     }
 
-    if (strcmp(reg, "PING0") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "PING0") == 0)
+    {
+      res=0;
       uint8_t err = testConnexionGoogle();
       delay(200);
       Serial.printf("res google:%i\n\r",err);
     }
 
-    if (strcmp(reg, "PING1") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "PING1") == 0)
+    {
+      res=0;
       uint8_t err = testHttpServerLocal();
       delay(200);
       Serial.printf("res local:%i\n\r",err);
     }
 
-    if (strcmp(reg, "PING2") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "PING2") == 0)
+    {
+      res=0;
       uint8_t etat = WiFi.status();
       delay(200);
       Serial.printf("wifi status:%i\n\r",etat);
     }
 
     // liste taches
-    if (strcmp(reg, "TASK") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "TASK") == 0)
+    {
+      res=0;
       dumpTasksInfo();
       delay(200);
     }
     // liste les taches
-    if (strcmp(reg, "VTASKS") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "VTASKS") == 0)
+    {
+      res=0;
       //vTaskList(buffer_dmp);
     }
 
 
     // relance reseau wifi
-    if (strcmp(reg, "RESL") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "RESL") == 0)
+    {
+      res=0;
       uint8_t err = reConnectWifi();
       delay(200);
       Serial.printf("relance wifi:%i\n\r",err);
     }
 
     // relance serveur http
-    if (strcmp(reg, "HTTPL") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "HTTPL") == 0)
+    {
+      res=0;
       server.end();  // sécuriser l'état précédent
       startWebServer();
       delay(200);
@@ -3494,18 +3617,18 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
     }
 
     // relance serveur http
-    if (strcmp(reg, "E_NOW") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "E_NOW") == 0)
+    {
+      res=0;
       delay(200);
       //Serial.printf("envoi esp_now T=20.2\n\r");
       delay(1000);
     }
 
         // print variables NVS
-    if (strcmp(reg, "P_NVS") == 0) 
-    { 
-      res=0; 
+    if (strcmp(reg, "P_NVS") == 0)
+    {
+      res=0;
       for (size_t i = 0; i < PARAMS_COUNT; ++i) {
         if (PARAMS[i].key && PARAMS[i].key[0] != '\0') {
           switch (PARAMS[i].type) {
@@ -3539,7 +3662,7 @@ uint8_t requete_Set_Action(const char *reg, const char *data)
 
     res2 = requete_action_appli(reg, data);
   }
-  
+
   return (res+res2-1);
 }
 
@@ -3557,7 +3680,7 @@ uint8_t requete_Set_String(int param, const char *texte)
   if ((cpt_securite) && (texte != nullptr) && (strlen(texte) >= 1) && (strlen(texte) <= 40))
   {
     IPAddress ip;
-    
+
     if (param == 50)  // registre 50 : Adresse IP
     {
       if (ip.fromString(texte))
@@ -3635,8 +3758,8 @@ uint8_t requete_Set_String(int param, const char *texte)
           res = 0;
           preferences_nvs.putUChar("WSOn", WSOn);
           websocket_on = WSOn;
-          if (WSOn==1)    xTimerStop(xTimer_Websocket,100);    
-          else     xTimerStart(xTimer_Websocket,100);   
+          if (WSOn==1)    xTimerStop(xTimer_Websocket,100);
+          else     xTimerStart(xTimer_Websocket,100);
         }
       }
     }
@@ -3826,7 +3949,7 @@ uint8_t requete_GetReg(int reg, float *valeur) {
   if (reg == 44)  // registre 44 : wifi_sleep
   {
     wifi_ps_type_t mode;
-    esp_err_t err = esp_wifi_get_ps(&mode);    
+    esp_err_t err = esp_wifi_get_ps(&mode);
     if (err == ESP_OK) {
       res = 0;
       *valeur =  (float)mode;
@@ -3983,7 +4106,7 @@ uint8_t requete_SetReg(int param, float valeurf, uint8_t secu)
       }
     }
 
-    if (param == 13)  // registre 13 : 
+    if (param == 13)  // registre 13 :
     {
       if (valeur==0)
       {
@@ -4056,11 +4179,11 @@ void requete_status(char *json_response, uint8_t socket, uint8_t type)
     Serial.println("ERREUR: json_response est NULL");
     return;
   }
-  
+
   // Protection contre les lectures simultanées du DHT22
   static bool lecture_en_cours = false;
   static unsigned long derniere_lecture = 0;
-  
+
   unsigned long mill = millis();
 
   #ifdef ESP_VEILLE
@@ -4074,10 +4197,10 @@ void requete_status(char *json_response, uint8_t socket, uint8_t type)
       {
         lecture_en_cours = true;
         derniere_lecture = mill;
-        
+
         uint8_t Tint_erreur=0;
         Tint_erreur = lecture_Tint(&Tint, &Humid);
-        
+
         if (Tint_erreur) {
           log_erreur(Code_erreur_Tint, Tint_erreur,0);
           if (Tint_erreur < 10)
@@ -4143,7 +4266,7 @@ void requete_status(char *json_response, uint8_t socket, uint8_t type)
   p += sprintf(p, "\"Hum_V\":%i,", HumV); // veille
   p += sprintf(p, "\"TextV\":%i,", TextV);  // Temp ext de la veille
   p += sprintf(p, "\"TintV\":%i,", TintV);  // Temp ext de la veille
-  
+
   // ajout des paramètres de l'application
   p = requete_status_appli(json_response, p, type);
 
@@ -4301,7 +4424,7 @@ uint16_t crc16_arc(const uint8_t *data, size_t length)
     return crc;
 }
 
-uint8_t validIp(const char *stringIP, IPAddress *ip) 
+uint8_t validIp(const char *stringIP, IPAddress *ip)
 {
   uint8_t err=0;
   Serial.printf("IP2: %s %s\n\r", stringIP, ip->toString().c_str());
@@ -4318,11 +4441,11 @@ uint8_t validIp(const char *stringIP, IPAddress *ip)
             (*ip)[segmentIndex++] = segments;
             dots++;
             segments = 0;  // Réinitialiser pour le prochain octet
-        } 
+        }
         else if (isdigit(*stringIP)) {
             segments = segments * 10 + (*stringIP - '0');  // Construire le nombre
             if (segments > 255) err=3;  // Vérifier la plage 0-255
-        } 
+        }
         else {
             err=4;  // Caractère invalide
         }
@@ -4350,11 +4473,318 @@ uint8_t validIp(const char *stringIP, IPAddress *ip)
 // type 3 : registre modbus => read_modbus
 // type 4 : texte           =>  requete_Get_String  & requete_Get_String_appli
 // type 5(A) : action
+static bool parseSixDigits(const uint8_t *text, uint8_t values[6])
+{
+  if ((text == NULL) || (values == NULL))
+    return false;
+
+  for (uint8_t i = 0; i < 6; i++)
+  {
+    if ((text[i] < '0') || (text[i] > '9'))
+      return false;
+    values[i] = text[i] - '0';
+  }
+  return true;
+}
+
+static void getProtocolBaseTime(struct tm *localTime)
+{
+  time_t now = time(nullptr);
+  if ((init_time != 0) && (now != (time_t)-1) &&
+      (localtime_r(&now, localTime) != NULL))
+    return;
+
+  memset(localTime, 0, sizeof(*localTime));
+  localTime->tm_year = 126;
+  localTime->tm_mon = 1;
+  localTime->tm_mday = 1;
+}
+
+static bool commitProtocolLocalTime(struct tm *localTime)
+{
+  localTime->tm_isdst = -1;
+  time_t timestamp = mktime(localTime);
+  if (timestamp < 0)
+    return false;
+
+  timeval tv = {};
+  tv.tv_sec = timestamp;
+  if (settimeofday(&tv, NULL) != 0)
+    return false;
+
+  localtime_r(&timestamp, &timeinfo);
+  return true;
+}
+
+static bool setProtocolTime(const uint8_t *text)
+{
+  uint8_t digits[6];
+  if (!parseSixDigits(text, digits))
+    return false;
+
+  uint8_t hours = digits[0] * 10 + digits[1];
+  uint8_t minutes = digits[2] * 10 + digits[3];
+  uint8_t seconds = digits[4] * 10 + digits[5];
+  if ((hours > 23) || (minutes > 59) || (seconds > 59))
+    return false;
+
+  struct tm localTime = {};
+  getProtocolBaseTime(&localTime);
+  localTime.tm_hour = hours;
+  localTime.tm_min = minutes;
+  localTime.tm_sec = seconds;
+  if (!commitProtocolLocalTime(&localTime))
+    return false;
+  init_time = 4;
+  return true;
+}
+
+static bool setProtocolDate(const uint8_t *text)
+{
+  uint8_t digits[6];
+  if (!parseSixDigits(text, digits))
+    return false;
+
+  uint8_t day = digits[0] * 10 + digits[1];
+  uint8_t month = digits[2] * 10 + digits[3];
+  uint16_t year = 2000 + digits[4] * 10 + digits[5];
+  if ((month < 1) || (month > 12) || (day < 1))
+    return false;
+
+  const uint8_t monthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  uint8_t maxDay = monthDays[month - 1];
+  if ((month == 2) && ((year % 4 == 0) && ((year % 100 != 0) || (year % 400 == 0))))
+    maxDay++;
+  if (day > maxDay)
+    return false;
+
+  struct tm localTime = {};
+  getProtocolBaseTime(&localTime);
+  localTime.tm_mday = day;
+  localTime.tm_mon = month - 1;
+  localTime.tm_year = year - 1900;
+  if (!commitProtocolLocalTime(&localTime))
+    return false;
+  init_time = 4;
+  return true;
+}
+
+static bool setProtocolTimestamp(uint32_t timestamp)
+{
+  timeval tv = {};
+  tv.tv_sec = (time_t)timestamp;
+  if (settimeofday(&tv, NULL) != 0)
+    return false;
+
+  init_time = 4;
+  localtime_r(&tv.tv_sec, &timeinfo);
+  return true;
+}
+
+static bool localDispatchActive = false;
+
+static uint8_t findUartRoute(uint8_t destination)
+{
+  for (uint8_t i = 0; i < uartRouteTableCount; ++i)
+  {
+    if ((destination >= uartRouteTable[i].first) &&
+        (destination <= uartRouteTable[i].last))
+      return uartRouteTable[i].route;
+  }
+  return 0xFF;
+}
+
+static uint8_t writeRoutedProtocolFrame(uint8_t destination, const uint8_t *frame,
+                                        uint16_t frameLength, bool appendAsciiTerminator)
+{
+  const uint8_t route = findUartRoute(destination);
+  size_t written = 0;
+  if (route == UART_ROUTE_DEBUG)
+  {
+    written = Serial.write(frame, frameLength);
+    if ((written != frameLength) ||
+        (appendAsciiTerminator && (Serial.write('\r') != 1)))
+    {
+      Serial.println("[UART ROUTE] Echec transfert vers UART_DEBUG");
+      return 4;
+    }
+    return 0;
+  }
+  if (route == UART_ROUTE_STM32)
+  {
+    written = Serial1.write(frame, frameLength);
+    if ((written != frameLength) ||
+        (appendAsciiTerminator && (Serial1.write('\r') != 1)))
+    {
+      Serial.println("[UART ROUTE] Echec transfert vers UART_STM32");
+      return 4;
+    }
+    return 0;
+  }
+
+  Serial.printf("[UART ROUTE] Destination '%c' absente de la table\n\r", destination);
+  return 3;
+}
+
+uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
+{
+  (void)param;
+  if (format == NULL)
+    return 1;
+
+  char formatted[MSG_SIZE] = {};
+  va_list args;
+  va_start(args, format);
+  int formattedLength = vsnprintf(formatted, sizeof(formatted), format, args);
+  va_end(args);
+  if ((formattedLength < 1) || (formattedLength > (int)sizeof(formatted) - 2))
+  {
+    Serial.println("[UART TX] Message ASCII trop long ou format invalide");
+    return 2;
+  }
+
+  const bool hasTrailingCr = formatted[formattedLength - 1] == '\r';
+  const uint8_t rawDestination = (uint8_t)formatted[0];
+#if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
+  const uint8_t destination = rawDestination & 0x7F;
+#else
+  const uint8_t destination = rawDestination;
+#endif
+  if ((destination < 32) || (destination > 126))
+  {
+    Serial.println("[UART TX] Adresse de destination ASCII invalide");
+    return 2;
+  }
+
+  const int payloadEnd = formattedLength - (hasTrailingCr ? 1 : 0);
+  for (int i = 1; i < payloadEnd; ++i)
+  {
+    if (((uint8_t)formatted[i] < 32) || ((uint8_t)formatted[i] > 126))
+    {
+      Serial.println("[UART TX] Le payload ASCII contient un caractere invalide");
+      return 2;
+    }
+  }
+
+  uint8_t frame[MSG_SIZE] = {};
+  frame[0] = destination;
+  frame[1] = protocolLocalAddress();
+  memcpy(&frame[2], &formatted[1], formattedLength - 1);
+  const uint16_t frameLength = (uint16_t)formattedLength + 1;
+
+  if (destination == protocolLocalAddress())
+  {
+    if (localDispatchActive)
+    {
+      Serial.println("[UART ROUTE] Boucle locale evitee");
+      return 5;
+    }
+
+    UartMessage_t localMessage = {};
+    memcpy(localMessage.msg, frame, frameLength);
+    localMessage.longueur = frameLength + 1;
+    traitement_rx(&localMessage);
+    return 0;
+  }
+
+  return writeRoutedProtocolFrame(destination, (const uint8_t *)frame,
+                                  frameLength, !hasTrailingCr);
+}
+
+uint8_t envoie_mess_bin_source(UartMessage_t *mess, uint8_t emitter)
+{
+  if ((mess == NULL) || (mess->longueur < 4) || (mess->longueur > MSG_SIZE))
+    return 1;
+
+  const uint8_t destination = (uint8_t)mess->msg[0] & 0x7F;
+  const uint8_t payloadLength = (uint8_t)mess->msg[1];
+  const uint8_t *payload = (const uint8_t *)&mess->msg[2];
+  if ((payloadLength < 2) || (mess->longueur != (uint16_t)payloadLength + 2))
+    return 1;
+
+  const bool hasCrc = (payload[0] & 0x80) != 0;
+  const uint16_t frameLength = (uint16_t)payloadLength + 3 + (hasCrc ? 1 : 0);
+  if (frameLength > MSG_SIZE - 1)
+  {
+    Serial.println("[UART TX] Message binaire trop long");
+    return 2;
+  }
+
+  uint8_t frame[MSG_SIZE] = {};
+  frame[0] = destination | 0x80;
+  frame[1] = emitter;
+  frame[2] = payloadLength;
+  memcpy(&frame[3], payload, payloadLength);
+  if (hasCrc)
+  {
+    uint8_t crc = 0;
+    for (uint8_t i = 0; i < payloadLength; ++i)
+      crc += payload[i];
+    frame[3 + payloadLength] = crc;
+  }
+
+  if (destination == protocolLocalAddress())
+  {
+    if (localDispatchActive)
+    {
+      Serial.println("[UART ROUTE] Boucle locale evitee");
+      return 5;
+    }
+
+    UartMessage_t localMessage = {};
+    localMessage.msg[0] = (char)frame[0];
+    localMessage.msg[1] = (char)emitter;
+    memcpy(&localMessage.msg[2], payload, payloadLength);
+    if (hasCrc)
+      localMessage.msg[2] &= 0x7F;
+    localMessage.longueur = (uint16_t)payloadLength + 3;
+    traitement_rx(&localMessage);
+    return 0;
+  }
+
+  return writeRoutedProtocolFrame(destination, frame, frameLength, false);
+}
+
+uint8_t envoie_mess_bin(UartMessage_t *mess)
+{
+  return envoie_mess_bin_source(mess, protocolLocalAddress());
+}
+
+static bool sendProtocolTimestamp(uint8_t destination, uint32_t timestamp)
+{
+  uint8_t payload[7] = {
+    'H', 'E', 'S',
+    (uint8_t)timestamp,
+    (uint8_t)(timestamp >> 8),
+    (uint8_t)(timestamp >> 16),
+    (uint8_t)(timestamp >> 24)
+  };
+  UartMessage_t message = {};
+  message.msg[0] = (char)destination;
+  message.msg[1] = (char)sizeof(payload);
+  memcpy(&message.msg[2], payload, sizeof(payload));
+  message.longueur = (uint16_t)sizeof(payload) + 2;
+  return envoie_mess_bin(&message) == 0;
+}
+
 static bool tryReceiveDateTimeMessage(const char *message)
 {
-  (void)message;
-  // TODO: reconnaître le format UART date/heure, valider date et heure,
-  // appeler settimeofday(), puis positionner init_time à 4 uniquement si l'ensemble est valide.
+  if (message == NULL)
+    return false;
+
+  size_t length = strlen(message);
+  if ((length >= 3) && (memcmp(message, "HEH", 3) == 0))
+  {
+    if ((length != 9) || !setProtocolTime((const uint8_t *)&message[3]))
+      Serial.println("[TIME] HEH invalide (attendu HEHhhmmss)");
+    return true;
+  }
+  if ((length >= 3) && (memcmp(message, "HED", 3) == 0))
+  {
+    if ((length != 9) || !setProtocolDate((const uint8_t *)&message[3]))
+      Serial.println("[TIME] HED invalide (attendu HEDjjmmaa)");
+    return true;
+  }
   return false;
 }
 
@@ -4373,11 +4803,11 @@ void recep_message(char *messa) // recept_uart
   if (len >= sizeof(data)) len = sizeof(data) - 1;  // Évite un dépassement
   //uint8_t a_param=0;  // 0 ou 1 : paramètre ou non
   //uint16_t param=0;
-  
+
   if ((messa[0]=='A') || ((messa[0]>='1') && (messa[0]<='4')))
   {
     #ifndef Sans_securite
-      if (xTimer_Securite != NULL) 
+      if (xTimer_Securite != NULL)
       {
           xTimerStop(xTimer_Securite,100);
           xTimerChangePeriod(xTimer_Securite,(uint32_t)15*60*(1000/portTICK_PERIOD_MS),100);
@@ -4389,7 +4819,7 @@ void recep_message(char *messa) // recept_uart
 
   if (messa[0]=='A')  // AREICV:23
   {
-      char *ptr = strchr(messa, ':');  
+      char *ptr = strchr(messa, ':');
       if (ptr != NULL)
       {  // Action avec paramètre
         //a_param=1;
@@ -4420,7 +4850,7 @@ void recep_message(char *messa) // recept_uart
       if (!err)  // pas d'erreur
       {
         if (log_detail>=4) Serial.printf("Action:%s %s\n\r", reg, data);
-        res = requete_Set_Action(reg, data);     
+        res = requete_Set_Action(reg, data);
         if (log_detail>=4) Serial.printf(" %s\n\r", buffer_dmp);
       }
   }
@@ -4432,7 +4862,7 @@ void recep_message(char *messa) // recept_uart
     if (!type || type>4) err=1;
     if (!err)
     {
-      char *ptr = strchr(messa, ':');  
+      char *ptr = strchr(messa, ':');
       /*uint8_t i;
       for (i=0; i<10; i++)
         Serial.printf("%02X ", messa[i]);
@@ -4442,7 +4872,7 @@ void recep_message(char *messa) // recept_uart
           ptr++;  // Avance après le ":"
           size_t len_data = strlen(ptr);  // Taille réelle du texte à copier =>2
           if (len_data >= sizeof(data)) len_data = sizeof(data) - 1;  // Évite un dépassement
-          if (len-len_data-2 > sizeof(reg)) 
+          if (len-len_data-2 > sizeof(reg))
             err=1;
           else
           {
@@ -4480,26 +4910,250 @@ void recep_message(char *messa) // recept_uart
 
 void recep_message1(UartMessage_t * messa) // recept_uart1
 {
-    Serial.print("recept uart1:");
-    Serial.println(messa->msg);
-    delay(1000);
-    traitement_rx(messa);
+  if ((messa == NULL) || (messa->longueur < 2) || (messa->longueur > MSG_SIZE))
+  {
+    Serial.println("[UART1] Longueur de message invalide");
+    return;
+  }
+
+  uint8_t *message = (uint8_t *)messa->msg;
+  uint16_t wireLength = messa->longueur - 1;
+  const bool binaryFrame = (message[0] & 0x80) != 0;
+  if (binaryFrame)
+  {
+    if (wireLength < 5)
+    {
+      Serial.println("[UART1] Entete binaire invalide");
+      return;
+    }
+
+    uint8_t payloadLength = message[2];
+    const bool hasCrc = (message[3] & 0x80) != 0;
+    const uint16_t expectedWireLength =
+        (uint16_t)payloadLength + 3 + (hasCrc ? 1 : 0);
+    if ((payloadLength < 2) || (wireLength != expectedWireLength))
+    {
+      Serial.println("[UART1] Longueur binaire incoherente");
+      return;
+    }
+
+    if (message[3] & 0x80)
+    {
+      uint8_t crc = 0;
+      for (uint16_t i = 3; i < wireLength - 1; i++)
+        crc += message[i];
+      if (crc != message[wireLength - 1])
+      {
+        Serial.println("[UART1] CRC binaire incorrect");
+        return;
+      }
+      message[3] &= 0x7F;
+    }
+
+    memmove(&message[2], &message[3], payloadLength);
+    wireLength = payloadLength + 2;
+    message[wireLength] = '\0';
+    messa->longueur = wireLength + 1;
+  }
+  else if (wireLength < 4)
+  {
+    Serial.println("[UART1] Trame ASCII invalide");
+    return;
+  }
+
+  #if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
+      if (((message[0] & 0x7F) == UART_ADDRESS_STM32) ||
+          ((message[0] & 0x7F) == UART_ADDRESS_STM32_NODE))
+        message[0] = (message[0] & 0x80) | UART_ADDRESS_ESP;
+  #endif
+
+  traitement_rx(messa);
+}
+
+static bool traitementHeureDate(UartMessage_t *mess) // messageLength : HHLH -> 5
+{
+  uint8_t *message_in = (uint8_t *)mess->msg;
+  uint8_t messageLength = mess->longueur;
+
+  auto sendAsciiTimeReply = [](uint8_t destination, const char *code, const char *value) {
+    if (envoie_mess_ASC(0, "%c%s:%s", destination, code, value) != 0)
+      Serial.println("[TIME] Echec envoi reponse ASCII");
+  };
+
+  if (log_detail>=3) Serial.printf("[TIME] traitementHeureDate: messageLength=%d\n\r", messageLength);
+
+  const bool binaryFrame = (message_in[0] & 0x80) != 0;
+  if ((messageLength < 6) || (message_in[2] != 'H'))
+    return false;
+
+  if (message_in[3] == 'E')
+  {
+    if (message_in[4] == 'H')
+    {
+      if (!binaryFrame && (messageLength == 12) && setProtocolTime(&message_in[5]))
+        Serial.println("[TIME] Heure mise a jour par HEH");
+      else
+        Serial.println("[TIME] HEH invalide (attendu HEHhhmmss)");
+      return true;
+    }
+    if (message_in[4] == 'D')
+    {
+      if (!binaryFrame && (messageLength == 12) && setProtocolDate(&message_in[5]))
+        Serial.println("[TIME] Date mise a jour par HED");
+      else
+        Serial.println("[TIME] HED invalide (attendu HEDjjmmaa)");
+      return true;
+    }
+    if (message_in[4] == 'S')
+    {
+      if (binaryFrame && (messageLength == 10))
+      {
+        uint32_t timestamp = (uint32_t)message_in[5] |
+                             ((uint32_t)message_in[6] << 8) |
+                             ((uint32_t)message_in[7] << 16) |
+                             ((uint32_t)message_in[8] << 24);
+        if (setProtocolTimestamp(timestamp))
+          Serial.printf("[TIME] Timestamp HES applique: %lu\n\r", (unsigned long)timestamp);
+        else
+          Serial.println("[TIME] Echec application du timestamp HES");
+      }
+      else
+        Serial.println("[TIME] HES invalide (timestamp binaire de 32 bits requis)");
+      return true;
+    }
+  }
+  else if ((message_in[3] == 'L') && (messageLength == 6))
+  {
+    if (message_in[4] == 'H')  // HLH
+    {
+      time_t now = time(nullptr);
+      struct tm localTime = {};
+      if ((init_time != 0) && (now != (time_t)-1) && (localtime_r(&now, &localTime) != NULL))
+      {
+        char value[20];
+        snprintf(value, sizeof(value), "%04d-%02d-%02d %02d:%02d:%02d",
+                 localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday,
+                 localTime.tm_hour, localTime.tm_min, localTime.tm_sec);
+        sendAsciiTimeReply((uint8_t)message_in[1], "HLH", value);
+      }
+      else
+        sendAsciiTimeReply((uint8_t)message_in[1], "HLH", "TIME_UNSET");
+      return true;
+    }
+    if (message_in[4] == 'D')  // HLD
+    {
+      time_t now = time(nullptr);
+      struct tm localTime = {};
+      if ((init_time != 0) && (now != (time_t)-1) && (localtime_r(&now, &localTime) != NULL))
+      {
+        char value[11];
+        snprintf(value, sizeof(value), "%04d-%02d-%02d",
+                 localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday);
+        sendAsciiTimeReply((uint8_t)message_in[1], "HLD", value);
+      }
+      else
+        sendAsciiTimeReply((uint8_t)message_in[1], "HLD", "TIME_UNSET");
+      return true;
+    }
+    if (message_in[4] == 'S')  // HLS
+    {
+      time_t now = time(nullptr);
+      uint32_t timestamp = (now > 0) ? (uint32_t)now : 0;
+      if (sendProtocolTimestamp(message_in[1] & 0x7F, timestamp))
+        Serial.printf("[TIME] HLS: timestamp %lu transmis\n\r", (unsigned long)timestamp);
+      else
+        Serial.println("[TIME] HLS: echec de transmission vers l'emetteur");
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void traitement_rx(UartMessage_t * mess)
 {
-  uint8_t longueur_m = mess->longueur;
-  uint8_t * message_in = (uint8_t *) mess->msg;
+  if ((mess == NULL) || (mess->longueur < 2) || (mess->longueur > MSG_SIZE))
+    return;
 
-		if ((message_in[2] == 'C') && (message_in[3] == 'H'))  // Chaudiere
-		{
-			if (message_in[4] == 'E')  // Ecriture
-			{
-        if ((message_in[5] == 'P') && (longueur_m == 15))   // CHEPnxxyyzztt  Planning  %cCHEP%i%02X%02X%i%02X%02X  i, ch_debut[i], ch_fin[i], ch_type[i], ch_consigne[i], ch_cons_apres[i])
+  uint8_t longueur_m = mess->longueur;
+  uint8_t *message_in = (uint8_t *)mess->msg;
+
+  const uint8_t destination = message_in[0] & 0x7F;
+  if (destination == protocolLocalAddress())
+  {
+    if (localDispatchActive)
+    {
+      Serial.println("[UART ROUTE] Boucle locale evitee");
+      return;
+    }
+
+    localDispatchActive = true;
+    if (!traitement_fichier_lora(mess) )
+    {
+      // --------------   HHHHHHHHHHH  -------------------
+
+      if (message_in[2] == 'H')  traitementHeureDate(mess); // Date et Heure HLH, HLD, HLS, HEH, HED, HES
+
+      //  -------------   TTTTTTTTTTTT ---------------
+
+      if ((longueur_m >= 5) && (message_in[2] == 'T'))  //  Test
+      {
+        if (message_in[3] == '1')  // T12T2  -> envoie message 2T2
         {
+          const uint16_t testMessageLength = longueur_m - 4;
+          if ((testMessageLength < 4) ||  (message_in[longueur_m - 1] != car_fin_trame))
+            Serial.println("[UART RX] Trame T1 invalide: CR final absent");
+          else 
+            envoie_mess_ASC(0, "%.*s", (int)testMessageLength, (const char *)(message_in + 4));
+        }
+        if ((message_in[3] == '2') )  // T2 (lg=5) -> renvoie T3 ascii
+        {
+          envoie_mess_ASC(0, "%cT3", message_in[1] & 0x7F) ;
+        }
+        if ((message_in[3] == '3') )  // T3  -> envoie T3OK
+        {
+          envoie_mess_ASC(0, "2T3OK") ;
+        }
+        if ((message_in[3] == '1') )  // T4 -> renvoie T3 binaire
+        {
+              UartMessage_t messag;
+							messag.msg[0] = message_in[1] | 0x80;  // binaire
+							messag.msg[2] = 'T';
+              messag.msg[3] = '3';
+							messag.longueur = 1;
+              messag.msg[1] = messag.longueur+3;
+							envoie_mess_bin(&messag);
         }
       }
     }
+
+    localDispatchActive = false;
+    return;
+  }
+
+  const uint8_t route = findUartRoute(destination);
+
+  if (route == UART_ROUTE_DEBUG)
+  {
+    const uint16_t payloadLength = longueur_m - 1;
+    const bool binaryFrame = (((uint8_t)message_in[0] & 0x80) != 0);
+    if ((Serial.write((const uint8_t *)mess->msg, payloadLength) != payloadLength) ||
+        (!binaryFrame && (Serial.write('\r') != 1)))
+      Serial.println("[UART ROUTE] Echec transfert du message vers UART_DEBUG");
+    return;
+  }
+  if (route == UART_ROUTE_STM32)
+  {
+    const uint16_t payloadLength = longueur_m - 1;
+    const bool binaryFrame = (((uint8_t)message_in[0] & 0x80) != 0);
+    if ((Serial1.write((const uint8_t *)mess->msg, payloadLength) != payloadLength) ||
+        (!binaryFrame && (Serial1.write('\r') != 1)))
+      Serial.println("[UART ROUTE] Echec transfert du message vers UART_STM32");
+    return;
+  }
+
+  Serial.printf("[UART ROUTE] Destination '%c' absente de la table, message abandonne\n\r",
+                destination);
 }
 
 void debounceCallback(TimerHandle_t xTimer)
@@ -4522,20 +5176,20 @@ void debounceCallback(TimerHandle_t xTimer)
             //Serial.printf("Btn %d On !\n\r", i); // peut planter
             if (!init_masquage) { // masquage les 30 premières secondes
               systeme_eve_t evt = { EVENT_GPIO_ON, (uint32_t)i};
-              if (xQueueSend(eventQueue, &evt, 0) != pdTRUE) 
+              if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
               {
                 if (erreur_queue<5) num_err_queue[erreur_queue]=10;
                 erreur_queue++;
               }
             }
-        } 
+        }
         else if (pressCounter[i] == 0 && stableButtonState[i] != HIGH)
         {
             stableButtonState[i] = HIGH;
             //Serial.printf("Btn %d off00 !\n\r", i);
             if (!init_masquage) { // masquage les 30 premières secondes
               systeme_eve_t evt = { EVENT_GPIO_OFF, (uint32_t)i };
-              if (xQueueSend(eventQueue, &evt, 0) != pdTRUE) 
+              if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
               {
                 if (erreur_queue<5) num_err_queue[erreur_queue]=11;
                 erreur_queue++;
@@ -4569,8 +5223,8 @@ void checkPartitions()
   #endif
 }
 
-// trouve page flash en cours et index dans la page 
-void getActiveIndex(uint8_t * page, uint16_t *index) 
+// trouve page flash en cours et index dans la page
+void getActiveIndex(uint8_t * page, uint16_t *index)
 {
   uint8_t flag1, flag2;  // FF:vierge  0:plein 1:en cours
   uint8_t data;
@@ -4606,7 +5260,7 @@ void getActiveIndex(uint8_t * page, uint16_t *index)
         esp_partition_erase_range(logPartition, 0, PAGE_SIZE);
         Serial.println("page 1 effacee");
         data = 1;
-        esp_partition_write(logPartition, 0, &data, 1);  
+        esp_partition_write(logPartition, 0, &data, 1);
       }
     }
   }
@@ -4655,7 +5309,7 @@ void writeLog(uint8_t code, uint8_t c1, uint8_t c2, uint8_t c3, const char* mess
 
     int addr = (activePage-1)*PAGE_SIZE + (activeIndex * LOG_ENTRY_SIZE);
     if (addr + LOG_ENTRY_SIZE >= activePage*PAGE_SIZE) {
-      // page pleine 
+      // page pleine
       chgtPage();
       addr = (activePage-1)*PAGE_SIZE + (activeIndex * LOG_ENTRY_SIZE);
     }
@@ -4667,7 +5321,7 @@ void writeLog(uint8_t code, uint8_t c1, uint8_t c2, uint8_t c3, const char* mess
     //log.timestamp = millis();  // ou un timestamp réel si tu as l'heure
     log.code = code;
     log.c1 = c1;
-    log.c2 = c2;  
+    log.c2 = c2;
     log.c3 = c3;
     uint8_t size = sizeof(log.message);
     //uint8_t s1 = size;
@@ -4712,7 +5366,7 @@ int readLastLogsBinary(uint8_t *buffer, int nombre)
     int addr =  index * LOG_ENTRY_SIZE;
     int addrlect;
 
-    
+
     for (i = 0; i < nombre; i++)
     {
       addr -= LOG_ENTRY_SIZE;
@@ -4721,24 +5375,24 @@ int readLastLogsBinary(uint8_t *buffer, int nombre)
         page = 3 - activePage;
         uint8_t flag1;
         esp_partition_read(logPartition, (page-1)*PAGE_SIZE, &flag1, 1);
-        //Serial.printf("chgt page: page:%d flag:%d\n\r", (page-1), flag1); 
+        //Serial.printf("chgt page: page:%d flag:%d\n\r", (page-1), flag1);
         if (!flag1) // page pleine
         {
           addr = (NB_ENTRY-1)*LOG_ENTRY_SIZE; // dernier index
-          //Serial.printf("chgt page: page:%d addr:%d\n\r", (page-1), addr); 
-        } 
+          //Serial.printf("chgt page: page:%d addr:%d\n\r", (page-1), addr);
+        }
         else // page vierge ou non formattée
         {
-          Serial.println("chgt page: break"); 
+          Serial.println("chgt page: break");
           break; // fin des logs dispo
         }
       }
       addrlect = (page-1)*PAGE_SIZE + addr;
       LogEntry log;
       err = esp_partition_read(logPartition, addrlect, &log, LOG_ENTRY_SIZE);
-      if (err != ESP_OK) 
+      if (err != ESP_OK)
         { Serial.println("Erreur de lecture.");  }
-      if (log.timestamp == 0xFFFFFFFF) 
+      if (log.timestamp == 0xFFFFFFFF)
         break;  // Fin des logs
       memcpy(buffer + i * LOG_ENTRY_SIZE, &log, LOG_ENTRY_SIZE);
       // Conversion timestamp vers date lisible
@@ -4780,8 +5434,8 @@ int readLastLogsBinary(uint8_t *buffer, int nombre)
 }
 
 #ifdef PARTITION_G
-// trouve page flash en cours et index dans la page 
-void getActiveIndexG(uint8_t * page, uint16_t *index) 
+// trouve page flash en cours et index dans la page
+void getActiveIndexG(uint8_t * page, uint16_t *index)
 {
   uint8_t flag1, flag2;  // FF:vierge  0:plein 1:en cours
   uint8_t data;
@@ -4817,7 +5471,7 @@ void getActiveIndexG(uint8_t * page, uint16_t *index)
         esp_partition_erase_range(logPartitionG, 0, PAGE_SIZEG);
         Serial.println("page 1 G effacee");
         data = 1;
-        esp_partition_write(logPartitionG, 0, &data, 1);  
+        esp_partition_write(logPartitionG, 0, &data, 1);
       }
     }
   }
@@ -4867,7 +5521,7 @@ void writeLogG(uint8_t code, uint16_t c1, uint16_t c2, uint16_t c3)
 
     int addr = (activePageG-1)*PAGE_SIZEG + (activeIndexG * LOG_ENTRY_SIZEG);
     if (addr + LOG_ENTRY_SIZEG >= activePageG*PAGE_SIZEG) {
-      // page pleine 
+      // page pleine
       chgtPageG();
       addr = (activePageG-1)*PAGE_SIZEG + (activeIndexG * LOG_ENTRY_SIZEG);
     }
@@ -4879,7 +5533,7 @@ void writeLogG(uint8_t code, uint16_t c1, uint16_t c2, uint16_t c3)
     //log.timestamp = millis();  // ou un timestamp réel si tu as l'heure
     log.code = code;
     log.c1 = c1;
-    log.c2 = c2;  
+    log.c2 = c2;
     log.c3 = c3;
 
     // nota : la fonction écrit par bloc de 4 octets => il faut que ce soit un multiple de 4
@@ -4904,13 +5558,13 @@ int readLastLogsG(int nombre)
   {
     if ((!activePageG) || (!activeIndexG))
         getActiveIndexG(&activePageG, &activeIndexG);
-    
+
     //Serial.printf("LogG:Page:%i index:%i\n\r", activePageG, activeIndexG);
 
     uint8_t page = activePageG;
     uint16_t index = activeIndexG;
     int addr = index * LOG_ENTRY_SIZEG;
-    
+
     for (i = 0; i < nombre && i < NB_Val_Graph; i++)
     {
       //Serial.printf("debut:%i   ", i);
@@ -4926,7 +5580,7 @@ int readLastLogsG(int nombre)
         if (!flag1) // page pleine
         {
           addr = (NB_ENTRYG-1) * LOG_ENTRY_SIZEG; // dernier index
-        } 
+        }
         else // page vierge
         {
           break; // fin des logs
@@ -4938,9 +5592,9 @@ int readLastLogsG(int nombre)
       LogEntryG log;
       esp_partition_read(logPartitionG, addrlect, &log, LOG_ENTRY_SIZEG);
       //Serial.printf("%u c1:%i c2:%i c3:%i\r\n\r", log.timestamp, log.c1, log.c2, log.c3);
-      if (log.timestamp == 0xFFFFFFFF) 
+      if (log.timestamp == 0xFFFFFFFF)
         break;  // Fin des logs
-      
+
       // Assigner aux tableaux graphique
       graphique[i][3] = log.c1;
       graphique[i][4] = log.c2;
@@ -4953,7 +5607,7 @@ int readLastLogsG(int nombre)
 }
 #endif  // fin PARTITION_G
 
-void init_time_ps() 
+void init_time_ps()
 {
   if (init_time == 3 || init_time == 4)
     return;
@@ -4981,7 +5635,7 @@ void init_time_ps()
       settimeofday(&tv, NULL);
       init_time=1;  // initialisé a 20h 1/2/2026
       // verification de l'heure toutes les 30 minutes
-      xTimerChangePeriod(xTimer_Init,30*60*(1000/portTICK_PERIOD_MS),100); 
+      xTimerChangePeriod(xTimer_Init,30*60*(1000/portTICK_PERIOD_MS),100);
       xTimerStart(xTimer_Init,100);
     }
   }
@@ -5145,7 +5799,7 @@ void passage_deep_sleep(uint64_t temps, uint8_t index)
 
     esp_deep_sleep_enable_gpio_wakeup( 1ULL << PIN_REVEIL, ESP_GPIO_WAKEUP_GPIO_LOW);
   #endif
-  
+
   // Do not call the WiFi shutdown API when the radio was never enabled.
   if (WiFi.getMode() != WIFI_OFF) {
     WiFi.disconnect(true);
@@ -5178,14 +5832,14 @@ uint8_t testHttpServerLocal() {
       String payload = http.getString();
       Serial.println("[Test HTTP] Serveur OK: " + payload);
       err=0;
-    } 
+    }
     else
     {
       Serial.printf("[Test HTTP] Erreur serveur: Code %d\n\r", httpCode);
       err=2;
     }
     http.end();
-  } 
+  }
   else
   {
     Serial.println("[Test HTTP] WiFi non connecté !");
@@ -5206,7 +5860,7 @@ uint8_t testConnexionGoogle() {
     int httpCode = http.GET();
 
     if (httpCode > 0) {
-      if (log_detail>=4) 
+      if (log_detail>=4)
       {
         Serial.printf("[HTTP] Réponse code : %d\n\r", httpCode);
         String payload = http.getString();
@@ -5218,7 +5872,7 @@ uint8_t testConnexionGoogle() {
     }
 
     http.end();
-  } 
+  }
   else
   {
     Serial.println("Wi-Fi non connecté !");
@@ -5245,7 +5899,7 @@ uint8_t reConnectWifi()
   {
     delay(200);
     Serial.print(".");
-    
+
     // Reset du watchdog pendant la reconnexion WiFi
     #ifdef WatchDog
       esp_task_wdt_reset();
@@ -5324,7 +5978,7 @@ server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
 
 
   // requete get pour mettre à jour la page web
-  // get?type=1&reg=consigne  type:1:champs, 2:reg 3:registre modbus  
+  // get?type=1&reg=consigne  type:1:champs, 2:reg 3:registre modbus
   // renvoie : "reg"="xxx","val"="111.1"
   server.on("/Get", HTTP_GET, [](AsyncWebServerRequest *request) {
     static char json_response[80];
@@ -5432,7 +6086,7 @@ server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
       char valeur_S[50]="";
 
       if (type<4) res2 = requete_Get(type, reg.c_str(), &valeur);
-      else 
+      else
         if (type==4) res2 = requete_Get_String(type, reg.c_str(), valeur_S);
 
       *p++ = '{';
@@ -5450,8 +6104,8 @@ server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
       p--;
       *p++ = '}';
       *p++ = 0;
-      if (type==5) 
-      { 
+      if (type==5)
+      {
         snprintf(json_response, sizeof(json_response), "{\"val\":\"%s\"}", buffer_dmp);
         res2=0;
       }
@@ -5655,13 +6309,13 @@ void print_task_states() {
 // Fonction de diagnostic WiFi améliorée
 void diagnoseWiFiError() {
   Serial.println("\n=== DIAGNOSTIC WiFi DÉTAILLÉ ===");
-  
+
   // 1. Informations de configuration
   Serial.println("1. Configuration WiFi :");
   Serial.printf("   - SSID: %s\n\r", nom_routeur);
   Serial.printf("   - Mot de passe: %s\n\r", (strlen(mdp_routeur) > 0) ? "***configuré***" : "NON CONFIGURÉ");
   Serial.printf("   - Mode réseau: %d\n\r", mode_reseau);
-  
+
   // 2. Configuration IP
   Serial.println("2. Configuration IP :");
   Serial.printf("   - IP statique: %s\n\r", makeIPAddress(local_ip).toString().c_str());
@@ -5669,7 +6323,7 @@ void diagnoseWiFiError() {
   Serial.printf("   - Subnet: %s\n\r", makeIPAddress(subnet).toString().c_str());
   Serial.printf("   - DNS1: %s\n\r", makeIPAddress(primaryDNS).toString().c_str());
   Serial.printf("   - DNS2: %s\n\r", makeIPAddress(secondaryDNS).toString().c_str());
-  
+
   // 3. État actuel du WiFi
   Serial.println("3. État WiFi actuel :");
   wl_status_t status = WiFi.status();
@@ -5686,7 +6340,7 @@ void diagnoseWiFiError() {
     default: Serial.print("UNKNOWN"); break;
   }
   Serial.println(")");
-  
+
   // 4. Informations sur les réseaux disponibles
   Serial.println("4. Reseaux WiFi disponibles :");
   int n = WiFi.scanNetworks();
@@ -5695,14 +6349,14 @@ void diagnoseWiFiError() {
   } else {
     Serial.printf("   %d réseaux trouves:\n\r", n);
     for (int i = 0; i < min(n, 5); ++i) { // Affiche seulement les 5 premiers
-      Serial.printf("   - %s (RSSI: %ld, Ch: %ld, %s)\n\r", 
-        WiFi.SSID(i).c_str(), 
-        WiFi.RSSI(i), 
+      Serial.printf("   - %s (RSSI: %ld, Ch: %ld, %s)\n\r",
+        WiFi.SSID(i).c_str(),
+        WiFi.RSSI(i),
         WiFi.channel(i),
         (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "Ouvert" : "Securise");
     }
   }
-  
+
   // 5. Diagnostic des erreurs courantes
   Serial.println("5. Diagnostic des erreurs :");
   if (strlen(nom_routeur) == 0) {
@@ -5723,7 +6377,7 @@ void diagnoseWiFiError() {
   if (local_ip[0] == 0) {
     Serial.println("   ⚠️  ATTENTION: Configuration IP non definie");
   }
-  
+
   // 6. Recommandations
   Serial.println("6. Recommandations :");
   if (status == WL_NO_SSID_AVAIL) {
@@ -5738,25 +6392,25 @@ void diagnoseWiFiError() {
   if (local_ip[0] == 0) {
     Serial.println("   - Configurez une adresse IP statique");
   }
-  
+
   Serial.println("=== FIN DIAGNOSTIC ===\n\r");
 }
 
 // Fonction de connexion WiFi avec diagnostic amélioré
 uint8_t connectWiFiWithDiagnostic() {
   if (log_detail>=4) Serial.println("\n=== TENTATIVE DE CONNEXION WiFi ===");
-  
+
   // Vérifications préliminaires
   if (strlen(nom_routeur) == 0) {
     Serial.println("❌ ERREUR: SSID non configure");
     return 1;
   }
-  
+
   if (log_detail>=3) Serial.printf("Connexion au reseau: %s\n\r", nom_routeur);
     // Configuration WiFi en mode Station pour ESP-NOW
     WiFi.setAutoReconnect(false);
-    WiFi.mode(WIFI_STA); 
-    
+    WiFi.mode(WIFI_STA);
+
     // 🔍 DIAGNOSTIC: Forcer le canal WiFique si définie
   if (local_ip[0] != 0) {
       IPAddress ipLocal = makeIPAddress(local_ip);
@@ -5774,22 +6428,22 @@ uint8_t connectWiFiWithDiagnostic() {
   } else {
     Serial.println("Configuration IP automatique (DHCP)");
   }
-  
+
   // Tentative de connexion
   if (log_detail>=4) Serial.println("Tentative de connexion...");
   WiFi.begin(nom_routeur, mdp_routeur);
-  
+
   // Attente de connexion avec feedback
   unsigned long startTime = millis();
   const unsigned long timeout = 5000;
   int dots = 0;
-  
+
   while (WiFi.status() != WL_CONNECTED && (millis() - startTime) < timeout) {
     delay(100);
     Serial.print(".");
     dots++;
     if (dots % 20 == 0) Serial.println(); // Retour à la ligne tous les 10 secondes
-    
+
     // Reset du watchdog pendant la connexion WiFi
     #ifdef WatchDog
       esp_task_wdt_reset();
@@ -5825,18 +6479,18 @@ uint8_t connectWiFiWithDiagnostic() {
 
 // Fonction de connexion WiFi rapide
 uint8_t connectWiFiRapide()
-{  
+{
   // Vérifications préliminaires
   if (strlen(nom_routeur) == 0) {
     Serial.println("❌ ERREUR: SSID non configure");
     return 1;
   }
-  
+
   if (log_detail>=3) Serial.printf("Connexion rapide au reseau: %s\n\r", nom_routeur);
     // Configuration WiFi en mode Station pour ESP-NOW
     WiFi.setAutoReconnect(false);
-    WiFi.mode(WIFI_STA); 
-    
+    WiFi.mode(WIFI_STA);
+
     // 🔍 DIAGNOSTIC: Forcer le canal WiFique si définie
   if (local_ip[0] != 0) {
       IPAddress ipLocal = makeIPAddress(local_ip);
@@ -5853,7 +6507,7 @@ uint8_t connectWiFiRapide()
   } else {
     Serial.println("Configuration IP automatique (DHCP)");
   }
-  
+
   // Tentative de connexion
   if (log_detail>=4) Serial.println("Tentative de connexion...");
   WiFi.begin(nom_routeur, mdp_routeur);
@@ -5886,10 +6540,10 @@ void protectUARTDuringWiFi() {
   while (Serial.available()) {
     Serial.read();
   }
-  
+
   // Pause pour laisser le temps au WiFi de s'initialiser
   delay(100);
-  
+
   // Reset du watchdog pendant cette opération critique
   #ifdef WatchDog
     esp_task_wdt_reset();
@@ -5976,7 +6630,7 @@ static uint8_t envoyer_data_gateway_direct(Message_Struct *mess_esp, uint8_t nod
       }
       etat_now = deliverySuccess ? 2 : 1;  // 2:réussi 1:raté(jamais réussi)
     }
-    else if (etat_now == 2)  // envoi précédent :réussi 
+    else if (etat_now == 2)  // envoi précédent :réussi
     {
       deliverySuccess = envoi_now(last_wifi_channel, &peerInfo, mess_esp);
       if (!deliverySuccess) etat_now = 4;  // envoi actuel échoué, apres une réussite
@@ -6132,7 +6786,7 @@ uint8_t traitement_queue_data_gateway(uint8_t mise_veille, uint8_t node)
       }
     }
   }
-  else 
+  else
   {
     if ((type_reveil <=3)  && mise_veille)  // reveil timer, PIR ou inconnu
     {
@@ -6150,7 +6804,7 @@ uint8_t traitement_queue_data_gateway(uint8_t mise_veille, uint8_t node)
 }
 
 // envoi direct ou mise en queue
-// return : 
+// return :
 // 0: message mis en queue et parti
 // 1à2: message mis en queue, test d'envoi mais erreur
 // 3à6 : erreur
@@ -6216,7 +6870,7 @@ uint8_t envoi_data(Message_Struct mess_esp, uint8_t node)
     Serial.println("envoi message immediat au node");
     return traitement_queue_data_gateway(0, node);  // sans mise en veille à la fin
   }
-  else 
+  else
   {
     Serial.println("pas d'envoi car node en veille");
     return 7; // ok mais node en veille
@@ -6342,10 +6996,10 @@ float absoluteHumidity(float temperature, float relativeHumidity)
 }
 
 // paramètres :
-// chaine : chaine de caractères ascii 
+// chaine : chaine de caractères ascii
 // type : 1 : uint8_t  2:uint16_t  3:int8_t 4:int16_t
 // nombre : variable résultat à retourner à la fonction appelante
-// output/return : 0:ok 1:erreur 
+// output/return : 0:ok 1:erreur
 uint8_t extraction_mess(uint8_t* chaine, uint8_t type, uint16_t* nombre)
 {
   uint8_t res=1;
@@ -6398,7 +7052,7 @@ void traitement_message_recu(Message_Struct &msg)
         if (!res && periode>=10 && periode <=600)  // periode entre 10 secondes et 10 minutes
         {
           reveil_periodique = periode;
-          xTimerChangePeriod(xTimer_ReveilPeriodique, periode*(1000/portTICK_PERIOD_MS),100); 
+          xTimerChangePeriod(xTimer_ReveilPeriodique, periode*(1000/portTICK_PERIOD_MS),100);
           xTimerStart(xTimer_ReveilPeriodique,100);
         }
       }
@@ -6425,7 +7079,7 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
   memcpy(&espRecv.msg, data, len);
   espRecv.len = len;
 
-  if (log_detail>=1) 
+  if (log_detail>=1)
   {
     // Afficher le canal WiFi actuel
     uint8_t current_channel;
@@ -6456,7 +7110,7 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
           // Y at-il des messages que je dois recevoir ensuite => si oui, pas de mise en veille
           if (espRecv.msg.code2 == 1)
           {
-            if (log_detail>=2) Serial.println("Le node distant a des messages en attente a envoyer"); 
+            if (log_detail>=2) Serial.println("Le node distant a des messages en attente a envoyer");
             uint8_t node;
             if (ident_node(static_cast<uint8_t>(data[0]), &node) )   // reception ack d'un node pas actif
                   return;
@@ -6493,7 +7147,7 @@ void envoi_ack(Message_Struct &msg)
 {
   Message_Struct ack_msg;
   ack_msg.destinataire = msg.emetteur | 0x80;  // bit fort à 1 pour indiquer que c'est un message hexadécimal
-  ack_msg.emetteur = My_Address ;    
+  ack_msg.emetteur = My_Address ;
   ack_msg.longueur = 4+0;  // longueur du payload
   ack_msg.num_seq = num_sequentiel;  // renvoyer le numéro séquentiel reçu
   ack_msg.statut = 1;  // ce node est en veille
@@ -6522,8 +7176,8 @@ void envoi_ack(Message_Struct &msg)
                       err, esp_err_to_name(err));
         return;
       }
-    } 
-        
+    }
+
     if (log_detail>=2) Serial.printf("src_addr:%02x:%02x:%02x:%02x:%02x:%02x dest:%02X emetteur:%02X long:%d num_seq:%d stat:%02X code:%c code2:%02X \n",
                   src_addr[0], src_addr[1], src_addr[2], src_addr[3], src_addr[4], src_addr[5],
                   ack_msg.destinataire, ack_msg.emetteur, ack_msg.longueur, ack_msg.num_seq, ack_msg.statut, ack_msg.code, ack_msg.code2);

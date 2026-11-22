@@ -85,9 +85,15 @@
 #define CAMERA
 //#define Temp_int_DHT22
 
-// Device address identifier used in filenames (single letter or short string)
-#ifndef ADDRESS
-   #define ADDRESS "A"
+#define END_NODE // Si non defini : il s'agit de la gateway
+
+#ifdef END_NODE
+  // Device address identifier used in filenames (single letter or short string)
+   #ifndef ADDRESS
+     #define ADDRESS "A"
+   #endif
+#else
+   #define ADDRESS 'I'  // Gateway ESP32
 #endif
 
 #define LATITUDE "48.8461"  // Garches => pour récupération Temp Ext
@@ -102,7 +108,7 @@
 
 //#define Wifi_AP    // AP sinon STA
 
-//#define STM32  //incompatible du modbus, sauf à changer les pin
+#define STM32  // Liaison UART avec le STM32 sur GPIO44 (RX) et GPIO43 (TX)
 // #define OTA
 
 
@@ -286,7 +292,12 @@ extern int8_t last_rssi;
 #endif
 
 // Structure d'un message uart
-#define MSG_SIZE 40
+#define MSG_SIZE 128
+
+// Defini si cet ESP32 est raccorde a un STM32 par UART; commenter pour un ESP autonome.
+// En mode autonome, My_Address est utilise comme adresse locale et emetteur.
+#define ESP32_ATTACHED_TO_STM32
+
 typedef struct {
   char message[MSG_SIZE];
   uint16_t length;
@@ -297,10 +308,47 @@ typedef struct {
   char msg[MSG_SIZE];
 } UartMessage_t;
 
+typedef struct {
+    uint8_t length;          // Longueur du message (champs data)
+    uint8_t dest;          // dest
+    uint8_t type;            // Type : 0=ASCII, 1=Binaire
+    uint8_t param; // bit0:dernier  bit1-2:reenvoi(00:non, 01:2 fois, 10:5 fois)   bit3:différé   bit4:pas d'ack  bit5:RX apres  bit6-7:classe
+    uint8_t data[MSG_SIZE];        // Données du message
+} out_message_t;
+
+enum : uint8_t {
+  UART_ROUTE_DEBUG = 1,
+  UART_ROUTE_STM32 = 3
+};
+
+enum : uint8_t {
+  UART_ADDRESS_ESP = '0',
+  UART_ADDRESS_STM32 = '1',
+  UART_ADDRESS_DEBUG = '2',
+  UART_ADDRESS_STM32_NODE = 'H'
+};
+
+typedef struct {
+  uint8_t first;
+  uint8_t last;
+  uint8_t route;
+} UartRouteEntry;
+
+extern const UartRouteEntry uartRouteTable[];
+extern const uint8_t uartRouteTableCount;
+
 float readBatteryVoltage();
 uint8_t lectureHeure();
 void requete_status(char* json_response, uint8_t socket, uint8_t type);
 void recep_message1(UartMessage_t* messa);  // recept_uart1
+// ASCII format starts with destination; source is 0 when attached, otherwise My_Address. param is kept for API compatibility.
+uint8_t envoie_mess_ASC(uint8_t param, const char* format, ...);
+// Binary input is [destination, payload length, payload...]; longueur excludes a NUL byte.
+uint8_t envoie_mess_bin(UartMessage_t* mess);
+uint8_t envoie_mess_bin_source(UartMessage_t* mess, uint8_t emitter);
+bool traitement_fichier_lora(UartMessage_t* mess);
+void demarrer_envoi_fichier_lora();
+void traiter_reception_fichier_lora_event(const char *finalPath);
 void maj_etat_chaudiere_delai(uint8_t delai);
 void modif_timer_cycle(void);
 void traitement_rx(UartMessage_t* mess);
@@ -373,8 +421,8 @@ const int PIN_on = 19;  // allumage et extinction d'un système avec 2 boutons
 const int PIN_off = 19;
 // const int PIN_RE = 32;
 // const int PIN_DE = 33;
-const int PIN_RXSTM = 18;  // RX STM32
-const int PIN_TXSTM = 17;  // TX STM32
+const int PIN_RXSTM = 44;  // RX ESP32 depuis TX STM32
+const int PIN_TXSTM = 43;  // TX ESP32 vers RX STM32
 // #define sorties analogique : 25 ou 26 (avec Dacwrite)
 
 // Modbus
@@ -393,6 +441,8 @@ const int PIN_TXSTM = 17;  // TX STM32
 
 /* ESP32S3 : Serial0:Pin 42 et 43
  */
+
+#define car_fin_trame 13
 
 typedef enum {
   EVENT_NONE = 0,
@@ -419,13 +469,16 @@ typedef enum {
   EVENT_UART1,
    EVENT_HTTP_ROOT_CHECK,
    EVENT_NETWORK_INIT_DONE,
-   EVENT_TIME_SYNC
+   EVENT_TIME_SYNC,
+   EVENT_ENVOI_FICHIER_LORA,
+   EVENT_RECEPTION_FICHIER
 } systeme_eve_type_t;
 
 // Structure d'un événement tache sequenceur
 typedef struct {
   systeme_eve_type_t type;  // Type d'événement
   uint32_t data;            // Donnée associée (ex: valeur capteur, byte UART)
+  char path[80];            // Chemin final pour EVENT_RECEPTION_FICHIER
 } systeme_eve_t;
 
 // Structure pour la queue de réception ESP-NOW (message + adresse source)

@@ -3,20 +3,15 @@
 /*
 16/11/2026:ajout surveillance capteur camera et site web
 18/11/2026:boot rapide, décalage init reseau, tables codes camera, Aj décalage framesize,
-TODO : 
-test taille lpc, 
-bouton et PIR : faire fonctionner pin 14
-test conso veille
-prise de photo au boot: simple
+TODO :
 envoi wifi fichier vers serveur : implémenter serveur
 envoi crunch uart vers serveur : faire stm32
-rechercher esp32_s3_cam
 message uart avec date et ordre
 
 PIN ESP32 : Ecriture à l'endroit ESP32 S3 CAM (de haut en bas)
 gauche : reset, TX(43), Rx(44), 19(usb), 20(usb), 0, GND, 3V3
 droite 41, 40(sd), 39(sd), 38(sd), 47, 14, gnd, 5V
-Nov 2026 : 
+Nov 2026 :
 Ram : 29.2% (used 95700 bytes from 327680 bytes)
 Flash: [========  ]  84.3% (used 1712295 bytes from 2031616 bytes)
 */
@@ -49,6 +44,15 @@ Flash: [========  ]  84.3% (used 1712295 bytes from 2031616 bytes)
 
 extern WiFiClient client;
 extern Preferences preferences_nvs;  // Déclaration externe
+
+const UartRouteEntry uartRouteTable[] = {
+  { UART_ADDRESS_STM32, UART_ADDRESS_STM32, UART_ROUTE_STM32 },
+  { UART_ADDRESS_DEBUG, UART_ADDRESS_DEBUG, UART_ROUTE_DEBUG },
+  { 'A', 'Z', UART_ROUTE_STM32 },
+  { 'a', 'z', UART_ROUTE_STM32 }
+};
+const uint8_t uartRouteTableCount =
+    sizeof(uartRouteTable) / sizeof(uartRouteTable[0]);
 extern uint8_t My_statut; // 0:inconnu 1:veille 2:balise 3:tj actif
 extern uint16_t nb_err_reseau;
 extern  uint16_t TextV, TintV, HumV, HAV;  // pour stockage dans la partition log_flashG
@@ -213,7 +217,7 @@ void setup_0()
 
     graphique[0][5] = 50;  // cout
     graphique[1][5] = 55;
-    graphique[2][5] = 48;  
+    graphique[2][5] = 48;
     graphique[3][5] = 52;
   }*/
 }
@@ -227,7 +231,7 @@ void setup_1()
     #ifdef Temp_int_DHT22
       dht[0].begin();
     #endif
- 
+
     #ifdef Temp_int_HDC1080
 
       #ifdef ESP32_v1
@@ -249,7 +253,7 @@ void setup_1()
       }*/
     #endif
 
- 
+
     #ifdef Temp_int_DS18B20
       ds.begin();  // Startup librairie DS18B20
       nb_capteurs_temp = ds.getDeviceCount();
@@ -290,18 +294,18 @@ void setup_2()
 
     if ((mode_reseau==13) )
       WiFi.mode(WIFI_STA);
-    
+
     // 🔍 DIAGNOSTIC: Forcer le canal WiFi
     uint8_t current_channel;
     wifi_second_chan_t second;
     esp_wifi_get_channel(&current_channel, &second);
     if (log_detail>=2) Serial.printf("Canal WiFi AVANT config ESP-NOW: %d\n\r", current_channel);
-    
+
     // Forcer le canal si nécessaire (doit correspondre au routeur)
     // esp_wifi_set_promiscuous(true);
     // esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     // esp_wifi_set_promiscuous(false);
-    
+
     if (esp_now_init() != ESP_OK) {
       Serial.println("Erreur initialisation ESP-NOW");
       return;
@@ -322,7 +326,7 @@ void setup_2()
       Serial.printf("   Canal WiFi: %d\n\r", current_channel);
       Serial.println("   En attente de messages...");
       Serial.println("======================================\n\r");
-      
+
       delay(2000); // 2 secondes de pause pour lire
     }
   #endif
@@ -335,16 +339,28 @@ void appli_event_on(systeme_eve_t evt)
   if (evt.data ==0)  // BTN0
   {
     // Action à effectuer lorsque BTN0 est activé
-    code_nb_images = eval_action_batt_frequence();
-    if (log_detail>=3) Serial.printf("BTN0:code_nb_images: %i  battery_level: %i  cpt_detection_PIR_fenetre: %i\n\r", code_nb_images, battery_level, cpt_detection_PIR_fenetre);
-    
-    systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
-    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+    if (photo_video_en_cours==0)
     {
-      if (erreur_queue<5) num_err_queue[erreur_queue]=7;
-      erreur_queue++;
-    }
+      code_nb_images = eval_action_batt_frequence();
+      if (log_detail>=3) Serial.printf("BTN0:code_nb_images: %i  battery_level: %i  cpt_detection_PIR_fenetre: %i\n\r", code_nb_images, battery_level, cpt_detection_PIR_fenetre);
 
+      if ((code_nb_images>=1) && (code_nb_images<10))
+      {
+        if (code_nb_images==1)
+          systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };
+        else
+          systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };
+
+        photo_video_en_cours=3;
+        BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
+        if (xres != pdTRUE)
+        {
+          if (erreur_queue<5) num_err_queue[erreur_queue]=8;
+          erreur_queue++;
+        }
+
+      }
+    }
   }
 }
 
@@ -385,7 +401,7 @@ uint8_t setup_appli()
     last_wifi_channel = WIFI_CHANNEL;  // prochain canal WiFi à utiliser après perte d'alim
     if (log_detail>=3) Serial.printf("Prochain canal WiFi a utiliser apres perte d'alim: %d\n\r", last_wifi_channel);
   }
-  
+
   // -------------  Capteur/Detecteur : stockage ou envoie infos à la gateway -------------------
 
   if (type_reveil ==2)   // Detection PIR
@@ -396,10 +412,10 @@ uint8_t setup_appli()
     sleep_time = (uint64_t)periode_cycle * 1000000;
     passage_deep_sleep( sleep_time, 10); // au power-on apres detection PIR
   }
-  else 
-  {    
+  else
+  {
     if (type_reveil == 4)    // BTN => type_reveil=4
-    {  
+    {
       // La valeur de prolong_veille est chargée depuis la NVS plus bas dans setup().
       // Recalculer l'échéance ici évite d'utiliser une valeur RTC obsolète.
       wake_up_time = millis() + prolong_veille*1000;
@@ -411,18 +427,18 @@ uint8_t setup_appli()
         continue_setup=1;
         My_statut = 3;
       }
-      else 
+      else
       {
         continue_setup=0;
       }
     }
-    else 
+    else
     if (type_reveil != 10)  continue_setup=0;
 
 
     if (type_reveil == 1)    // reveil par timer
     {
-      event_cycle(); // 
+      event_cycle(); //
       continue_setup=0;  // ne continue pas le setup après réveil par timer
     }
     else // BTN ou power on
@@ -431,14 +447,14 @@ uint8_t setup_appli()
       envoi_temp_hygro();  // 30ms
        if (log_detail>=2) Serial.printf("milli H3: %lu\n\r", millis());
     }
-    
-    if (!continue_setup)  
+
+    if (!continue_setup)
     {
       if (gatewayQueueTimer != NULL && xTimerIsTimerActive(gatewayQueueTimer) != pdFALSE)
       {
           if (log_detail>=3) Serial.println("Le timer Envoi_now tourne encore => pas de veille");
       }
-      else  // 
+      else  //
       {
         uint64_t sleep_time = (uint64_t)periode_cycle * 60 * 1000000;
         if (mode_rapide==12)
@@ -455,15 +471,31 @@ void debut_appli()
 {
   //  battery_level = 0;  // permet de ne pas encoder en lpc la photo et de ne pas l'envoyer au serveur
   // determination action photo/video suite à detection_pir, mesure batterylevel
-    code_nb_images = eval_action_batt_frequence();
-    if (log_detail>=3) Serial.printf("code_nb_images: %i  battery_level: %i  cpt_detection_PIR_fenetre: %i\n\r", code_nb_images, battery_level, cpt_detection_PIR_fenetre);
-    
-    systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
-    if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+
+    // Action à effectuer lorsque BTN0 est activé
+    /*if (photo_video_en_cours==0)
     {
-      if (erreur_queue<5) num_err_queue[erreur_queue]=7;
-      erreur_queue++;
+      code_nb_images = eval_action_batt_frequence();
+      if (log_detail>=3) Serial.printf("BTN0:code_nb_images: %i  battery_level: %i  cpt_detection_PIR_fenetre: %i\n\r", code_nb_images, battery_level, cpt_detection_PIR_fenetre);
+
+      if ((code_nb_images>=1) && (code_nb_images<10))
+      {
+        if (code_nb_images==1)
+          systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };
+        else
+          systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };
+
+        photo_video_en_cours=3;
+        BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
+        if (xres != pdTRUE)
+        {
+          if (erreur_queue<5) num_err_queue[erreur_queue]=8;
+          erreur_queue++;
+        }
+
+      }
     }
+    */
 }
 
 void setup_3()
@@ -491,7 +523,7 @@ void enreg_24h( uint8_t veille)
       etat_ESP_stop = 1;
     }
     cpt24h_batt++;
-    if (cpt24h_batt >= Nb_jours_Batt_log)  // log chaque X jour 
+    if (cpt24h_batt >= Nb_jours_Batt_log)  // log chaque X jour
     {
       cpt24h_batt=0;
 
@@ -563,7 +595,7 @@ void enreg_24h( uint8_t veille)
   }
   graphique[0][3] = tempI;
   graphique[0][4] = selec_graph(GRAPH2, HA, Hum, PIR);
-  graphique[0][5] = selec_graph(GRAPH3, HA, Hum, PIR);  
+  graphique[0][5] = selec_graph(GRAPH3, HA, Hum, PIR);
 
   if (log_detail>=1) Serial.printf("Graphique 24h : Tint:%i Text:%i Hum:%i HA:%i\n\r", tempI, tempE, Hum, HA);
   #ifdef PARTITION_G
@@ -596,7 +628,7 @@ void enreg_24h( uint8_t veille)
 
     uint8_t result = envoi_data(message, 0);  // envoi chaque 24h des valeurs à la gateway
 
-  }      
+  }
 }
 
 void event_cycle()  // toutes les 10 minutes  (Power on, Timer on, inconnu)
@@ -605,7 +637,7 @@ void event_cycle()  // toutes les 10 minutes  (Power on, Timer on, inconnu)
   // timeout sur le cycle en cours
   if (photo_video_en_cours) photo_video_en_cours--;
 
-  if (mode_rapide)  Tick_6s += ((uint16_t)periode_cycle)/6; // ajouter le temps correspondant 
+  if (mode_rapide)  Tick_6s += ((uint16_t)periode_cycle)/6; // ajouter le temps correspondant
   else  Tick_6s += (uint16_t)periode_cycle*10;
 
 
@@ -618,7 +650,7 @@ void event_cycle()  // toutes les 10 minutes  (Power on, Timer on, inconnu)
   if (err_Tint)
     log_erreur(Code_erreur_Tint, err_Tint, 1);
   else
-    if (log_detail>=2) Serial.printf("Temp int:%.2f Humid:%.2f\n\r", Tint, Humid); 
+    if (log_detail>=2) Serial.printf("Temp int:%.2f Humid:%.2f\n\r", Tint, Humid);
 
   float HA = absoluteHumidity(Tint, Humid);
 
@@ -663,7 +695,7 @@ void event_cycle()  // toutes les 10 minutes  (Power on, Timer on, inconnu)
     graphique[0][2] = selec_graph(GRAPH3, HA_arrondi, Hum_arrondi, PIR_arrondi);
 
 
-    if (action_envoi) 
+    if (action_envoi)
     {
       if (freq_envoi)  // envoi periodique activé
       {
@@ -700,7 +732,7 @@ void event_cycle()  // toutes les 10 minutes  (Power on, Timer on, inconnu)
     PIR_moy15m = 0;
     cpt15_Tint = 0;
     cpt15_Text = 0;
-    cpt15_HA = 0; 
+    cpt15_HA = 0;
     cpt15_Hum = 0;
     cpt15_PIR = 0;
   }
@@ -755,7 +787,7 @@ uint8_t eval_action_batt_frequence()
     if (batt < 0) batt = 0;
     if (batt > 100) batt = 100;
     battery_level = batt;
-    
+
     // cpt_detection_PIR_fenetre inclut déjà la détection courante (fenêtre 1h)
     uint16_t recent = (cpt_detection_PIR_fenetre > 0) ? cpt_detection_PIR_fenetre - 1 : 0;
 
@@ -818,7 +850,7 @@ void detection_pir()
 
   // determination action photo/video suite à detection_pir, mesure batterylevel
     code_nb_images = eval_action_batt_frequence();
-    
+
 
     if (!photo_video_en_cours)
     {
@@ -828,7 +860,8 @@ void detection_pir()
       {
         photo_video_en_cours=3;
         systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
-        if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+        BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
+        if (xres != pdTRUE)
         {
           if (erreur_queue<5) num_err_queue[erreur_queue]=7;
           erreur_queue++;
@@ -838,7 +871,8 @@ void detection_pir()
       {
         photo_video_en_cours=3;
         systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };  // Exemple : donnée = 123
-        if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+        BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
+        if (xres != pdTRUE)
         {
           if (erreur_queue<5) num_err_queue[erreur_queue]=8;
           erreur_queue++;
@@ -859,7 +893,7 @@ char* requete_status_appli(char *json_response, char *p, uint8_t type)
 
 // type 1
 uint8_t requete_Get_appli(const char* var, float *valeur)
-  //uint8_t requete_Get_appli (String var, float *valeur) 
+  //uint8_t requete_Get_appli (String var, float *valeur)
 {
   uint8_t res=1;
 
@@ -877,7 +911,7 @@ uint8_t requete_Get_appli(const char* var, float *valeur)
 
 
 // type 1
-uint8_t requete_Set_appli (String param, float valf) 
+uint8_t requete_Set_appli (String param, float valf)
 {
   uint8_t res=1;
   int8_t val = round(valf);
@@ -931,7 +965,7 @@ uint8_t requete_Get_String_appli(uint8_t type, String var, char *valeur)
   uint8_t res=1;
   int paramV = var.toInt();
   // valeur limité a 50 caractères
-  
+
   if (paramV == 60)  // registre 60 : adresse MAC ce module
   {
     res = 0;
@@ -978,32 +1012,34 @@ uint8_t requete_action_appli(const char *reg, const char *data)
   uint8_t res=1;
 
 
-  if (strcmp(reg, "Photo") == 0) 
-    { 
-      res=0; 
+  if (strcmp(reg, "Photo") == 0)
+    {
+      res=0;
       battery_level = 0;  // permet de ne pas encoder en lpc la photo et de ne pas l'envoyer au serveur
       systeme_eve_t evt = { EVENT_PRISE_PHOTO, 0 };  // Exemple : donnée = 123
-      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+      BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
+      if (xres != pdTRUE)
       {
         if (erreur_queue<5) num_err_queue[erreur_queue]=3;
         erreur_queue++;
       }
     }
 
-  if (strcmp(reg, "Video") == 0) 
-    { 
-      res=0; 
+  if (strcmp(reg, "Video") == 0)
+    {
+      res=0;
       systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };  // Exemple : donnée = 123
-      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+      BaseType_t xres = xQueueSend(eventQueue, &evt, (TickType_t)(10 / portTICK_PERIOD_MS));
+      if (xres != pdTRUE)
       {
         if (erreur_queue<5) num_err_queue[erreur_queue]=3;
         erreur_queue++;
       }
     }
 
-  if (strcmp(reg, "Tint") == 0) 
-    { 
-      res=0; 
+  if (strcmp(reg, "Tint") == 0)
+    {
+      res=0;
       float humid;
       uint8_t Tint_erreur = lecture_Tint(&Tint, &humid);
       Serial.println(Tint_erreur);
@@ -1011,7 +1047,7 @@ uint8_t requete_action_appli(const char *reg, const char *data)
       Serial.println(humid);
     }
 
-    
+
   return res;
 }
 
@@ -1117,13 +1153,13 @@ uint8_t fetch_internet_temp() {
   // 1. Vérifier si le réseau est disponible avant de commencer
   if (WiFi.status() != WL_CONNECTED) {
     // Si vous utilisez l'Ethernet, remplacez par le test approprié
-    return res; 
+    return res;
   }
 
   HTTPClient http;
 
   // 2. Définir un timeout court (2000ms au lieu des 5-10s par défaut)
-  http.setTimeout(2000); 
+  http.setTimeout(2000);
 
   char url[150];  // assez grand pour contenir toute l'URL
   sprintf(url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current=temperature_2m", latitude, longitude);
@@ -1135,7 +1171,7 @@ uint8_t fetch_internet_temp() {
       String payload = http.getString();
       DynamicJsonDocument doc(512);
       DeserializationError error = deserializeJson(doc, payload);
-      
+
       if (!error) {
         float temp = doc["current"]["temperature_2m"] | NAN;
         if (!isnan(temp) && temp > -50.0 && temp < 60.0)
@@ -1193,7 +1229,7 @@ void event_mesure_temp()  // toutes les 15 minutes
 float readBatteryVoltage() {
   // Lecture ADC (0-4095) sur PIN_Vbatt
   // Sur ESP32 DevKit V1, l'ADC est calibré par défaut
-  
+
   /*int raw = analogRead(PIN_Vbatt);
   // Conversion:
   // raw / 4095.0 * 3.3V (tension ref approx) * 2 (pont diviseur) * 1.1 (facteur corection empirique souvent nécessaire sur ESP32)
@@ -1228,7 +1264,7 @@ void traitement_espnow_recv(EspNowRecvMsg_t &recv) {
 
   // 🔍 DIAGNOSTIC: Afficher infos de réception
   if (log_detail >=1)  Serial.println("\n📥 ========== RECEPTION ESP-NOW ==========");
-  if (log_detail>=3) 
+  if (log_detail>=3)
   {
     Serial.printf("   Adresse MAC source: ");
     for (int i = 0; i < 6; i++) {
@@ -1237,14 +1273,14 @@ void traitement_espnow_recv(EspNowRecvMsg_t &recv) {
     }
     Serial.println();
   }
-  
+
   // Afficher le canal WiFi actuel
   uint8_t current_channel;
   wifi_second_chan_t second;
   esp_wifi_get_channel(&current_channel, &second);
   if (log_detail>=4) Serial.printf("   Canal WiFi actuel: %d\n\r", current_channel);
   if (log_detail>=3)Serial.printf("   Taille recue: %d octets\n\r", len);
-  
+
   if (len > sizeof(Message_Struct)) {
     Serial.println("⚠️ message trop long");
     return;
@@ -1278,7 +1314,7 @@ uint8_t enreg_valeur()
   valTemp[cpt_nb_val] = (uint16_t)((Tint+40) * 100);
   valHum[cpt_nb_val] = (uint16_t)(Humid * 100);
   valTick[cpt_nb_val] = Tick_6s; // chaque 6 secondes
-  
+
   cpt_nb_val++;
   uint8_t envoi=0;
 
@@ -1303,14 +1339,14 @@ uint8_t enreg_valeur()
     message.code2 = 'T';
 
     message.payload[0] = cpt_nb_val;
-    
+
     uint8_t pos = 1;
     for (uint8_t cpt = 0; cpt < cpt_nb_val; cpt++)
     {
       message.payload[pos++] = (uint8_t) valTick[cpt];
       message.payload[pos++] = (uint8_t) (valTick[cpt] >> 8);
       message.payload[pos++] = valTick[cpt] >> 16;
-      payloadWrite(message.payload, pos, valTemp[cpt]);  
+      payloadWrite(message.payload, pos, valTemp[cpt]);
       payloadWrite(message.payload, pos, valHum[cpt]);
       if (log_detail>=4)  Serial.printf("   %.2f°C %.2f%% %d min\n\r", valTemp[cpt]/100.0-40, valHum[cpt]/100.0, valTick[cpt]/10);
     }
@@ -1330,7 +1366,7 @@ uint8_t enreg_valeur()
         envoi_6s_prec = Tick_6s;  // mettre à jour le temps du dernier envoi
     } else {
         Serial.printf("❌ Erreur envoi ESP-NOW : %d\n\r", result);
-        if (log_detail>=4) 
+        if (log_detail>=4)
         {
           activation_writelog();
           writeLog('E', 8, valTemp[0]/10,  valHum[0]/10, "Esp_now");
@@ -1367,7 +1403,7 @@ uint8_t envoi_valeur_instant(float Tint, float Humid, float HA, float vbatt)
 
   // Taille réelle du message envoyé
   message.longueur = 4 + pos;
-  
+
   if (log_detail>=4) Serial.printf("Message statut avant envoi: %u\n\r", message.statut);
 
   uint8_t result = envoi_data(message, 0);   // envoi valeurs instantanées à la gateway
@@ -1383,7 +1419,7 @@ void envoi_temp_hygro()
 
     float HA = absoluteHumidity(Tint, Humid);
     float vbatt = readBatteryVoltage();
-    if (log_detail>=2) Serial.printf("Temp int:%.2f Humid:%.2f HA:%.2f VBatt:%.2f\n\r", Tint, Humid, HA, vbatt); 
+    if (log_detail>=2) Serial.printf("Temp int:%.2f Humid:%.2f HA:%.2f VBatt:%.2f\n\r", Tint, Humid, HA, vbatt);
     envoi_valeur_instant(Tint, Humid, HA, vbatt);
-  #endif  
+  #endif
 }

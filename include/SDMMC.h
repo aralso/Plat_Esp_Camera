@@ -22,6 +22,7 @@ uint8_t encode_lpc2(const lpc_settings_t &settings, uint8_t * jpg_bu, size_t jpg
 bool getJpegSize(uint8_t *buf, size_t len, uint16_t &w, uint16_t &h);
 bool envoyer_fichier ();
 extern char path_lpc[128];
+extern char path_c[80];
 
 
 #endif

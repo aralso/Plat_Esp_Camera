@@ -1046,7 +1046,7 @@ uint8_t capture_photo_sd()
         if (battery_level > 70) code_encod = 'C';
         strncpy(path_c, file_path, sizeof(path_c)); // TODO vérifier tailles 64-> 128
         systeme_eve_t evt = { EVENT_ENCODE_LPC, 0 };  // Exemple : donnée = 123
-        if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+        if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
         {
         if (erreur_queue<5) num_err_queue[erreur_queue]=9;
         erreur_queue++;
@@ -1231,7 +1231,7 @@ uint8_t capture_avi_b()
                 if (battery_level > 40) code_encod = 'B';
                 if (battery_level > 70) code_encod = 'C';
                 systeme_eve_t evt = { EVENT_ENCODE_LPC, 0 };  // Exemple : donnée = 123
-                if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+                if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
                 {
                 if (erreur_queue<5) num_err_queue[erreur_queue]=9;
                 erreur_queue++;
@@ -1386,7 +1386,8 @@ uint8_t capture_avi_b()
                     systeme_eve_t evt = { EVENT_PRISE_VIDEO, 0 };
                     xQueueSend(eventQueue, &evt, 0);
                 }
-            } else {
+            } else
+            {
                 // Done : fin du fichier video
                 mjpegw_close(avi_session.avi);
                 avi_session.avi = NULL;
@@ -1398,6 +1399,23 @@ uint8_t capture_avi_b()
                 unsigned long t_end = millis();
                 if (log_detail >= 3) ESP_LOGI(TAG, "AVI capture complete %s (%d frames) close=%u ms", avi_session.file_path, avi_session.frames_captured, t_end-t_add_end);
                 resul =0;
+
+                // envoi video compressee au serveur
+                if ((battery_level > 20) && (resul==0))
+                {
+                    code_encod = 'A';
+                    if (battery_level > 40) code_encod = 'B';
+                    if (battery_level > 70) code_encod = 'C';
+                    strncpy(path_c, avi_session.file_path, sizeof(path_c)); // TODO vérifier tailles 64-> 128
+                    systeme_eve_t evt = { EVENT_ENCODE_LPC, 0 };  
+                    if (xQueueSend(eventQueue, &evt, 0) != pdTRUE)
+                    {
+                    if (erreur_queue<5) num_err_queue[erreur_queue]=9;
+                    erreur_queue++;
+                    }
+                }
+                else 
+                    return 1;
             }
         }
         else
