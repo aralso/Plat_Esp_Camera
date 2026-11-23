@@ -82,18 +82,17 @@
 
 
 #define SDCARD
-#define CAMERA
 //#define Temp_int_DHT22
 
 #define END_NODE // Si non defini : il s'agit de la gateway
 
 #ifdef END_NODE
   // Device address identifier used in filenames (single letter or short string)
-   #ifndef ADDRESS
-     #define ADDRESS "A"
-   #endif
+     #define ADDRESS "D"
+     #define CAMERA
+     #define ESP32_ATTACHED_TO_STM32  // ESP32 est raccorde a un STM32 par UART; commenter pour un ESP autonome.
 #else
-   #define ADDRESS 'I'  // Gateway ESP32
+   #define ADDRESS 'B'  // Gateway ESP32
 #endif
 
 #define LATITUDE "48.8461"  // Garches => pour récupération Temp Ext
@@ -294,9 +293,6 @@ extern int8_t last_rssi;
 // Structure d'un message uart
 #define MSG_SIZE 128
 
-// Defini si cet ESP32 est raccorde a un STM32 par UART; commenter pour un ESP autonome.
-// En mode autonome, My_Address est utilise comme adresse locale et emetteur.
-#define ESP32_ATTACHED_TO_STM32
 
 typedef struct {
   char message[MSG_SIZE];
@@ -324,8 +320,7 @@ enum : uint8_t {
 enum : uint8_t {
   UART_ADDRESS_ESP = '0',
   UART_ADDRESS_STM32 = '1',
-  UART_ADDRESS_DEBUG = '2',
-  UART_ADDRESS_STM32_NODE = 'H'
+  UART_ADDRESS_DEBUG = '2'
 };
 
 typedef struct {
@@ -344,8 +339,8 @@ void recep_message1(UartMessage_t* messa);  // recept_uart1
 // ASCII format starts with destination; source is 0 when attached, otherwise My_Address. param is kept for API compatibility.
 uint8_t envoie_mess_ASC(uint8_t param, const char* format, ...);
 // Binary input is [destination, payload length, payload...]; longueur excludes a NUL byte.
-uint8_t envoie_mess_bin(UartMessage_t* mess);
-uint8_t envoie_mess_bin_source(UartMessage_t* mess, uint8_t emitter);
+uint8_t envoie_mess_bin(char* mess);
+uint8_t envoie_mess_bin_source(char* mess, uint8_t emitter);
 bool traitement_fichier_lora(UartMessage_t* mess);
 void demarrer_envoi_fichier_lora();
 void traiter_reception_fichier_lora_event(const char *finalPath);

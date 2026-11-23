@@ -53,6 +53,10 @@ K:accusé reception
 
 Nota : Avantages Platformio : Ifdef, intellisense, temps compil, backtrace
 
+Messages reçus par l'esp32 :
+H:Heure/date : HLH, HLD, HLS, HEH, HED,HES
+V:Valeurs : VLxx  VExx:yyy
+A:Actions : Axxx
 */
 
 
@@ -921,10 +925,46 @@ void IRAM_ATTR onButtonInterrupt() {
 }
 
 
+static void queueUartFrame(const uint8_t *data, uint16_t length)
+{
+  if ((data == NULL) || (length == 0) || (length >= MSG_SIZE) || (QueueUart == NULL))
+  {
+    Serial.println("[UART] Trame invalide ou file non initialisee");
+    return;
+  }
+
+  UartMessage_t mess = {};
+  memcpy(mess.msg, data, length);
+  mess.msg[length] = '\0';
+  mess.longueur = length + 1;
+
+  if (xQueueSend(QueueUart, &mess, 0) != pdPASS)
+  {
+    if (erreur_queue < 5) num_err_queue[erreur_queue] = 6;
+    erreur_queue++;
+    log_erreur(Code_erreur_queue_full, 6, 0);
+    return;
+  }
+
+  systeme_eve_t evt;
+  evt.type = EVENT_UART;
+  evt.data = mess.longueur;
+  if (xQueueSend(eventQueue, &evt, 0) != pdPASS)
+  {
+    if (erreur_queue < 5) num_err_queue[erreur_queue] = 7;
+    erreur_queue++;
+    log_erreur(Code_erreur_queue_full, 7, 0);
+  }
+}
+
+static bool decodeBinaryProtocolFrame(UartMessage_t *message, const char *interfaceName);
+
 void uartTask(void * parameter) {
-  char uartInput[MSG_SIZE];
-  uartInput[0] = '\0';
-  uint16_t uartLong=0;
+  uint8_t uartInput[MSG_SIZE];
+  uint16_t uartLong = 0;
+  uint16_t binaryExpected = 0;
+  bool binaryFrame = false;
+  (void)parameter;
 
   for (;;) {
     // Protection contre les interférences WiFi
@@ -936,49 +976,63 @@ void uartTask(void * parameter) {
     }
 
     while (Serial.available()) {
-      char c = Serial.read();
-      //Serial.print("recu");
-      if (c == '\n' || c == '\r')
-      { // Fin de ligne
-        if (uartLong > 0) {
-          if (uartLong > MSG_SIZE-1)
-            uartLong = MSG_SIZE-1;
-          uartInput[uartLong]=0; // terminaison
+      const uint8_t c = (uint8_t)Serial.read();
 
-          UartMessage_t mess;
-          strncpy(mess.msg, uartInput, uartLong+1);  // Copie sécurisée
-          mess.msg[MSG_SIZE - 1] = '\0';  // Assurer la terminaison
-          mess.longueur = uartLong+1;
-          uint8_t status = xQueueSend(QueueUart, &mess, 0);
-          if (!status)
-          {
-            if (erreur_queue<5) num_err_queue[erreur_queue]=6;
-            erreur_queue++;
-          }
+      if (uartLong == 0) {
+        if ((c == '\r') || (c == '\n'))
+          continue;
+        binaryFrame = (c & 0x80) != 0;
+      }
 
-          systeme_eve_t evt;
-          evt.type = EVENT_UART;
-          evt.data = uartLong+1;
-          status = xQueueSend(eventQueue, &evt, 0);
-          if (!status)
-          {
-            if (erreur_queue<5) num_err_queue[erreur_queue]=7;
-            erreur_queue++;
-          }
-          if (status!=pdPASS) log_erreur(Code_erreur_queue_full, status, 0);
-          uartInput[0]=0;
-          uartLong=0;
+      if (!binaryFrame && ((c == '\r') || (c == '\n'))) {
+        if (uartLong > 0)
+          queueUartFrame(uartInput, uartLong);
+        uartLong = 0;
+        binaryExpected = 0;
+        continue;
+      }
+
+      if (!binaryFrame && ((c < 32) || (c > 126)))
+        continue;
+
+      if (uartLong >= MSG_SIZE - 1) {
+        Serial.println("[UART] Trame trop longue, trame abandonnee");
+        uartLong = 0;
+        binaryExpected = 0;
+        binaryFrame = false;
+        continue;
+      }
+
+      uartInput[uartLong++] = c;
+
+      if (binaryFrame && (uartLong == 3)) {
+        const uint8_t payloadLength = uartInput[2];
+        binaryExpected = (uint16_t)payloadLength + 3;
+        if ((payloadLength < 2) || (binaryExpected > MSG_SIZE - 1)) {
+          Serial.println("[UART] Longueur binaire invalide");
+          uartLong = 0;
+          binaryExpected = 0;
+          binaryFrame = false;
+          continue;
         }
-      } else
-      {
-        // Filtre : On ne garde que les caractères imprimables pour éviter les parasites
-        if (c >= 32 && c <= 126)
-        {
-          if (uartLong < MSG_SIZE-1)
-          {
-            uartInput[uartLong++] = c;
-          }
+      }
+
+      if (binaryFrame && (uartLong == 4) && (uartInput[3] & 0x80)) {
+        binaryExpected++;
+        if (binaryExpected > MSG_SIZE - 1) {
+          Serial.println("[UART] Longueur binaire invalide");
+          uartLong = 0;
+          binaryExpected = 0;
+          binaryFrame = false;
+          continue;
         }
+      }
+
+      if (binaryFrame && (binaryExpected != 0) && (uartLong == binaryExpected)) {
+        queueUartFrame(uartInput, uartLong);
+        uartLong = 0;
+        binaryExpected = 0;
+        binaryFrame = false;
       }
     }
   }
@@ -1027,6 +1081,13 @@ static uint8_t protocolLocalAddress()
 #endif
 }
 
+static bool isLocalProtocolDestination(uint8_t destination)
+{
+  destination &= 0x7F;
+  return (destination == protocolLocalAddress()) ||
+         (destination == UART_ADDRESS_ESP);
+}
+
 static bool isDebugProtocolLine(const char *data, uint16_t length)
 {
   if ((data == NULL) || (length < 4) || (((uint8_t)data[0] & 0x80) != 0))
@@ -1039,7 +1100,7 @@ static bool isDebugProtocolLine(const char *data, uint16_t length)
     return false;
 
   const uint8_t destination = (uint8_t)data[0] & 0x7F;
-  if (destination == protocolLocalAddress())
+  if (isLocalProtocolDestination(destination))
     return true;
 
   for (uint8_t i = 0; i < uartRouteTableCount; ++i)
@@ -1215,16 +1276,26 @@ void taskHandler(void *parameter) {
 
                     UartMessage_t uartMsg;
                     while (xQueueReceive(QueueUart, &uartMsg, 0) == pdTRUE) {
+                        const uint16_t messageLength =
+                            uartMsg.longueur ? uartMsg.longueur - 1 : 0;
+                        const bool binaryFrame =
+                            (messageLength > 0) &&
+                            ((((uint8_t)uartMsg.msg[0] & 0x80) != 0));
                         if (log_detail>=3) 
                         {
                           Serial.printf("Message UART (%d octets) : ", uartMsg.longueur);
-                          for (uint16_t i = 0; i < uartMsg.longueur-1 && i < MSG_SIZE; i++) {
-                            Serial.print(uartMsg.msg[i]);
+                          for (uint16_t i = 0; i < messageLength && i < MSG_SIZE; i++) {
+                            if (binaryFrame)
+                              Serial.printf("%02X ", (uint8_t)uartMsg.msg[i]);
+                            else
+                              Serial.print(uartMsg.msg[i]);
                           }
                           Serial.println();
                         }
-                        const uint16_t messageLength = uartMsg.longueur - 1;
-                        if (isDebugProtocolLine(uartMsg.msg, messageLength))
+                        if (binaryFrame) {
+                          if (decodeBinaryProtocolFrame(&uartMsg, "UART"))
+                            traitement_rx(&uartMsg);
+                        } else if (isDebugProtocolLine(uartMsg.msg, messageLength))
                           traitement_rx(&uartMsg);
                         else
                           recep_message(uartMsg.msg);
@@ -1237,15 +1308,18 @@ void taskHandler(void *parameter) {
                   // 1-12  1-12:48
                   UartMessage_t uartMsg1;
                   while (xQueueReceive(QueueUart1, &uartMsg1, 0) == pdTRUE) {
-                    Serial.printf("Message UART1 (%d octets) : ", uartMsg1.longueur);
-                    uint16_t messageLength = uartMsg1.longueur ? uartMsg1.longueur - 1 : 0;
-                    for (uint16_t i = 0; i < messageLength && i < MSG_SIZE; i++) {
-                      if (((uint8_t)uartMsg1.msg[0] & 0x80) != 0)
-                        Serial.printf("%02X ", (uint8_t)uartMsg1.msg[i]);
-                      else
-                        Serial.print(uartMsg1.msg[i]);
+                    if (log_detail>=2)
+                    {
+                      Serial.printf("Message UART1 (%d octets) : ", uartMsg1.longueur);
+                      uint16_t messageLength = uartMsg1.longueur ? uartMsg1.longueur - 1 : 0;
+                      for (uint16_t i = 0; i < messageLength && i < MSG_SIZE; i++) {
+                        if (((uint8_t)uartMsg1.msg[0] & 0x80) != 0)
+                          Serial.printf("%02X ", (uint8_t)uartMsg1.msg[i]);
+                        else
+                          Serial.print(uartMsg1.msg[i]);
+                      }
+                      Serial.println();
                     }
-                    Serial.println();
                     recep_message1(&uartMsg1);
                   }
                   break;
@@ -1279,10 +1353,12 @@ void taskHandler(void *parameter) {
                   break;
 
                  case EVENT_HTTP_ROOT_CHECK:
-                  checkRootAvailability();
-                  portENTER_CRITICAL(&rootAvailabilityEventMux);
-                  rootAvailabilityEventPending = false;
-                  portEXIT_CRITICAL(&rootAvailabilityEventMux);
+                 if (log_detail>=3) {
+                    checkRootAvailability();
+                    portENTER_CRITICAL(&rootAvailabilityEventMux);
+                    rootAvailabilityEventPending = false;
+                    portEXIT_CRITICAL(&rootAvailabilityEventMux);
+                 }
                   break;
 
                 case EVENT_GPIO_OFF:
@@ -4581,7 +4657,8 @@ static bool setProtocolTimestamp(uint32_t timestamp)
   return true;
 }
 
-static bool localDispatchActive = false;
+static const uint8_t LOCAL_DISPATCH_MAX_DEPTH = 2; // requete initiale + un message local genere
+static uint8_t localDispatchDepth = 0;
 
 static uint8_t findUartRoute(uint8_t destination)
 {
@@ -4672,11 +4749,11 @@ uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
   memcpy(&frame[2], &formatted[1], formattedLength - 1);
   const uint16_t frameLength = (uint16_t)formattedLength + 1;
 
-  if (destination == protocolLocalAddress())
+  if (isLocalProtocolDestination(destination))
   {
-    if (localDispatchActive)
+    if (localDispatchDepth >= LOCAL_DISPATCH_MAX_DEPTH)
     {
-      Serial.println("[UART ROUTE] Boucle locale evitee");
+      Serial.println("[UART ROUTE] Boucle locale 1 evitee");
       return 5;
     }
 
@@ -4691,15 +4768,17 @@ uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
                                   frameLength, !hasTrailingCr);
 }
 
-uint8_t envoie_mess_bin_source(UartMessage_t *mess, uint8_t emitter)
+uint8_t envoie_mess_bin_source(char *mess, uint8_t emitter)
 {
-  if ((mess == NULL) || (mess->longueur < 4) || (mess->longueur > MSG_SIZE))
+  uint8_t mess_longueur = mess[1]+2;
+
+  if ((mess == NULL) || (mess_longueur < 4) || (mess_longueur > MSG_SIZE))
     return 1;
 
-  const uint8_t destination = (uint8_t)mess->msg[0] & 0x7F;
-  const uint8_t payloadLength = (uint8_t)mess->msg[1];
-  const uint8_t *payload = (const uint8_t *)&mess->msg[2];
-  if ((payloadLength < 2) || (mess->longueur != (uint16_t)payloadLength + 2))
+  const uint8_t destination = (uint8_t)mess[0] & 0x7F;
+  const uint8_t payloadLength = (uint8_t)mess[1];
+  const uint8_t *payload = (const uint8_t *)&mess[2];
+  if ((payloadLength < 2) || (mess_longueur != (uint16_t)payloadLength + 2))
     return 1;
 
   const bool hasCrc = (payload[0] & 0x80) != 0;
@@ -4723,21 +4802,23 @@ uint8_t envoie_mess_bin_source(UartMessage_t *mess, uint8_t emitter)
     frame[3 + payloadLength] = crc;
   }
 
-  if (destination == protocolLocalAddress())
+  if (isLocalProtocolDestination(destination))
   {
-    if (localDispatchActive)
+    if (localDispatchDepth >= LOCAL_DISPATCH_MAX_DEPTH)
     {
-      Serial.println("[UART ROUTE] Boucle locale evitee");
+      Serial.println("[UART ROUTE] Boucle locale 2 evitee");
       return 5;
     }
 
-    UartMessage_t localMessage = {};
-    localMessage.msg[0] = (char)frame[0];
-    localMessage.msg[1] = (char)emitter;
-    memcpy(&localMessage.msg[2], payload, payloadLength);
+    mess[0] = (char)frame[0];
+    mess[1] = (char)emitter;
+    memcpy(&mess[2], payload, payloadLength);
     if (hasCrc)
-      localMessage.msg[2] &= 0x7F;
-    localMessage.longueur = (uint16_t)payloadLength + 3;
+      mess[2] &= 0x7F;
+    mess_longueur = (uint16_t)payloadLength + 3;
+    UartMessage_t localMessage = {};
+    memcpy(localMessage.msg, mess, mess_longueur);
+    localMessage.longueur = mess_longueur;
     traitement_rx(&localMessage);
     return 0;
   }
@@ -4745,7 +4826,8 @@ uint8_t envoie_mess_bin_source(UartMessage_t *mess, uint8_t emitter)
   return writeRoutedProtocolFrame(destination, frame, frameLength, false);
 }
 
-uint8_t envoie_mess_bin(UartMessage_t *mess)
+// longueur : total , sans l'emetteur
+uint8_t envoie_mess_bin(char *mess)
 {
   return envoie_mess_bin_source(mess, protocolLocalAddress());
 }
@@ -4759,12 +4841,11 @@ static bool sendProtocolTimestamp(uint8_t destination, uint32_t timestamp)
     (uint8_t)(timestamp >> 16),
     (uint8_t)(timestamp >> 24)
   };
-  UartMessage_t message = {};
-  message.msg[0] = (char)destination;
-  message.msg[1] = (char)sizeof(payload);
-  memcpy(&message.msg[2], payload, sizeof(payload));
-  message.longueur = (uint16_t)sizeof(payload) + 2;
-  return envoie_mess_bin(&message) == 0;
+  char message[10] = {};
+  message[0] = (char)destination;
+  message[1] = (char)sizeof(payload);
+  memcpy(&message[2], payload, sizeof(payload));
+  return envoie_mess_bin(message) == 0;
 }
 
 static bool tryReceiveDateTimeMessage(const char *message)
@@ -4908,6 +4989,56 @@ void recep_message(char *messa) // recept_uart
   }
 }
 
+static bool decodeBinaryProtocolFrame(UartMessage_t *message, const char *interfaceName)
+{
+  if ((message == NULL) || (message->longueur < 2) ||
+      (message->longueur > MSG_SIZE))
+  {
+    Serial.printf("[%s] Longueur de message invalide\n\r", interfaceName);
+    return false;
+  }
+
+  uint8_t *data = (uint8_t *)message->msg;
+  const uint16_t wireLength = message->longueur - 1;
+  if ((data[0] & 0x80) == 0)
+    return true;
+
+  if (wireLength < 5)
+  {
+    Serial.printf("[%s] Entete binaire invalide\n\r", interfaceName);
+    return false;
+  }
+
+  const uint8_t payloadLength = data[2];
+  const bool hasCrc = (data[3] & 0x80) != 0;
+  const uint16_t expectedWireLength =
+      (uint16_t)payloadLength + 3 + (hasCrc ? 1 : 0);
+  if ((payloadLength < 2) || (wireLength != expectedWireLength))
+  {
+    Serial.printf("[%s] Longueur binaire incoherente\n\r", interfaceName);
+    return false;
+  }
+
+  if (hasCrc)
+  {
+    uint8_t crc = 0;
+    for (uint16_t i = 3; i < wireLength - 1; i++)
+      crc += data[i];
+    if (crc != data[wireLength - 1])
+    {
+      Serial.printf("[%s] CRC binaire incorrect\n\r", interfaceName);
+      return false;
+    }
+    data[3] &= 0x7F;
+  }
+
+  memmove(&data[2], &data[3], payloadLength);
+  const uint16_t decodedLength = (uint16_t)payloadLength + 2;
+  data[decodedLength] = '\0';
+  message->longueur = decodedLength + 1;
+  return true;
+}
+
 void recep_message1(UartMessage_t * messa) // recept_uart1
 {
   if ((messa == NULL) || (messa->longueur < 2) || (messa->longueur > MSG_SIZE))
@@ -4917,45 +5048,13 @@ void recep_message1(UartMessage_t * messa) // recept_uart1
   }
 
   uint8_t *message = (uint8_t *)messa->msg;
-  uint16_t wireLength = messa->longueur - 1;
   const bool binaryFrame = (message[0] & 0x80) != 0;
   if (binaryFrame)
   {
-    if (wireLength < 5)
-    {
-      Serial.println("[UART1] Entete binaire invalide");
+    if (!decodeBinaryProtocolFrame(messa, "UART1"))
       return;
-    }
-
-    uint8_t payloadLength = message[2];
-    const bool hasCrc = (message[3] & 0x80) != 0;
-    const uint16_t expectedWireLength =
-        (uint16_t)payloadLength + 3 + (hasCrc ? 1 : 0);
-    if ((payloadLength < 2) || (wireLength != expectedWireLength))
-    {
-      Serial.println("[UART1] Longueur binaire incoherente");
-      return;
-    }
-
-    if (message[3] & 0x80)
-    {
-      uint8_t crc = 0;
-      for (uint16_t i = 3; i < wireLength - 1; i++)
-        crc += message[i];
-      if (crc != message[wireLength - 1])
-      {
-        Serial.println("[UART1] CRC binaire incorrect");
-        return;
-      }
-      message[3] &= 0x7F;
-    }
-
-    memmove(&message[2], &message[3], payloadLength);
-    wireLength = payloadLength + 2;
-    message[wireLength] = '\0';
-    messa->longueur = wireLength + 1;
   }
-  else if (wireLength < 4)
+  else if ((messa->longueur - 1) < 4)
   {
     Serial.println("[UART1] Trame ASCII invalide");
     return;
@@ -4963,7 +5062,7 @@ void recep_message1(UartMessage_t * messa) // recept_uart1
 
   #if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
       if (((message[0] & 0x7F) == UART_ADDRESS_STM32) ||
-          ((message[0] & 0x7F) == UART_ADDRESS_STM32_NODE))
+          ((message[0] & 0x7F) == My_Address))
         message[0] = (message[0] & 0x80) | UART_ADDRESS_ESP;
   #endif
 
@@ -5060,9 +5159,9 @@ static bool traitementHeureDate(UartMessage_t *mess) // messageLength : HHLH -> 
       time_t now = time(nullptr);
       uint32_t timestamp = (now > 0) ? (uint32_t)now : 0;
       if (sendProtocolTimestamp(message_in[1] & 0x7F, timestamp))
-        Serial.printf("[TIME] HLS: timestamp %lu transmis\n\r", (unsigned long)timestamp);
+        if (log_detail>=3) Serial.printf(" [TIME] HLS: timestamp %lu transmis\n\r", (unsigned long)timestamp);
       else
-        Serial.println("[TIME] HLS: echec de transmission vers l'emetteur");
+        Serial.println(" [TIME] HLS: echec de transmission vers l'emetteur");
       return true;
     }
   }
@@ -5070,8 +5169,12 @@ static bool traitementHeureDate(UartMessage_t *mess) // messageLength : HHLH -> 
   return false;
 }
 
+//long mess ascii :  DEHLHcr => 6
+// long mess binaire : DE3HLH => 6
 void traitement_rx(UartMessage_t * mess)
 {
+  if (log_detail>=3) Serial.printf("traitement_rx :lg=%d\n\r", mess->longueur);
+
   if ((mess == NULL) || (mess->longueur < 2) || (mess->longueur > MSG_SIZE))
     return;
 
@@ -5079,15 +5182,15 @@ void traitement_rx(UartMessage_t * mess)
   uint8_t *message_in = (uint8_t *)mess->msg;
 
   const uint8_t destination = message_in[0] & 0x7F;
-  if (destination == protocolLocalAddress())
+  if (isLocalProtocolDestination(destination))
   {
-    if (localDispatchActive)
+    if (localDispatchDepth >= LOCAL_DISPATCH_MAX_DEPTH)
     {
-      Serial.println("[UART ROUTE] Boucle locale evitee");
+      Serial.println("[UART ROUTE] Boucle locale 3 evitee");
       return;
     }
 
-    localDispatchActive = true;
+    localDispatchDepth++;
     if (!traitement_fichier_lora(mess) )
     {
       // --------------   HHHHHHHHHHH  -------------------
@@ -5100,9 +5203,9 @@ void traitement_rx(UartMessage_t * mess)
       {
         if (message_in[3] == '1')  // T12T2  -> envoie message 2T2
         {
-          const uint16_t testMessageLength = longueur_m - 4;
-          if ((testMessageLength < 4) ||  (message_in[longueur_m - 1] != car_fin_trame))
-            Serial.println("[UART RX] Trame T1 invalide: CR final absent");
+          uint8_t testMessageLength = longueur_m - 4;
+          if ((testMessageLength < 4) ||  ((message_in[longueur_m - 1] != car_fin_trame) && (message_in[longueur_m - 1] )))
+            Serial.printf("[UART RX] Trame T1 invalide lg:%d car:%d\n\r", longueur_m, message_in[longueur_m - 1]);
           else 
             envoie_mess_ASC(0, "%.*s", (int)testMessageLength, (const char *)(message_in + 4));
         }
@@ -5114,20 +5217,19 @@ void traitement_rx(UartMessage_t * mess)
         {
           envoie_mess_ASC(0, "2T3OK") ;
         }
-        if ((message_in[3] == '1') )  // T4 -> renvoie T3 binaire
+        if ((message_in[3] == '4') )  // T4 -> renvoie T3 binaire
         {
-              UartMessage_t messag;
-							messag.msg[0] = message_in[1] | 0x80;  // binaire
-							messag.msg[2] = 'T';
-              messag.msg[3] = '3';
-							messag.longueur = 1;
-              messag.msg[1] = messag.longueur+3;
-							envoie_mess_bin(&messag);
+              char messag[10];
+							messag[0] = message_in[1];
+							messag[2] = 'T';
+              messag[3] = '3';
+              messag[1] = 2;
+							envoie_mess_bin(messag);  // binaire
         }
       }
     }
 
-    localDispatchActive = false;
+    localDispatchDepth--;
     return;
   }
 
@@ -5946,7 +6048,7 @@ void setupRoutes()
   */
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-     logRootHttpRequest(request);
+    if (log_detail>=3) logRootHttpRequest(request);
     request->send(200, "text/html", index_html);  // processor);
   });
 

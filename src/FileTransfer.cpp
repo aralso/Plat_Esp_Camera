@@ -131,16 +131,15 @@ static uint8_t transferAckEmitter()
 static void sendTransferReply(uint8_t destination, uint8_t code,
                               uint16_t sequence)
 {
-  UartMessage_t message = {};
-  message.msg[0] = static_cast<char>(destination & 0x7F);
-  message.msg[1] = 4;
-  message.msg[2] = 'Y';
-  message.msg[3] = static_cast<char>(code);
-  message.msg[4] = static_cast<char>(sequence >> 8);
-  message.msg[5] = static_cast<char>(sequence & 0xFF);
-  message.longueur = 6;
+  char message[MSG_SIZE] = {};
+  message[0] = static_cast<char>(destination & 0x7F);
+  message[1] = 4;
+  message[2] = 'Y';
+  message[3] = static_cast<char>(code);
+  message[4] = static_cast<char>(sequence >> 8);
+  message[5] = static_cast<char>(sequence & 0xFF);
 
-  if (envoie_mess_bin_source(&message, transferAckEmitter()) != 0)
+  if (envoie_mess_bin_source(message, transferAckEmitter()) != 0)
     Serial.printf("[LORA FILE] Echec envoi %c seq=%u vers %c\n\r",
                   code, sequence, destination);
 }
@@ -154,17 +153,16 @@ static uint8_t sendTransferPacket(uint8_t destination, uint8_t code,
       (payloadLength + 2 > MSG_SIZE))
     return 1;
 
-  UartMessage_t message = {};
-  message.msg[0] = static_cast<char>(destination & 0x7F);
-  message.msg[1] = static_cast<char>(payloadLength);
-  message.msg[2] = 'Y';
-  message.msg[3] = static_cast<char>(code);
-  message.msg[4] = static_cast<char>(sequence >> 8);
-  message.msg[5] = static_cast<char>(sequence & 0xFF);
+  char message[MSG_SIZE];
+  message[0] = static_cast<char>(destination & 0x7F);
+  message[1] = static_cast<char>(payloadLength);
+  message[2] = 'Y';
+  message[3] = static_cast<char>(code);
+  message[4] = static_cast<char>(sequence >> 8);
+  message[5] = static_cast<char>(sequence & 0xFF);
   if (bodyLength != 0)
-    memcpy(&message.msg[6], body, bodyLength);
-  message.longueur = static_cast<uint16_t>(payloadLength) + 2;
-  return envoie_mess_bin(&message);
+    memcpy(&message[6], body, bodyLength);
+  return envoie_mess_bin(message);
 }
 
 static bool ensureTxAckQueue()

@@ -27,7 +27,7 @@ Param PARAMS[] = {
   {"FrEn", 19, U8, 0, 15, 2, 0, nullptr, &freq_envoi, 0},        // frequence envoi (par mesure) 0:var, >1:fixe
   {"BooRap", 20, U8, 0, 3, 1, 0, nullptr, &boot_rapide, 0},          // registre 11 : boot rapide (0:lent 1:normal 2:rapide 3:très rapide(pas LogG-ota))
   {"Cpu", 21, U8, 40, 240, 240, 0, nullptr, &vit_cpu, 0},         // registre 11 : vitesse CPU (MHz)
-  {"Ad_node", 22, U8, 48, 122,'H' ,0, nullptr, &My_Address, 0},     // adresse H du STM32 rattache
+  {"Ad_node", 22, U8, 48, 122,'H' ,0, nullptr, &My_Address, 0},     // My_address
 
 
   // Camera capture parameters (moved to high numbers to avoid collision with SetReg)

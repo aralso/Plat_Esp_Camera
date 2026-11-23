@@ -45,12 +45,22 @@ Flash: [========  ]  84.3% (used 1712295 bytes from 2031616 bytes)
 extern WiFiClient client;
 extern Preferences preferences_nvs;  // Déclaration externe
 
+#ifdef ESP32_ATTACHED_TO_STM32   
 const UartRouteEntry uartRouteTable[] = {
   { UART_ADDRESS_STM32, UART_ADDRESS_STM32, UART_ROUTE_STM32 },
   { UART_ADDRESS_DEBUG, UART_ADDRESS_DEBUG, UART_ROUTE_DEBUG },
   { 'A', 'Z', UART_ROUTE_STM32 },
   { 'a', 'z', UART_ROUTE_STM32 }
 };
+#else
+const UartRouteEntry uartRouteTable[] = {  // Uart1-Debug : 1, Z   ESP:0,D,  Uart2-stm:A-z
+  { 'A', 'Y', UART_ROUTE_STM32 },
+  { '2', '2', UART_ROUTE_STM32 },
+  { '1', '1', UART_ROUTE_DEBUG },
+  { 'Z', 'Z', UART_ROUTE_DEBUG }
+};
+#endif
+
 const uint8_t uartRouteTableCount =
     sizeof(uartRouteTable) / sizeof(uartRouteTable[0]);
 extern uint8_t My_statut; // 0:inconnu 1:veille 2:balise 3:tj actif
