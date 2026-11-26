@@ -84,7 +84,7 @@
 #define SDCARD
 //#define Temp_int_DHT22
 
-#define END_NODE // Si non defini : il s'agit de la gateway
+//#define END_NODE // Si non defini : il s'agit de la gateway
 
 #ifdef END_NODE
   // Device address identifier used in filenames (single letter or short string)
@@ -414,6 +414,7 @@ const int PIN_TXModbus = 17;  // s3:17  devkitv1:17 DI
 const int PIN_RXModbus = 16;  // s3:18  devkitv1:16 RO
 const int PIN_TXModbus = 17;  // s3:17  devkitv1:17 DI
 #endif
+
 const int PIN_on = 19;  // allumage et extinction d'un système avec 2 boutons
 const int PIN_off = 19;
 // const int PIN_RE = 32;

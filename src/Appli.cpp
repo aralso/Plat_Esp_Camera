@@ -45,24 +45,36 @@ Flash: [========  ]  84.3% (used 1712295 bytes from 2031616 bytes)
 extern WiFiClient client;
 extern Preferences preferences_nvs;  // Déclaration externe
 
-#ifdef ESP32_ATTACHED_TO_STM32   
-const UartRouteEntry uartRouteTable[] = {
-  { UART_ADDRESS_STM32, UART_ADDRESS_STM32, UART_ROUTE_STM32 },
-  { UART_ADDRESS_DEBUG, UART_ADDRESS_DEBUG, UART_ROUTE_DEBUG },
-  { 'A', 'Z', UART_ROUTE_STM32 },
-  { 'a', 'z', UART_ROUTE_STM32 },
-  { '3', '3', HTTP_ROUTE},
-  { '4', '4', ESPNOW_ROUTE}
-};
-#else
-const UartRouteEntry uartRouteTable[] = {  // Uart1-Debug : 1, Z   ESP:0,D,  Uart2-stm:A-z
-  { 'A', 'Y', UART_ROUTE_STM32 },
-  { '2', '2', UART_ROUTE_STM32 },
-  { '1', '1', UART_ROUTE_DEBUG },
-  { 'Z', 'Z', UART_ROUTE_DEBUG },
-  { '3', '3', HTTP_ROUTE},
-  { '4', '4', ESPNOW_ROUTE}
-};
+#ifdef END_NODE
+  #ifdef ESP32_ATTACHED_TO_STM32   
+  const UartRouteEntry uartRouteTable[] = {
+    { UART_ADDRESS_STM32, UART_ADDRESS_STM32, UART_ROUTE_STM32 },
+    { UART_ADDRESS_DEBUG, UART_ADDRESS_DEBUG, UART_ROUTE_DEBUG },
+    { 'A', 'Z', UART_ROUTE_STM32 },
+    { 'a', 'z', UART_ROUTE_STM32 },
+    { '3', '3', HTTP_ROUTE},
+    { '4', '4', ESPNOW_ROUTE}
+  };
+  #else  // End Node independant
+  const UartRouteEntry uartRouteTable[] = {  // Uart1-Debug : 1, Z   ESP:0,D,  Uart2-stm:A-z
+    { 'A', 'Y', UART_ROUTE_STM32 },
+    { '2', '2', UART_ROUTE_STM32 },
+    { '1', '1', UART_ROUTE_DEBUG },
+    { 'Z', 'Z', UART_ROUTE_DEBUG },
+    { '3', '3', HTTP_ROUTE},
+    { '4', '4', ESPNOW_ROUTE}
+  };
+  #endif
+#else  // Gateway
+  const UartRouteEntry uartRouteTable[] = {  // ESP:0,B   Serial-UartUSB-Debug : 1, x    Serial1-Uart0-stm:A-z
+    { '1', '1', UART_ROUTE_STM32 },
+    { '2', '2', UART_ROUTE_DEBUG },
+    { 'x', 'x', UART_ROUTE_DEBUG },
+    { 'A', 'w', UART_ROUTE_STM32 },
+    { 'y', 'z', UART_ROUTE_STM32 },
+    { '3', '3', HTTP_ROUTE},
+    { '4', '4', ESPNOW_ROUTE}
+  };
 #endif
 
 const uint8_t uartRouteTableCount =

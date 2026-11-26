@@ -15,7 +15,7 @@ static const uint32_t kAckTimeoutMs = 45000;
 static const uint32_t kMinimumSendGapMs = 20;
 static const uint32_t kMaxFileSize = 65535UL * kChunkSize;
 static const uint8_t kMaxBasename = 63;
-static const char kDestination = 'I';
+static const char kDestination = 'B';
 
 struct TransferAck {
   uint16_t sequence;
@@ -406,6 +406,7 @@ static bool waitForFinalCommit(TxChunk &finalChunk, uint32_t &lastDataSend)
       if (gap < kMinimumSendGapMs)
         vTaskDelay(pdMS_TO_TICKS(kMinimumSendGapMs - gap));
 
+      Serial.printf("Last seq:%i code:%i lg:%i\n\r", finalChunk.sequence, finalChunk.code, finalChunk.length);
       sendTransferPacket(kDestination, finalChunk.code,
                          finalChunk.sequence, finalChunk.data,
                          finalChunk.length);
@@ -447,10 +448,10 @@ static bool sendFile(const char *sourcePath)
   }
   const char *extension = strrchr(basename, '.');
   if (extension == NULL ||
-      (strcasecmp(extension, ".jpg") != 0 &&
-       strcasecmp(extension, ".jpeg") != 0))
+      (strcasecmp(extension, ".jpg") != 0 && strcasecmp(extension, ".jpeg") != 0
+    && strcasecmp(extension, ".lpc") != 0 && strcasecmp(extension, ".avi") != 0))
   {
-    Serial.println("[LORA FILE] Le fichier courant n'est pas un JPEG");
+    Serial.println("[LORA FILE] Le fichier courant n'est pas un JPEG/LPC/AVI");
     return false;
   }
 
@@ -491,6 +492,7 @@ static bool sendFile(const char *sourcePath)
     Serial.println("[LORA FILE] Impossible de vider la file d'ACK");
     return false;
   }
+  if (log_detail>=3) Serial.printf("Entete long:%i\n\r", startBodyLength);
   sendTransferPacket(kDestination, 'A', 0, startBody, startBodyLength);
 
   bool startAcknowledged = false;
@@ -532,6 +534,7 @@ static bool sendFile(const char *sourcePath)
       const uint32_t elapsed = millis() - lastSend;
       if (elapsed < kMinimumSendGapMs)
         vTaskDelay(pdMS_TO_TICKS(kMinimumSendGapMs - elapsed));
+      if (log_detail>=3) Serial.printf("Ré-Essai Entete N°%i\n\r", startAttempts);
       sendTransferPacket(kDestination, 'A', 0, startBody, startBodyLength);
       ++startAttempts;
       lastSend = millis();
@@ -662,6 +665,7 @@ static bool sendFile(const char *sourcePath)
         }
       }
 
+      if (log_detail>=4) Serial.printf("Envoi seq %i code:%i lg:%i\n\r", chunk.sequence, chunk.code, chunk.length);
       const uint8_t sendResult =
           sendTransferPacket(kDestination, chunk.code, chunk.sequence,
                              chunk.data, chunk.length);
@@ -673,7 +677,7 @@ static bool sendFile(const char *sourcePath)
       hasDataSend = true;
       if (chunk.code == 'C')
         finalChunk = chunk;
-      if (sendResult != 0)
+      if ((sendResult != 0) && (log_detail>=3))
         Serial.printf("[LORA FILE] Envoi seq=%u en erreur, retry prevu\n\r",
                       chunk.sequence);
       continue;
@@ -775,6 +779,8 @@ void demarrer_envoi_fichier_lora()
     Serial.println("[LORA FILE] Impossible de creer la file d'ACK");
     return;
   }
+
+  if (log_detail>=3) Serial.printf ("Envoi fichier %s\n\r", path_c);
 
   strncpy(txRequestedPath, path_c, sizeof(txRequestedPath) - 1);
   txRequestedPath[sizeof(txRequestedPath) - 1] = '\0';

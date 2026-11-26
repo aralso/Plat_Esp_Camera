@@ -120,6 +120,7 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                                 <div class="icon sd-icon action-icon" onclick="reducItem('${item.name}')">R</div>
                                 <div class="icon sd-icon action-icon" onclick="encodItem('${item.name}')">E</div>
                                 <div class="icon sd-icon action-icon" onclick="decodItem('${item.name}')">D</div>
+                                <div class="icon sd-icon action-icon" onclick="SendFile('${item.name}')">S</div>
                                 <div class="icon sd-icon action-icon" onclick="compressItem('${item.name}')">Co</div>
                             </td>
                         `;
@@ -249,6 +250,20 @@ const char sd_explorer_html[] PROGMEM = R"rawliteral(
                         loadDirectory(currentPath);
                     } else {
                         alert("Erreur décodage : code: " + text);
+                    }
+                  })
+                );
+        }
+
+        function SendFile(name) {
+            const srcPath = joinPath(currentPath, name);
+            fetch(`/setSD?action=10&path=${encodeURIComponent(srcPath)}&fs=SD_MMC&out=`)
+                .then(response =>
+                  response.text().then(text => {
+                    if (response.ok) {
+                        loadDirectory(currentPath);
+                    } else {
+                        alert("Erreur envoi : code: " + text);
                     }
                   })
                 );
@@ -882,7 +897,7 @@ void server_routes_SDCARD()
 
     uint8_t result = 1;
     if (action == 1) { // Create dir
-      result = createDir(fs, path.c_str());
+      result = createDir(fs, path.c_str()) ? 0 : 1;
     } else if (action == 2) { // Delete file/dir
       File file = fs.open(path);
       if (file.isDirectory()) {
@@ -933,6 +948,18 @@ void server_routes_SDCARD()
       strncpy(path_c, path.c_str(), sizeof(path_c));
       path_c[sizeof(path_c) - 1] = '\0';  // carac final
       systeme_eve_t evt = { EVENT_DECODE_LPC, 0 }; 
+      if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
+      {
+        if (erreur_queue<5) num_err_queue[erreur_queue]=3;
+        erreur_queue++;
+      }
+      result = 0;
+    }
+    else if (action == 10)
+    { //envoi fichier par chunks
+      strncpy(path_c, path.c_str(), sizeof(path_c));
+      path_c[sizeof(path_c) - 1] = '\0';  // carac final
+      systeme_eve_t evt = { EVENT_ENVOI_FICHIER_LORA, 0 }; 
       if (xQueueSendFromISR(eventQueue, &evt, NULL) != pdTRUE) 
       {
         if (erreur_queue<5) num_err_queue[erreur_queue]=3;

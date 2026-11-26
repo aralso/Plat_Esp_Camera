@@ -5483,8 +5483,14 @@ void traitement_rx(St_Message_t& mess)
               else id = (uint8_t)(id * 10 + c - '0');
           }
           char value[PARAM_VALUE_MAX + 1];
-          if (valid && parametre_lire(id, value, sizeof(value)) == 0)
-              reponse_mess_ASC(message_in, "%cVLF%u:%s", message_in[1], id, value);
+          Param *parameter = valid ? findParameterByOrder(id) : nullptr;
+          if (parameter != nullptr &&
+              parametre_lire(id, value, sizeof(value)) == 0)
+              reponse_mess_ASC(message_in, "%cVLF%u(%s):%s",
+                               message_in[1], id, parameter->key, value);
+          else if (parameter != nullptr)
+              reponse_mess_ASC(message_in, "%cVLF%u(%s):ERR",
+                               message_in[1], id, parameter->key);
           else
               reponse_mess_ASC(message_in, "%cVLF%u:ERR", message_in[1], id);
       }
