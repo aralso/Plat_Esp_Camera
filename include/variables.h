@@ -302,7 +302,7 @@ typedef struct {
 typedef struct {
   uint16_t longueur;  // longueur
   char msg[MSG_SIZE];
-} UartMessage_t;
+} St_Message_t;
 
 typedef struct {
     uint8_t length;          // Longueur du message (champs data)
@@ -313,8 +313,10 @@ typedef struct {
 } out_message_t;
 
 enum : uint8_t {
-  UART_ROUTE_DEBUG = 1,
-  UART_ROUTE_STM32 = 3
+  UART_ROUTE_DEBUG = 2,
+  UART_ROUTE_STM32 = 1,
+  HTTP_ROUTE = 3,
+  ESPNOW_ROUTE=4
 };
 
 enum : uint8_t {
@@ -335,18 +337,18 @@ extern const uint8_t uartRouteTableCount;
 float readBatteryVoltage();
 uint8_t lectureHeure();
 void requete_status(char* json_response, uint8_t socket, uint8_t type);
-void recep_message1(UartMessage_t* messa);  // recept_uart1
+void recep_message1(St_Message_t* messa);  // recept_uart1
 // ASCII format starts with destination; source is 0 when attached, otherwise My_Address. param is kept for API compatibility.
 uint8_t envoie_mess_ASC(uint8_t param, const char* format, ...);
 // Binary input is [destination, payload length, payload...]; longueur excludes a NUL byte.
-uint8_t envoie_mess_bin(char* mess);
-uint8_t envoie_mess_bin_source(char* mess, uint8_t emitter);
-bool traitement_fichier_lora(UartMessage_t* mess);
+uint8_t envoie_mess_bin(uint8_t* mess);
+uint8_t envoie_mess_bin_source(uint8_t* mess, uint8_t emitter);
+bool traitement_fichier_lora(St_Message_t* mess);
 void demarrer_envoi_fichier_lora();
 void traiter_reception_fichier_lora_event(const char *finalPath);
 void maj_etat_chaudiere_delai(uint8_t delai);
 void modif_timer_cycle(void);
-void traitement_rx(UartMessage_t* mess);
+void traitement_rx(St_Message_t& mess);
 uint8_t requete_Get_appli(const char* var, float* valeur);
 #ifdef __cplusplus
 uint8_t requete_Set_appli(String param, float valf);
@@ -496,6 +498,7 @@ typedef struct {
 #define Code_erreur_http_local 8
 #define Code_erreur_wifi 9
 #define Code_erreur_esp_now 10
+#define Code_erreur_uart_timeout 11
 
 
 #ifdef __cplusplus

@@ -55,7 +55,7 @@ Nota : Avantages Platformio : Ifdef, intellisense, temps compil, backtrace
 
 Messages reçus par l'esp32 :
 H:Heure/date : HLH, HLD, HLS, HEH, HED,HES
-V:Valeurs : VLxx  VExx:yyy
+V:Valeurs : VLFxx  VEFxx:yyy
 A:Actions : Axxx
 */
 
@@ -933,7 +933,7 @@ static void queueUartFrame(const uint8_t *data, uint16_t length)
     return;
   }
 
-  UartMessage_t mess = {};
+  St_Message_t mess = {};
   memcpy(mess.msg, data, length);
   mess.msg[length] = '\0';
   mess.longueur = length + 1;
@@ -957,13 +957,17 @@ static void queueUartFrame(const uint8_t *data, uint16_t length)
   }
 }
 
-static bool decodeBinaryProtocolFrame(UartMessage_t *message, const char *interfaceName);
+static bool decodeBinaryProtocolFrame(St_Message_t *message, const char *interfaceName);
+
+static constexpr uint32_t UART_RX_TIMEOUT_MS_ASC = 10000UL;
+static constexpr uint32_t UART_RX_TIMEOUT_MS_BIN = 300UL;
 
 void uartTask(void * parameter) {
   uint8_t uartInput[MSG_SIZE];
   uint16_t uartLong = 0;
   uint16_t binaryExpected = 0;
   bool binaryFrame = false;
+  uint32_t lastByteMillis = 0;
   (void)parameter;
 
   for (;;) {
@@ -973,6 +977,18 @@ void uartTask(void * parameter) {
       vTaskDelay(20 / portTICK_PERIOD_MS);
     } else {
       vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+
+    if (uartLong > 0) {
+      const uint32_t timeoutMs =
+          binaryFrame ? UART_RX_TIMEOUT_MS_BIN : UART_RX_TIMEOUT_MS_ASC;
+      if ((uint32_t)(millis() - lastByteMillis) >= timeoutMs) {
+        log_erreur(Code_erreur_uart_timeout, '1', binaryFrame ? 1 : 0);
+        uartLong = 0;
+        binaryExpected = 0;
+        binaryFrame = false;
+        lastByteMillis = 0;
+      }
     }
 
     while (Serial.available()) {
@@ -1004,6 +1020,7 @@ void uartTask(void * parameter) {
       }
 
       uartInput[uartLong++] = c;
+      lastByteMillis = millis();
 
       if (binaryFrame && (uartLong == 3)) {
         const uint8_t payloadLength = uartInput[2];
@@ -1033,6 +1050,7 @@ void uartTask(void * parameter) {
         uartLong = 0;
         binaryExpected = 0;
         binaryFrame = false;
+        lastByteMillis = 0;
       }
     }
   }
@@ -1046,7 +1064,7 @@ static void queueUart1Frame(const uint8_t *data, uint16_t length)
     return;
   }
 
-  UartMessage_t mess;
+  St_Message_t mess;
   memcpy(mess.msg, data, length);
   mess.msg[length] = '\0';
   mess.longueur = length + 1;
@@ -1118,9 +1136,22 @@ void uart1Task(void * parameter) {
   uint16_t uartLong = 0;
   uint16_t binaryExpected = 0;
   uint8_t binaryFrame = 0;
+  uint32_t lastByteMillis = 0;
   (void)parameter;
 
   for (;;) {
+    if (uartLong > 0) {
+      const uint32_t timeoutMs =
+          binaryFrame ? UART_RX_TIMEOUT_MS_BIN : UART_RX_TIMEOUT_MS_ASC;
+      if ((uint32_t)(millis() - lastByteMillis) >= timeoutMs) {
+        log_erreur(Code_erreur_uart_timeout, '2', binaryFrame ? 1 : 0);
+        uartLong = 0;
+        binaryExpected = 0;
+        binaryFrame = 0;
+        lastByteMillis = 0;
+      }
+    }
+
     while (Serial1.available()) {
       uint8_t c = (uint8_t)Serial1.read();
 
@@ -1161,6 +1192,7 @@ void uart1Task(void * parameter) {
       }
 
       uartInput[uartLong++] = c;
+      lastByteMillis = millis();
 
       if (binaryFrame && (uartLong == 3)) {
         uint8_t payloadLength = uartInput[2];
@@ -1190,6 +1222,7 @@ void uart1Task(void * parameter) {
         uartLong = 0;
         binaryExpected = 0;
         binaryFrame = 0;
+        lastByteMillis = 0;
       }
     }
 
@@ -1274,7 +1307,7 @@ void taskHandler(void *parameter) {
                         if (log_detail>=3) Serial.printf("Activite UART detectee : prolongation du delai de %is.\n\r", prolong_veille);
                     }
 
-                    UartMessage_t uartMsg;
+                    St_Message_t uartMsg;
                     while (xQueueReceive(QueueUart, &uartMsg, 0) == pdTRUE) {
                         const uint16_t messageLength =
                             uartMsg.longueur ? uartMsg.longueur - 1 : 0;
@@ -1294,9 +1327,9 @@ void taskHandler(void *parameter) {
                         }
                         if (binaryFrame) {
                           if (decodeBinaryProtocolFrame(&uartMsg, "UART"))
-                            traitement_rx(&uartMsg);
+                            traitement_rx(uartMsg);
                         } else if (isDebugProtocolLine(uartMsg.msg, messageLength))
-                          traitement_rx(&uartMsg);
+                          traitement_rx(uartMsg); //(uint8_t*)uartMsg.msg, messageLength);
                         else
                           recep_message(uartMsg.msg);
                     }
@@ -1306,7 +1339,7 @@ void taskHandler(void *parameter) {
                 case EVENT_UART1: {  // du STM32
                   //Serial.printf(">> Événement UART reçu: byte = %s\n\r", evt.msg);
                   // 1-12  1-12:48
-                  UartMessage_t uartMsg1;
+                  St_Message_t uartMsg1;
                   while (xQueueReceive(QueueUart1, &uartMsg1, 0) == pdTRUE) {
                     if (log_detail>=2)
                     {
@@ -1852,6 +1885,174 @@ uint8_t nvs_read(Param &p) {
   return 1;
 }
 
+static constexpr size_t PARAM_VALUE_MAX = 80;
+
+static Param *findParameterByOrder(uint8_t id)
+{
+  for (size_t i = 0; i < PARAMS_COUNT; ++i)
+    if (PARAMS[i].order == id)
+      return &PARAMS[i];
+  return nullptr;
+}
+
+static uint8_t parametre_lire(uint8_t id, char *value, size_t valueSize)
+{
+  Param *parameter = findParameterByOrder(id);
+  if ((parameter == nullptr) || (parameter->var == nullptr) ||
+      (value == nullptr) || (valueSize == 0))
+    return 1;
+
+  int written = -1;
+  switch (parameter->type)
+  {
+    case U8: {
+      uint8_t number = *static_cast<uint8_t *>(parameter->var);
+      if ((number < parameter->min16) || (number > parameter->max16))
+        return 1;
+      written = snprintf(value, valueSize, "%u", (unsigned)number);
+      break;
+    }
+    case U16: {
+      uint16_t number = *static_cast<uint16_t *>(parameter->var);
+      if ((number < parameter->min16) || (number > parameter->max16))
+        return 1;
+      written = snprintf(value, valueSize, "%u", (unsigned)number);
+      break;
+    }
+    case U32: {
+      uint32_t number = *static_cast<uint32_t *>(parameter->var);
+      if ((number < parameter->min16) || (number > parameter->max16))
+        return 1;
+      written = snprintf(value, valueSize, "%lu", (unsigned long)number);
+      break;
+    }
+    case STR: {
+      if (parameter->size == 0)
+        return 1;
+      const char *stored = static_cast<const char *>(parameter->var);
+      size_t length = 0;
+      while ((length < parameter->size) && (stored[length] != '\0'))
+        ++length;
+      if ((length == parameter->size) || (length >= valueSize))
+        return 1;
+      memcpy(value, stored, length + 1);
+      return 0;
+    }
+    case IP: {
+      IPAddress address = makeIPAddress(
+          static_cast<const uint8_t *>(parameter->var));
+      String text = address.toString();
+      if (text.length() >= valueSize)
+        return 1;
+      text.toCharArray(value, valueSize);
+      return 0;
+    }
+    default:
+      return 1;
+  }
+
+  return (written >= 0) && ((size_t)written < valueSize) ? 0 : 1;
+}
+
+static uint8_t parametre_ecrire(uint8_t id, const char *value)
+{
+  Param *parameter = findParameterByOrder(id);
+  if ((parameter == nullptr) || (parameter->var == nullptr) ||
+      (value == nullptr))
+    return 1;
+
+  size_t valueLength = strlen(value);
+  if (valueLength > PARAM_VALUE_MAX)
+    return 1;
+
+  const bool persist = !parameter->rtc_vali && (parameter->key != nullptr) &&
+                       (parameter->key[0] != '\0');
+  switch (parameter->type)
+  {
+    case U8:
+    case U16:
+    case U32: {
+      if (valueLength == 0)
+        return 1;
+      uint32_t number = 0;
+      for (size_t i = 0; i < valueLength; ++i)
+      {
+        if ((value[i] < '0') || (value[i] > '9'))
+          return 1;
+        uint8_t digit = (uint8_t)(value[i] - '0');
+        if (number > (UINT32_MAX - digit) / 10)
+          return 1;
+        number = number * 10 + digit;
+      }
+      if ((number < parameter->min16) || (number > parameter->max16))
+        return 1;
+
+      if (parameter->type == U8)
+      {
+        uint8_t stored = (uint8_t)number;
+        if (persist && (preferences_nvs.putUChar(parameter->key, stored) == 0))
+          return 1;
+        *static_cast<uint8_t *>(parameter->var) = stored;
+      }
+      else if (parameter->type == U16)
+      {
+        uint16_t stored = (uint16_t)number;
+        if (persist && (preferences_nvs.putUShort(parameter->key, stored) == 0))
+          return 1;
+        *static_cast<uint16_t *>(parameter->var) = stored;
+      }
+      else
+      {
+        if (persist &&
+            (preferences_nvs.putULong(parameter->key,
+                                      (unsigned long)number) == 0))
+          return 1;
+        *static_cast<uint32_t *>(parameter->var) = number;
+      }
+
+      if ((parameter->var == &periode_cycle) ||
+          (parameter->var == &mode_rapide))
+        modif_timer_cycle();
+      if (id == 22)
+        reset_node_buffer(0);
+      return 0;
+    }
+    case STR: {
+      if ((parameter->size == 0) || (valueLength == 0) ||
+          (valueLength >= parameter->size))
+        return 1;
+      if (persist && (preferences_nvs.putString(parameter->key, value) == 0))
+        return 1;
+      memcpy(parameter->var, value, valueLength + 1);
+      return 0;
+    }
+    case IP: {
+      IPAddress address;
+      if (!address.fromString(value))
+        return 1;
+      uint32_t packedAddress = (uint32_t)address;
+      if ((packedAddress < parameter->min16) ||
+          (packedAddress > parameter->max16))
+        return 1;
+      if (persist &&
+          (preferences_nvs.putULong(parameter->key,
+                                    (unsigned long)packedAddress) == 0))
+        return 1;
+      storeIPAddress(static_cast<uint8_t *>(parameter->var), address);
+      return 0;
+    }
+    default:
+      return 1;
+  }
+}
+
+static uint8_t parametre_correspond_variable(uint8_t id,
+                                             const void *variable)
+{
+  Param *parameter = findParameterByOrder(id);
+  return (parameter != nullptr) && (parameter->var == variable);
+}
+
 void apply_log_detail(int log_detail)
 {
 esp_log_level_t lvl;
@@ -2205,11 +2406,11 @@ void setup()
     }
 
     // création de la queue de reception des message uart
-    QueueUart = xQueueCreate(20, sizeof(UartMessage_t));
+    QueueUart = xQueueCreate(20, sizeof(St_Message_t));
 
 #ifdef STM32
     Serial1.begin(115200, SERIAL_8N1, PIN_RXSTM, PIN_TXSTM);
-    QueueUart1 = xQueueCreate(20, sizeof(UartMessage_t));
+    QueueUart1 = xQueueCreate(20, sizeof(St_Message_t));
     if (QueueUart1 == NULL)
       Serial.println("[INIT] erreur creation QueueUart1");
 #endif
@@ -4703,17 +4904,14 @@ static uint8_t writeRoutedProtocolFrame(uint8_t destination, const uint8_t *fram
   return 3;
 }
 
-uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
+static uint8_t envoie_mess_ASC_v(uint8_t emitter, const char *format,
+                                 va_list args)
 {
-  (void)param;
   if (format == NULL)
     return 1;
 
   char formatted[MSG_SIZE] = {};
-  va_list args;
-  va_start(args, format);
   int formattedLength = vsnprintf(formatted, sizeof(formatted), format, args);
-  va_end(args);
   if ((formattedLength < 1) || (formattedLength > (int)sizeof(formatted) - 2))
   {
     Serial.println("[UART TX] Message ASCII trop long ou format invalide");
@@ -4745,7 +4943,7 @@ uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
 
   uint8_t frame[MSG_SIZE] = {};
   frame[0] = destination;
-  frame[1] = protocolLocalAddress();
+  frame[1] = emitter;
   memcpy(&frame[2], &formatted[1], formattedLength - 1);
   const uint16_t frameLength = (uint16_t)formattedLength + 1;
 
@@ -4757,10 +4955,10 @@ uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
       return 5;
     }
 
-    UartMessage_t localMessage = {};
+    St_Message_t localMessage = {};
     memcpy(localMessage.msg, frame, frameLength);
     localMessage.longueur = frameLength + 1;
-    traitement_rx(&localMessage);
+    traitement_rx(localMessage);
     return 0;
   }
 
@@ -4768,7 +4966,34 @@ uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
                                   frameLength, !hasTrailingCr);
 }
 
-uint8_t envoie_mess_bin_source(char *mess, uint8_t emitter)
+uint8_t envoie_mess_ASC(uint8_t param, const char *format, ...)
+{
+  (void)param;
+  va_list args;
+  va_start(args, format);
+  uint8_t result = envoie_mess_ASC_v(protocolLocalAddress(), format, args);
+  va_end(args);
+  return result;
+}
+
+static uint8_t reponse_mess_ASC(const uint8_t* message_in,	const char* format, ...)
+{
+  //if ((request->longueur < 2))
+  //  return 1;
+
+  uint8_t emitter = protocolLocalAddress();
+#if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
+  emitter |= (uint8_t)message_in[1] & 0x80;
+#endif
+
+  va_list args;
+  va_start(args, format);
+  uint8_t result = envoie_mess_ASC_v(emitter, format, args);
+  va_end(args);
+  return result;
+}
+
+uint8_t envoie_mess_bin_source(uint8_t *mess, uint8_t emitter)
 {
   uint8_t mess_longueur = mess[1]+2;
 
@@ -4816,10 +5041,10 @@ uint8_t envoie_mess_bin_source(char *mess, uint8_t emitter)
     if (hasCrc)
       mess[2] &= 0x7F;
     mess_longueur = (uint16_t)payloadLength + 3;
-    UartMessage_t localMessage = {};
+    St_Message_t localMessage = {};
     memcpy(localMessage.msg, mess, mess_longueur);
-    localMessage.longueur = mess_longueur;
-    traitement_rx(&localMessage);
+    localMessage.longueur = mess_longueur + 1;
+    traitement_rx(localMessage);
     return 0;
   }
 
@@ -4827,12 +5052,25 @@ uint8_t envoie_mess_bin_source(char *mess, uint8_t emitter)
 }
 
 // longueur : total , sans l'emetteur
-uint8_t envoie_mess_bin(char *mess)
+uint8_t envoie_mess_bin(uint8_t *mess)
 {
   return envoie_mess_bin_source(mess, protocolLocalAddress());
 }
 
-static bool sendProtocolTimestamp(uint8_t destination, uint32_t timestamp)
+static uint8_t reponse_mess_bin(uint8_t *request, uint8_t *mess)
+{
+  //if ((request == NULL) || (request->longueur < 2) || (mess == NULL))
+  //  return 1;
+
+  uint8_t emitter = protocolLocalAddress();
+#if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
+  emitter |= (uint8_t)request[1] & 0x80;
+#endif
+  return envoie_mess_bin_source(mess, emitter);
+}
+
+static bool sendProtocolTimestamp(uint8_t *request,
+                                 uint8_t destination, uint32_t timestamp)
 {
   uint8_t payload[7] = {
     'H', 'E', 'S',
@@ -4841,11 +5079,11 @@ static bool sendProtocolTimestamp(uint8_t destination, uint32_t timestamp)
     (uint8_t)(timestamp >> 16),
     (uint8_t)(timestamp >> 24)
   };
-  char message[10] = {};
+  uint8_t message[10] = {};
   message[0] = (char)destination;
   message[1] = (char)sizeof(payload);
   memcpy(&message[2], payload, sizeof(payload));
-  return envoie_mess_bin(message) == 0;
+  return reponse_mess_bin(request, message) == 0;
 }
 
 static bool tryReceiveDateTimeMessage(const char *message)
@@ -4989,7 +5227,7 @@ void recep_message(char *messa) // recept_uart
   }
 }
 
-static bool decodeBinaryProtocolFrame(UartMessage_t *message, const char *interfaceName)
+static bool decodeBinaryProtocolFrame(St_Message_t *message, const char *interfaceName)
 {
   if ((message == NULL) || (message->longueur < 2) ||
       (message->longueur > MSG_SIZE))
@@ -5039,7 +5277,7 @@ static bool decodeBinaryProtocolFrame(UartMessage_t *message, const char *interf
   return true;
 }
 
-void recep_message1(UartMessage_t * messa) // recept_uart1
+void recep_message1(St_Message_t * messa) // recept_uart1
 {
   if ((messa == NULL) || (messa->longueur < 2) || (messa->longueur > MSG_SIZE))
   {
@@ -5066,16 +5304,14 @@ void recep_message1(UartMessage_t * messa) // recept_uart1
         message[0] = (message[0] & 0x80) | UART_ADDRESS_ESP;
   #endif
 
-  traitement_rx(messa);
+  traitement_rx(*messa);
 }
 
-static bool traitementHeureDate(UartMessage_t *mess) // messageLength : HHLH -> 5
+static bool traitementHeureDate(uint8_t *message_in, uint8_t messageLength) // messageLength : HHLH -> 5
 {
-  uint8_t *message_in = (uint8_t *)mess->msg;
-  uint8_t messageLength = mess->longueur;
 
-  auto sendAsciiTimeReply = [](uint8_t destination, const char *code, const char *value) {
-    if (envoie_mess_ASC(0, "%c%s:%s", destination, code, value) != 0)
+  auto sendAsciiTimeReply = [message_in](uint8_t destination, const char *code, const char *value) {
+    if (reponse_mess_ASC(message_in, "%c%s:%s", destination, code, value) != 0)
       Serial.println("[TIME] Echec envoi reponse ASCII");
   };
 
@@ -5158,7 +5394,7 @@ static bool traitementHeureDate(UartMessage_t *mess) // messageLength : HHLH -> 
     {
       time_t now = time(nullptr);
       uint32_t timestamp = (now > 0) ? (uint32_t)now : 0;
-      if (sendProtocolTimestamp(message_in[1] & 0x7F, timestamp))
+      if (sendProtocolTimestamp(message_in, message_in[1] & 0x7F, timestamp))
         if (log_detail>=3) Serial.printf(" [TIME] HLS: timestamp %lu transmis\n\r", (unsigned long)timestamp);
       else
         Serial.println(" [TIME] HLS: echec de transmission vers l'emetteur");
@@ -5171,15 +5407,15 @@ static bool traitementHeureDate(UartMessage_t *mess) // messageLength : HHLH -> 
 
 //long mess ascii :  DEHLHcr => 6
 // long mess binaire : DE3HLH => 6
-void traitement_rx(UartMessage_t * mess)
+void traitement_rx(St_Message_t& mess)
 {
-  if (log_detail>=3) Serial.printf("traitement_rx :lg=%d\n\r", mess->longueur);
-
-  if ((mess == NULL) || (mess->longueur < 2) || (mess->longueur > MSG_SIZE))
+  if ((mess.longueur < 2) || (mess.longueur > MSG_SIZE))
     return;
 
-  uint8_t longueur_m = mess->longueur;
-  uint8_t *message_in = (uint8_t *)mess->msg;
+  if (log_detail>=3) Serial.printf("traitement_rx :lg=%d\n\r", mess.longueur);
+
+  uint8_t longueur_m = mess.longueur;
+  uint8_t *message_in = (uint8_t *)mess.msg;
 
   const uint8_t destination = message_in[0] & 0x7F;
   if (isLocalProtocolDestination(destination))
@@ -5191,12 +5427,16 @@ void traitement_rx(UartMessage_t * mess)
     }
 
     localDispatchDepth++;
-    if (!traitement_fichier_lora(mess) )
+    if (!traitement_fichier_lora(&mess) )
     {
       // --------------   HHHHHHHHHHH  -------------------
 
-      if (message_in[2] == 'H')  traitementHeureDate(mess); // Date et Heure HLH, HLD, HLS, HEH, HED, HES
+      if (message_in[2] == 'H')  
+      {
+				if (log_detail>=3) Serial.printf("longueur traitee:%i\n\r", longueur_m);
 
+        traitementHeureDate(message_in, longueur_m); // Date et Heure HLH, HLD, HLS, HEH, HED, HES
+      }
       //  -------------   TTTTTTTTTTTT ---------------
 
       if ((longueur_m >= 5) && (message_in[2] == 'T'))  //  Test
@@ -5207,26 +5447,78 @@ void traitement_rx(UartMessage_t * mess)
           if ((testMessageLength < 4) ||  ((message_in[longueur_m - 1] != car_fin_trame) && (message_in[longueur_m - 1] )))
             Serial.printf("[UART RX] Trame T1 invalide lg:%d car:%d\n\r", longueur_m, message_in[longueur_m - 1]);
           else 
-            envoie_mess_ASC(0, "%.*s", (int)testMessageLength, (const char *)(message_in + 4));
+            reponse_mess_ASC(message_in, "%.*s", (int)testMessageLength, (const char *)(message_in + 4));
         }
         if ((message_in[3] == '2') )  // T2 (lg=5) -> renvoie T3 ascii
         {
-          envoie_mess_ASC(0, "%cT3", message_in[1] & 0x7F) ;
+          reponse_mess_ASC(message_in, "%cT3", message_in[1] & 0x7F) ;
         }
         if ((message_in[3] == '3') )  // T3  -> envoie T3OK
         {
-          envoie_mess_ASC(0, "2T3OK") ;
+          reponse_mess_ASC(message_in, "2T3OK") ;
         }
         if ((message_in[3] == '4') )  // T4 -> renvoie T3 binaire
         {
-              char messag[10];
+              uint8_t messag[10];
 							messag[0] = message_in[1];
 							messag[2] = 'T';
               messag[3] = '3';
               messag[1] = 2;
-							envoie_mess_bin(messag);  // binaire
+							reponse_mess_bin(message_in, messag);  // binaire
         }
       }
+
+      // ********************************   VVVVVVVVVVVVVVVVV  ********************
+
+      if ((message_in[2] == 'V') && (message_in[3] == 'L') &&
+          (message_in[4] == 'F') && (longueur_m >= 7) && (longueur_m <= 8))    // VLF
+      {
+          uint8_t id = 0;
+          uint8_t digits = longueur_m - 6;
+          uint8_t valid = 1;
+          for (uint8_t i = 0; i < digits; ++i)
+          {
+              uint8_t c = message_in[5 + i];
+              if (c < '0' || c > '9') valid = 0;
+              else id = (uint8_t)(id * 10 + c - '0');
+          }
+          char value[PARAM_VALUE_MAX + 1];
+          if (valid && parametre_lire(id, value, sizeof(value)) == 0)
+              reponse_mess_ASC(message_in, "%cVLF%u:%s", message_in[1], id, value);
+          else
+              reponse_mess_ASC(message_in, "%cVLF%u:ERR", message_in[1], id);
+      }
+      else if ((message_in[2] == 'V') && (message_in[3] == 'E') &&
+                (message_in[4] == 'F') && (longueur_m >= 9))           // VEF
+      {
+          uint8_t id = 0, digits = 0, i = 5;
+          while (i < longueur_m - 1 && digits < 2 &&
+                  message_in[i] >= '0' && message_in[i] <= '9')
+          {
+              id = (uint8_t)(id * 10 + message_in[i++] - '0');
+              ++digits;
+          }
+          uint8_t ok = 0;
+          if (digits && i < longueur_m - 1 && message_in[i++] == ':')
+          {
+              char value[PARAM_VALUE_MAX + 1];
+              size_t value_length = longueur_m - i - 1;
+              if (value_length <= PARAM_VALUE_MAX)
+              {
+                  memcpy(value, &message_in[i], value_length);
+                  value[value_length] = '\0';
+                  ok = (parametre_ecrire(id, value) == 0);
+                  // mise à jour des variables particulières
+                  //if (ok && parametre_correspond_variable(id, &log_detail))
+                  //    set_log_level(log_detail);
+              }
+          }
+          reponse_mess_ASC(message_in, "%cVEF%u:%s", message_in[1], id,
+                          ok ? "OK" : "ERR");
+      }
+
+
+
     }
 
     localDispatchDepth--;
@@ -5239,7 +5531,7 @@ void traitement_rx(UartMessage_t * mess)
   {
     const uint16_t payloadLength = longueur_m - 1;
     const bool binaryFrame = (((uint8_t)message_in[0] & 0x80) != 0);
-    if ((Serial.write((const uint8_t *)mess->msg, payloadLength) != payloadLength) ||
+    if ((Serial.write((const uint8_t *)message_in, payloadLength) != payloadLength) ||
         (!binaryFrame && (Serial.write('\r') != 1)))
       Serial.println("[UART ROUTE] Echec transfert du message vers UART_DEBUG");
     return;
@@ -5248,7 +5540,7 @@ void traitement_rx(UartMessage_t * mess)
   {
     const uint16_t payloadLength = longueur_m - 1;
     const bool binaryFrame = (((uint8_t)message_in[0] & 0x80) != 0);
-    if ((Serial1.write((const uint8_t *)mess->msg, payloadLength) != payloadLength) ||
+    if ((Serial1.write((const uint8_t *)message_in, payloadLength) != payloadLength) ||
         (!binaryFrame && (Serial1.write('\r') != 1)))
       Serial.println("[UART ROUTE] Echec transfert du message vers UART_STM32");
     return;

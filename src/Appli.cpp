@@ -50,14 +50,18 @@ const UartRouteEntry uartRouteTable[] = {
   { UART_ADDRESS_STM32, UART_ADDRESS_STM32, UART_ROUTE_STM32 },
   { UART_ADDRESS_DEBUG, UART_ADDRESS_DEBUG, UART_ROUTE_DEBUG },
   { 'A', 'Z', UART_ROUTE_STM32 },
-  { 'a', 'z', UART_ROUTE_STM32 }
+  { 'a', 'z', UART_ROUTE_STM32 },
+  { '3', '3', HTTP_ROUTE},
+  { '4', '4', ESPNOW_ROUTE}
 };
 #else
 const UartRouteEntry uartRouteTable[] = {  // Uart1-Debug : 1, Z   ESP:0,D,  Uart2-stm:A-z
   { 'A', 'Y', UART_ROUTE_STM32 },
   { '2', '2', UART_ROUTE_STM32 },
   { '1', '1', UART_ROUTE_DEBUG },
-  { 'Z', 'Z', UART_ROUTE_DEBUG }
+  { 'Z', 'Z', UART_ROUTE_DEBUG },
+  { '3', '3', HTTP_ROUTE},
+  { '4', '4', ESPNOW_ROUTE}
 };
 #endif
 

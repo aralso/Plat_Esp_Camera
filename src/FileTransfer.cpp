@@ -131,7 +131,7 @@ static uint8_t transferAckEmitter()
 static void sendTransferReply(uint8_t destination, uint8_t code,
                               uint16_t sequence)
 {
-  char message[MSG_SIZE] = {};
+  uint8_t message[MSG_SIZE] = {};
   message[0] = static_cast<char>(destination & 0x7F);
   message[1] = 4;
   message[2] = 'Y';
@@ -153,7 +153,7 @@ static uint8_t sendTransferPacket(uint8_t destination, uint8_t code,
       (payloadLength + 2 > MSG_SIZE))
     return 1;
 
-  char message[MSG_SIZE];
+  uint8_t message[MSG_SIZE];
   message[0] = static_cast<char>(destination & 0x7F);
   message[1] = static_cast<char>(payloadLength);
   message[2] = 'Y';
@@ -787,7 +787,7 @@ void demarrer_envoi_fichier_lora()
   }
 }
 
-bool traitement_fichier_lora(UartMessage_t *message)
+bool traitement_fichier_lora(St_Message_t *message)
 {
   if (message == NULL || message->longueur < 4)
     return false;
