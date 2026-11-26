@@ -5294,7 +5294,7 @@ void recep_message1(St_Message_t * messa) // recept_uart1
   }
   else if ((messa->longueur - 1) < 4)
   {
-    Serial.println("[UART1] Trame ASCII invalide");
+    if (log_detail>=3) Serial.println("[UART1] Trame ASCII invalide");
     return;
   }
 
@@ -5546,7 +5546,7 @@ void traitement_rx(St_Message_t& mess)
     return;
   }
 
-  Serial.printf("[UART ROUTE] Destination '%c' absente de la table, message abandonne\n\r",
+  Serial.printf("[UART ROUTE] R-Destination '%c' absente de la table, message abandonne\n\r",
                 destination);
 }
 
