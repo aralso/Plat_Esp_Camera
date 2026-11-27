@@ -79,6 +79,7 @@ static bool eth_connected = false;
 #include <Arduino.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <new>
 #include <time.h>
 #include <ctype.h>
 #include <stdbool.h>
@@ -527,6 +528,19 @@ uint32_t time_reset1;  // temps lors reset actuel
 uint8_t etat_connect_ethernet = 0;
 
 AsyncWebServer server(80);
+
+struct HttpProtocolRequest {
+  AsyncWebServerRequestPtr request;
+  St_Message_t message;
+};
+
+struct HttpProtocolReply {
+  uint16_t length;
+  char data[MSG_SIZE + 1];
+};
+
+static SemaphoreHandle_t httpProtocolSemaphore = nullptr;
+static QueueHandle_t httpProtocolReplyQueue = nullptr;
 
 static portMUX_TYPE httpRequestLogMux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t httpRequestLogSequence = 0;
@@ -1376,15 +1390,15 @@ void taskHandler(void *parameter) {
                 case EVENT_GATEWAY_QUEUE:
                   traitement_queue_data_gateway(1, static_cast<uint8_t>(evt.data));
                   break;
+                #ifdef ENVOI_LORA
+                  case EVENT_ENVOI_FICHIER_LORA:
+                    demarrer_envoi_fichier_lora();
+                    break;
 
-                case EVENT_ENVOI_FICHIER_LORA:
-                  demarrer_envoi_fichier_lora();
-                  break;
-
-                case EVENT_RECEPTION_FICHIER:
-                  traiter_reception_fichier_lora_event(evt.path);
-                  break;
-
+                  case EVENT_RECEPTION_FICHIER:
+                    traiter_reception_fichier_lora_event(evt.path);
+                    break;
+                #endif
                  case EVENT_HTTP_ROOT_CHECK:
                  if (log_detail>=3) {
                     checkRootAvailability();
@@ -4872,11 +4886,73 @@ static uint8_t findUartRoute(uint8_t destination)
   return 0xFF;
 }
 
+static bool publishHttpProtocolReply(const uint8_t *frame, uint16_t frameLength)
+{
+  if ((frame == nullptr) || (frameLength < 2) ||
+      (httpProtocolReplyQueue == nullptr))
+    return false;
+
+  HttpProtocolReply reply = {};
+  const uint16_t payloadLength = frameLength - 2;
+  const uint16_t copyLength =
+      (payloadLength >= sizeof(reply.data))
+          ? sizeof(reply.data) - 1
+          : payloadLength;
+  memcpy(reply.data, frame + 2, copyLength);
+  reply.length = copyLength;
+  if ((reply.length > 0) && (reply.data[reply.length - 1] == '\r'))
+    --reply.length;
+  reply.data[reply.length] = '\0';
+
+  if (xQueueSend(httpProtocolReplyQueue, &reply, 0) != pdTRUE)
+  {
+    Serial.println("[HTTP ROUTE] Reponse perdue: file pleine");
+    return false;
+  }
+  return true;
+}
+
+static void httpProtocolRequestTask(void *parameter)
+{
+  HttpProtocolRequest *context =
+      static_cast<HttpProtocolRequest *>(parameter);
+
+  traitement_rx(context->message);
+
+  HttpProtocolReply reply = {};
+  const bool replyReceived =
+      (httpProtocolReplyQueue != nullptr) &&
+      (xQueueReceive(httpProtocolReplyQueue, &reply,
+                     pdMS_TO_TICKS(30000)) == pdTRUE);
+  if (!replyReceived)
+    Serial.println("[HTTP ROUTE] Aucune reponse protocolaire recue avant expiration");
+
+  std::shared_ptr<AsyncWebServerRequest> request = context->request.lock();
+  if (request != nullptr)
+  {
+    if (replyReceived)
+      request->send(200, "text/plain", String(reply.data));
+    else
+      request->send(504, "text/plain", "Protocol response timeout");
+  }
+  else
+  {
+    Serial.println("[HTTP ROUTE] Client deconnecte avant l'envoi de la reponse");
+  }
+
+  delete context;
+  xSemaphoreGive(httpProtocolSemaphore);
+  vTaskDelete(nullptr);
+}
+
 static uint8_t writeRoutedProtocolFrame(uint8_t destination, const uint8_t *frame,
                                         uint16_t frameLength, bool appendAsciiTerminator)
 {
   const uint8_t route = findUartRoute(destination);
   size_t written = 0;
+  if (route == HTTP_ROUTE)
+    return publishHttpProtocolReply(frame, frameLength) ? 0 : 4;
+
   if (route == UART_ROUTE_DEBUG)
   {
     written = Serial.write(frame, frameLength);
@@ -4910,6 +4986,7 @@ static uint8_t envoie_mess_ASC_v(uint8_t emitter, const char *format,
   if (format == NULL)
     return 1;
 
+
   char formatted[MSG_SIZE] = {};
   int formattedLength = vsnprintf(formatted, sizeof(formatted), format, args);
   if ((formattedLength < 1) || (formattedLength > (int)sizeof(formatted) - 2))
@@ -4917,6 +4994,8 @@ static uint8_t envoie_mess_ASC_v(uint8_t emitter, const char *format,
     Serial.println("[UART TX] Message ASCII trop long ou format invalide");
     return 2;
   }
+
+  if (log_detail>=3) Serial.printf("Envoi: lg=%d  %s\n\r", formattedLength, formatted);
 
   const bool hasTrailingCr = formatted[formattedLength - 1] == '\r';
   const uint8_t rawDestination = (uint8_t)formatted[0];
@@ -5427,7 +5506,12 @@ void traitement_rx(St_Message_t& mess)
     }
 
     localDispatchDepth++;
-    if (!traitement_fichier_lora(&mess) )
+    uint8_t res=0;
+    #ifdef ENVOI_LORA
+       res = traitement_fichier_lora(&mess) ;
+    #endif
+    //if (!traitement_fichier_lora(&mess) )
+    if (!res)
     {
       // --------------   HHHHHHHHHHH  -------------------
 
@@ -5532,6 +5616,12 @@ void traitement_rx(St_Message_t& mess)
   }
 
   const uint8_t route = findUartRoute(destination);
+
+  if (route == HTTP_ROUTE)
+  {
+    publishHttpProtocolReply(message_in, longueur_m - 1);
+    return;
+  }
 
   if (route == UART_ROUTE_DEBUG)
   {
@@ -6344,6 +6434,14 @@ void setupRoutes()
     /Set : Ecriture de la valeur d'un registre
     /status : requet Get-status pour récuperer toutes les valeurs
   */
+  if (httpProtocolSemaphore == nullptr)
+  {
+    httpProtocolSemaphore = xSemaphoreCreateBinary();
+    if (httpProtocolSemaphore != nullptr)
+      xSemaphoreGive(httpProtocolSemaphore);
+  }
+  if (httpProtocolReplyQueue == nullptr)
+    httpProtocolReplyQueue = xQueueCreate(1, sizeof(HttpProtocolReply));
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (log_detail>=3) logRootHttpRequest(request);
@@ -6400,6 +6498,69 @@ server.on("/verif", HTTP_GET, [](AsyncWebServerRequest *request){
       type = request->getParam("type")->value().toInt();
       reg = request->getParam("reg")->value();
       const char* reg_cstr = reg.c_str();
+      if (type == 6)
+      {
+        if ((httpProtocolSemaphore == nullptr) ||
+            (httpProtocolReplyQueue == nullptr))
+        {
+          request->send(503, "text/plain", "HTTP protocol route unavailable");
+          return;
+        }
+
+        if (reg.length() < 2 || reg.length() > MSG_SIZE - 2 ||
+            static_cast<uint8_t>(reg[0]) < 32 ||
+            static_cast<uint8_t>(reg[0]) > 126)
+        {
+          request->send(400, "text/plain", "Invalid protocol message");
+          return;
+        }
+
+        for (size_t i = 1; i < reg.length(); ++i)
+        {
+          const uint8_t c = static_cast<uint8_t>(reg[i]);
+          if (c < 32 || c > 126)
+          {
+            request->send(400, "text/plain", "Protocol message must be ASCII");
+            return;
+          }
+        }
+
+        if (xSemaphoreTake(httpProtocolSemaphore, 0) != pdTRUE)
+        {
+          request->send(503, "text/plain", "Another protocol request is pending");
+          return;
+        }
+
+        xQueueReset(httpProtocolReplyQueue);
+        HttpProtocolRequest *context =
+            new (std::nothrow) HttpProtocolRequest{};
+        if (context == nullptr)
+        {
+          xSemaphoreGive(httpProtocolSemaphore);
+          request->send(503, "text/plain", "Not enough memory");
+          return;
+        }
+
+        context->request = request->pause();
+        context->message = {};
+        const uint16_t bodyLength = reg.length() - 1;
+        const uint16_t wireLength = bodyLength + 3;
+        context->message.msg[0] = reg[0];
+        context->message.msg[1] = '3';
+        memcpy(&context->message.msg[2], reg_cstr + 1, bodyLength);
+        context->message.msg[wireLength - 1] = '\r';
+        context->message.longueur = wireLength;
+
+        if (xTaskCreate(httpProtocolRequestTask, "HttpProtocol", 4096,
+                        context, 1, nullptr) != pdPASS)
+        {
+          delete context;
+          xSemaphoreGive(httpProtocolSemaphore);
+          request->send(503, "text/plain", "Could not start protocol request");
+        }
+        return;
+      }
+
       if (type<4) {
         res=requete_Get(type, reg_cstr, &valeur);
         Serial.printf("res:%i type:%i reg=%s val=%f\n\r", res, type, reg.c_str(), valeur);

@@ -517,6 +517,15 @@ const char index_html[] PROGMEM = R"rawliteral(
               <button id="ActionBtn">Lancer Action</button>
             </div>
             <pre id="actionResult"></pre>
+            <div class="input-group">
+              <label for="ProtocolMessage">Message :</label>
+              <input id="ProtocolMessage" type="text" maxlength="100" size="20" placeholder="0VLF1">
+              <button id="ProtocolMessageBtn">Envoyer</button>
+            </div>
+            <div class="input-group">
+              <label for="ProtocolResponse">Réponse :</label>
+              <pre id="ProtocolResponse"></pre>
+            </div>
 
           </section>          
         </div>
@@ -1111,6 +1120,27 @@ const char index_html[] PROGMEM = R"rawliteral(
           resultA.textContent = 'Erreur lors de l’envoi';
           console.error('Erreur fetch :', err);
          });
+    });
+
+    document.getElementById('ProtocolMessageBtn').addEventListener('click', () => {
+      const reg = document.getElementById('ProtocolMessage').value.trim();
+      const responseField = document.getElementById('ProtocolResponse');
+      if (!reg) {
+        responseField.textContent = 'Saisissez un message';
+        return;
+      }
+
+      responseField.textContent = 'Envoi en cours…';
+      const query = `${document.location.origin}/Get?type=6&reg=${encodeURIComponent(reg)}`;
+      fetch(query)
+        .then(response => response.text().then(text => {
+          if (!response.ok) throw new Error(text || `Erreur HTTP ${response.status}`);
+          responseField.textContent = text;
+        }))
+        .catch(error => {
+          responseField.textContent = `Erreur : ${error.message}`;
+          console.error('Erreur lors de l’envoi du message :', error);
+        });
     });
 
     document.getElementById('loadLogsBtn').addEventListener('click', () => {
