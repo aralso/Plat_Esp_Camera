@@ -84,7 +84,7 @@
 #define SDCARD
 //#define Temp_int_DHT22
 
-#define END_NODE // Si non defini : il s'agit de la gateway
+//#define END_NODE // Si non defini : il s'agit de la gateway
 
 #ifdef END_NODE
   // Device address identifier used in filenames (single letter or short string)
@@ -94,6 +94,7 @@
      #define ENVOI_LORA
 #else
    #define ADDRESS 'B'  // Gateway ESP32   // mettre a jour aussi l'eeprom : 01VEF22:Adresse
+   #define ENVOI_LORA
 #endif
 
 #define LATITUDE "48.8461"  // Garches => pour récupération Temp Ext

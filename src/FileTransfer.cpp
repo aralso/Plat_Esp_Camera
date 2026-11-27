@@ -120,7 +120,7 @@ static uint32_t transferSegmentCount(uint32_t size)
 static uint8_t transferAckEmitter()
 {
 #ifndef END_NODE
-  return static_cast<uint8_t>('I' | 0x80);
+  return static_cast<uint8_t>(My_Address | 0x80);
 #elif defined(ESP32_ATTACHED_TO_STM32)
   return UART_ADDRESS_ESP;
 #else
@@ -139,9 +139,13 @@ static void sendTransferReply(uint8_t destination, uint8_t code,
   message[4] = static_cast<char>(sequence >> 8);
   message[5] = static_cast<char>(sequence & 0xFF);
 
-  if (envoie_mess_bin_source(message, transferAckEmitter()) != 0)
+  const uint8_t emitter = transferAckEmitter();
+  if (envoie_mess_bin_source(message, emitter) != 0)
     Serial.printf("[LORA FILE] Echec envoi %c seq=%u vers %c\n\r",
                   code, sequence, destination);
+  else if (log_detail >= 4)
+    Serial.printf("[LORA FILE] Reponse %c seq=%u envoyee vers %c (emetteur 0x%02X)\n\r",
+                  code, sequence, destination, emitter);
 }
 
 static uint8_t sendTransferPacket(uint8_t destination, uint8_t code,
@@ -866,6 +870,9 @@ bool traitement_fichier_lora(St_Message_t *message)
 
     char basename[kMaxBasename + 1] = {};
     memcpy(basename, &bytes[11], nameLength);
+    if (log_detail >= 4)
+      Serial.printf("[LORA FILE] Entete recue: fichier=%s taille=%lu\n\r",
+                    basename, static_cast<unsigned long>(fileSize));
     char yearPath[8] = {};
     char monthPath[16] = {};
     if (!captureDateDirectories(basename, yearPath, sizeof(yearPath),

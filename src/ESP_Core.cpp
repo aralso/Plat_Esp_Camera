@@ -1183,18 +1183,14 @@ void uart1Task(void * parameter) {
         continue;
       }
 
-#if defined(END_NODE) && defined(ESP32_ATTACHED_TO_STM32)
-      const bool flaggedAsciiEmitter =
-          (uartLong == 1) && ((c & 0x80) != 0) &&
-          ((c & 0x7F) >= 32) && ((c & 0x7F) <= 126);
-#else
-      const bool flaggedAsciiEmitter = false;
-#endif
-      if (!binaryFrame && !flaggedAsciiEmitter && ((c < 32) || (c > 126))) {
-        Serial.println("[UART1] Caractere non ASCII, trame abandonnee");
-        uartLong = 0;
-        binaryExpected = 0;
-        continue;
+      if (!binaryFrame) {
+        const uint8_t asciiValue = (uartLong == 1) ? (c & 0x7F) : c;
+        if ((asciiValue < 32) || (asciiValue > 126)) {
+          Serial.println("[UART1] Caractere non ASCII, trame abandonnee");
+          uartLong = 0;
+          binaryExpected = 0;
+          continue;
+        }
       }
 
       if (uartLong >= MSG_SIZE - 1) {
